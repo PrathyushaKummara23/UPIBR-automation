@@ -1,0 +1,62 @@
+name: Test Runner Connection
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_message:
+        description: 'Test message to display'
+        required: false
+        type: string
+        default: 'Hello from automation!'
+
+jobs:
+  test-basic-functionality:
+    runs-on: self-hosted
+    steps:
+      - name: Test Runner Connection
+        run: |
+          echo "Testing GitHub Actions Runner"
+          echo "Current time: $(date)"
+          echo "Current user: $(whoami)"
+          echo "Current directory: $(pwd)"
+          echo "Test message: ${{ github.event.inputs.test_message }}"
+          
+      - name: Test Environment Access
+        run: |
+          echo "Testing Environment Access"
+          echo "Home directory: $HOME"
+          echo "Available space:"
+          df -h . | head -2
+          
+      - name: Test NFS Access
+        run: |
+          echo "Testing NFS Mount Access"
+          if [ -d "/nfs/site/disks/dcsg_0729" ]; then
+            echo "NFS mount accessible"
+            echo "User directory exists: $([ -d '/nfs/site/disks/dcsg_0729/users/pkummara' ] && echo 'Yes' || echo 'No')"
+          else
+            echo "NFS mount not accessible"
+          fi
+          
+      - name: Test Python
+        run: |
+          echo "Testing Python Environment"
+          python3 --version
+          echo "Python path: $(which python3)"
+          
+      - name: Test Secret Access
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Testing Secret Access"
+          if [ -n "$BUILD_PASSWORD" ]; then
+            echo "BUILD_PASSWORD secret is available"
+            echo "Password length: ${#BUILD_PASSWORD} characters"
+          else
+            echo "BUILD_PASSWORD secret not found"
+          fi
+          
+      - name: Test Summary
+        run: |
+          echo "Test Summary"
+          echo "All basic tests completed!"
