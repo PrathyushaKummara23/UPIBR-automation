@@ -37,7 +37,7 @@ env:
   
 jobs:
   validate-inputs:
-    runs-on: self-hosted
+    runs-on: [self-hosted, node16]
     outputs:
       exp_version: ${{ steps.generate-version.outputs.exp_version }}
       config_file: ${{ steps.generate-version.outputs.config_file }}
@@ -87,7 +87,7 @@ jobs:
 
   prepare-config:
     needs: validate-inputs
-    runs-on: self-hosted
+    runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -122,7 +122,7 @@ jobs:
 
   build-patch:
     needs: [validate-inputs, prepare-config]
-    runs-on: self-hosted
+    runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -220,7 +220,7 @@ jobs:
 
   validate-output:
     needs: [validate-inputs, build-patch]
-    runs-on: self-hosted
+    runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -286,7 +286,7 @@ jobs:
 
   notify-completion:
     needs: [validate-inputs, validate-output]
-    runs-on: self-hosted
+    runs-on: [self-hosted, node16]
     if: always()
     steps:
       - name: Checkout repository
