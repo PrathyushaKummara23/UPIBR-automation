@@ -37,16 +37,13 @@ env:
   
 jobs:
   validate-inputs:
-    runs-on: self-hosted
-    container: 
-      image: ubuntu:20.04
-      options: --network host
+    runs-on: [self-hosted, node16]
     outputs:
       exp_version: ${{ steps.generate-version.outputs.exp_version }}
       config_file: ${{ steps.generate-version.outputs.config_file }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Validate baseline version
         run: |
@@ -90,13 +87,10 @@ jobs:
 
   prepare-config:
     needs: validate-inputs
-    runs-on: self-hosted
-    container: 
-      image: ubuntu:20.04
-      options: --network host
+    runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Create build directory
         run: |
@@ -128,13 +122,10 @@ jobs:
 
   build-patch:
     needs: [validate-inputs, prepare-config]
-    runs-on: self-hosted
-    container: 
-      image: ubuntu:20.04
-      options: --network host
+    runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Start patch build
         id: build
@@ -229,13 +220,10 @@ jobs:
 
   validate-output:
     needs: [validate-inputs, build-patch]
-    runs-on: self-hosted
-    container: 
-      image: ubuntu:20.04
-      options: --network host
+    runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Validate build output
         run: |
@@ -275,7 +263,7 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: experimental-patch-${{ needs.validate-inputs.outputs.exp_version }}
           path: |
@@ -283,7 +271,6 @@ jobs:
             ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}/
             ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/fit1_${{ needs.validate-inputs.outputs.exp_version }}/
           retention-days: 30
-          compression-level: 6
 
       - name: Create build archive
         run: |
@@ -298,14 +285,11 @@ jobs:
 
   notify-completion:
     needs: [validate-inputs, validate-output]
-    runs-on: self-hosted
-    container: 
-      image: ubuntu:20.04
-      options: --network host
+    runs-on: [self-hosted, node16]
     if: always()
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Notify build completion - Success
         if: ${{ needs.validate-output.result == 'success' && github.event.inputs.enable_notifications == 'true' }}
