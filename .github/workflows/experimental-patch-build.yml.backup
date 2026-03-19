@@ -1,0 +1,204 @@
+name: Experimental Debug Patch Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_version:
+        description: 'Baseline version (e.g., 830003A3)'
+        required: true
+        type: string
+      ocode_path:
+        description: 'OCODE path (e.g., /nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin)'
+        required: true
+        type: string
+      requester:
+        description: 'Requester name'
+        required: true
+        type: string
+      description:
+        description: 'Patch description'
+        required: false
+        default: 'SRF Experiment Debug Unified Patch'
+        type: string
+      additional_changes:
+        description: 'Additional code changes (JSON format: {"icode": "path", "pcode-io": "path"})'
+        required: false
+        type: string
+
+env:
+  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
+  TOOLS_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM
+  PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+  
+jobs:
+  validate-inputs:
+    runs-on: self-hosted
+    outputs:
+      exp_version: ${{ steps.generate-version.outputs.exp_version }}
+      config_file: ${{ steps.generate-version.outputs.config_file }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate baseline version
+        run: |
+          if [[ ! "${{ github.event.inputs.baseline_version }}" =~ ^[0-9A-F]{8}$ ]]; then
+            echo "Error: Invalid baseline version format. Expected 8 hex characters."
+            exit 1
+          fi
+
+      - name: Validate OCODE path exists
+        run: |
+          if [[ ! -f "${{ github.event.inputs.ocode_path }}" ]]; then
+            echo "Error: OCODE file does not exist: ${{ github.event.inputs.ocode_path }}"
+            exit 1
+          fi
+
+      - name: Generate experimental version
+        id: generate-version
+        run: |
+          python3 scripts/version_manager.py \
+            --baseline "${{ github.event.inputs.baseline_version }}" \
+            --output-version-var exp_version \
+            --output-config-var config_file
+
+  prepare-config:
+    needs: validate-inputs
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create build directory
+        run: |
+          mkdir -p ${{ env.BUILD_BASE_PATH }}
+          cd ${{ env.BUILD_BASE_PATH }}
+
+      - name: Copy baseline config
+        run: |
+          cp ${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini \
+             ${{ env.BUILD_BASE_PATH }}/
+
+      - name: Generate experimental config
+        run: |
+          python3 scripts/config_generator.py \
+            --baseline-config "${{ env.BUILD_BASE_PATH }}/config_${{ github.event.inputs.baseline_version }}.ini" \
+            --exp-version "${{ needs.validate-inputs.outputs.exp_version }}" \
+            --baseline-version "${{ github.event.inputs.baseline_version }}" \
+            --ocode-path "${{ github.event.inputs.ocode_path }}" \
+            --build-path "${{ env.BUILD_BASE_PATH }}" \
+            --description "${{ github.event.inputs.description }}" \
+            --additional-changes '${{ github.event.inputs.additional_changes }}' \
+            --output "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+
+      - name: Validate all code paths exist
+        run: |
+          python3 scripts/patch_builder.py \
+            --validate-only \
+            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+
+  build-patch:
+    needs: [validate-inputs, prepare-config]
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start patch build
+        id: build
+        run: |
+          cd ${{ env.BUILD_BASE_PATH }}
+          
+          # Start the build process
+          python3 scripts/patch_builder.py \
+            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}" \
+            --tools-path "${{ env.TOOLS_PATH }}" \
+            --exp-version "${{ needs.validate-inputs.outputs.exp_version }}"
+
+      - name: Wait for manual SOC signing
+        uses: ./.github/actions/wait-for-manual-signing
+        with:
+          signing_type: "SOC"
+          build_path: "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+          timeout_minutes: 30
+
+      - name: Continue build after SOC signing
+        run: |
+          cd ${{ env.BUILD_BASE_PATH }}
+          echo "y" | python3 scripts/patch_builder.py \
+            --resume-soc \
+            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}" \
+            --tools-path "${{ env.TOOLS_PATH }}"
+
+      - name: Wait for manual FIT1 signing
+        uses: ./.github/actions/wait-for-manual-signing
+        with:
+          signing_type: "FIT1"
+          build_path: "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+          timeout_minutes: 30
+
+      - name: Complete build after FIT1 signing
+        run: |
+          cd ${{ env.BUILD_BASE_PATH }}
+          echo "y" | python3 scripts/patch_builder.py \
+            --resume-fit1 \
+            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}" \
+            --tools-path "${{ env.TOOLS_PATH }}"
+
+  validate-output:
+    needs: [validate-inputs, build-patch]
+    runs-on: self-hosted
+    steps:
+      - name: Validate build output
+        run: |
+          BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+          
+          # Check if all required directories exist
+          if [[ ! -d "$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}" ]]; then
+            echo "Error: SOC directory not found"
+            exit 1
+          fi
+          
+          if [[ ! -d "$BUILD_DIR/fit1_${{ needs.validate-inputs.outputs.exp_version }}" ]]; then
+            echo "Error: FIT1 directory not found"
+            exit 1
+          fi
+          
+          if [[ ! -d "$BUILD_DIR/release" ]]; then
+            echo "Error: Release directory not found"
+            exit 1
+          fi
+          
+          echo "Build validation successful!"
+
+      - name: Generate build summary
+        run: |
+          BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+          
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Experimental Version**: ${{ needs.validate-inputs.outputs.exp_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Requester**: ${{ github.event.inputs.requester }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Path**: $BUILD_DIR" >> $GITHUB_STEP_SUMMARY
+          echo "- **OCODE Used**: ${{ github.event.inputs.ocode_path }}" >> $GITHUB_STEP_SUMMARY
+          
+          # List output files
+          echo "## Output Files" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -la "$BUILD_DIR/release/" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  notify-completion:
+    needs: [validate-inputs, validate-output]
+    runs-on: self-hosted
+    if: always()
+    steps:
+      - name: Notify build completion
+        run: |
+          if [[ "${{ needs.validate-output.result }}" == "success" ]]; then
+            echo "✅ Experimental patch build completed successfully!"
+            echo "Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+          else
+            echo "❌ Experimental patch build failed!"
+            exit 1
+          fi

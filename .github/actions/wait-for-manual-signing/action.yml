@@ -1,0 +1,63 @@
+name: 'Wait for Manual Signing'
+description: 'Wait for manual CSS signing to complete'
+inputs:
+  signing_type:
+    description: 'Type of signing (SOC or FIT1)'
+    required: true
+  build_path:
+    description: 'Build path to monitor'
+    required: true
+  timeout_minutes:
+    description: 'Timeout in minutes'
+    required: false
+    default: '30'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Wait for manual signing
+      shell: bash
+      run: |
+        SIGNING_TYPE="${{ inputs.signing_type }}"
+        BUILD_PATH="${{ inputs.build_path }}"
+        TIMEOUT_MINUTES="${{ inputs.timeout_minutes }}"
+        
+        echo "🔄 Waiting for manual $SIGNING_TYPE signing..."
+        echo "Please complete the CSS signing process in the CSS workflow tool"
+        
+        if [[ "$SIGNING_TYPE" == "SOC" ]]; then
+          echo "📋 SOC Signing Instructions:"
+          echo "1. Open CSS workflow tool in Windows"
+          echo "2. Select 'Debug Sign a module' option"
+          echo "3. Select CSS project: SOCMANIFESTGNR1"
+          echo "4. Browse to: $BUILD_PATH/soc_*/soc_patch.bin"
+          echo "5. Complete the signing process"
+        elif [[ "$SIGNING_TYPE" == "FIT1" ]]; then
+          echo "📋 FIT1 Signing Instructions:"
+          echo "1. Encrypt emmodule with project 'SRFMCUPQCRSA'"
+          echo "2. Debug/Release dual sign with:"
+          echo "   - RSA Project: SRFMCUPQCRSA"
+          echo "   - XMSS Project: SRFMCUPQCXMSS"
+          echo "3. Complete the signing process"
+        fi
+        
+        # Wait for signing completion (you might want to implement a more sophisticated check)
+        COUNTER=0
+        MAX_ITERATIONS=$((TIMEOUT_MINUTES * 6))  # Check every 10 seconds
+        
+        while [[ $COUNTER -lt $MAX_ITERATIONS ]]; do
+          if [[ -f "/tmp/${SIGNING_TYPE,,}_signing_completed" ]]; then
+            echo "✅ $SIGNING_TYPE signing completed!"
+            rm -f "/tmp/${SIGNING_TYPE,,}_signing_completed"
+            break
+          fi
+          
+          echo "⏳ Still waiting for $SIGNING_TYPE signing... ($((COUNTER * 10))s elapsed)"
+          sleep 10
+          ((COUNTER++))
+        done
+        
+        if [[ $COUNTER -eq $MAX_ITERATIONS ]]; then
+          echo "❌ Timeout waiting for $SIGNING_TYPE signing"
+          exit 1
+        fi

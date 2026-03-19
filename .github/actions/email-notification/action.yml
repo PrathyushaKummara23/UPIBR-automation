@@ -1,0 +1,140 @@
+name: 'Email Notification'
+description: 'Send email notification for build status'
+inputs:
+  smtp_server:
+    description: 'SMTP server address'
+    required: true
+    default: 'smtp.intel.com'
+  smtp_port:
+    description: 'SMTP server port'
+    required: false
+    default: '587'
+  from_email:
+    description: 'From email address'
+    required: true
+  to_email:
+    description: 'To email address'
+    required: true
+  subject:
+    description: 'Email subject'
+    required: true
+  message:
+    description: 'Email message body'
+    required: true
+  smtp_username:
+    description: 'SMTP username (optional)'
+    required: false
+  smtp_password:
+    description: 'SMTP password (optional)'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Send email notification
+      shell: bash
+      run: |
+        SMTP_SERVER="${{ inputs.smtp_server }}"
+        SMTP_PORT="${{ inputs.smtp_port }}"
+        FROM_EMAIL="${{ inputs.from_email }}"
+        TO_EMAIL="${{ inputs.to_email }}"
+        SUBJECT="${{ inputs.subject }}"
+        MESSAGE="${{ inputs.message }}"
+        SMTP_USERNAME="${{ inputs.smtp_username }}"
+        SMTP_PASSWORD="${{ inputs.smtp_password }}"
+        
+        # Create email content
+        EMAIL_CONTENT=$(cat <<EOF
+        From: $FROM_EMAIL
+        To: $TO_EMAIL
+        Subject: $SUBJECT
+        Content-Type: text/html; charset=UTF-8
+        
+        <html>
+        <body>
+        <h2>Experimental Patch Build Notification</h2>
+        <div style="font-family: Arial, sans-serif;">
+        $MESSAGE
+        </div>
+        <hr>
+        <p><small>
+        Build Details: <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View in GitHub Actions</a><br>
+        Repository: ${{ github.repository }}<br>
+        Workflow: ${{ github.workflow }}<br>
+        Run ID: ${{ github.run_id }}
+        </small></p>
+        </body>
+        </html>
+        EOF
+        )
+        
+        # Send email using sendmail or mail command
+        if command -v sendmail >/dev/null 2>&1; then
+          echo "$EMAIL_CONTENT" | sendmail "$TO_EMAIL"
+          echo "✅ Email sent successfully using sendmail"
+        elif command -v mail >/dev/null 2>&1; then
+          echo "$MESSAGE" | mail -s "$SUBJECT" "$TO_EMAIL"
+          echo "✅ Email sent successfully using mail command"
+        elif command -v python3 >/dev/null 2>&1; then
+          # Use Python to send email
+          python3 << PYTHON_EOF
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        import sys
+        
+        try:
+            # Create message
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = "$SUBJECT"
+            msg['From'] = "$FROM_EMAIL"
+            msg['To'] = "$TO_EMAIL"
+            
+            # Create HTML content
+            html_content = """
+            <html>
+            <body>
+            <h2>Experimental Patch Build Notification</h2>
+            <div style="font-family: Arial, sans-serif;">
+            $MESSAGE
+            </div>
+            <hr>
+            <p><small>
+            Build Details: <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View in GitHub Actions</a><br>
+            Repository: ${{ github.repository }}<br>
+            Workflow: ${{ github.workflow }}<br>
+            Run ID: ${{ github.run_id }}
+            </small></p>
+            </body>
+            </html>
+            """
+            
+            # Attach HTML content
+            html_part = MIMEText(html_content, 'html')
+            msg.attach(html_part)
+            
+            # Send email
+            if "$SMTP_USERNAME" and "$SMTP_PASSWORD":
+                # Use authentication
+                server = smtplib.SMTP("$SMTP_SERVER", $SMTP_PORT)
+                server.starttls()
+                server.login("$SMTP_USERNAME", "$SMTP_PASSWORD")
+                server.send_message(msg)
+                server.quit()
+            else:
+                # No authentication (internal SMTP)
+                server = smtplib.SMTP("$SMTP_SERVER", $SMTP_PORT)
+                server.send_message(msg)
+                server.quit()
+            
+            print("✅ Email sent successfully using Python")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to send email: {e}")
+            sys.exit(1)
+        PYTHON_EOF
+        else
+          echo "⚠️ No email sending method available (sendmail, mail, or python3)"
+          echo "Email content would have been:"
+          echo "$EMAIL_CONTENT"
+        fi
