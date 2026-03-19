@@ -37,7 +37,10 @@ env:
   
 jobs:
   validate-inputs:
-    runs-on: [self-hosted, node16]
+    runs-on: self-hosted
+    container: 
+      image: ubuntu:20.04
+      options: --network host
     outputs:
       exp_version: ${{ steps.generate-version.outputs.exp_version }}
       config_file: ${{ steps.generate-version.outputs.config_file }}
@@ -87,7 +90,10 @@ jobs:
 
   prepare-config:
     needs: validate-inputs
-    runs-on: [self-hosted, node16]
+    runs-on: self-hosted
+    container: 
+      image: ubuntu:20.04
+      options: --network host
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -122,7 +128,10 @@ jobs:
 
   build-patch:
     needs: [validate-inputs, prepare-config]
-    runs-on: [self-hosted, node16]
+    runs-on: self-hosted
+    container: 
+      image: ubuntu:20.04
+      options: --network host
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -220,7 +229,10 @@ jobs:
 
   validate-output:
     needs: [validate-inputs, build-patch]
-    runs-on: [self-hosted, node16]
+    runs-on: self-hosted
+    container: 
+      image: ubuntu:20.04
+      options: --network host
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -286,7 +298,10 @@ jobs:
 
   notify-completion:
     needs: [validate-inputs, validate-output]
-    runs-on: [self-hosted, node16]
+    runs-on: self-hosted
+    container: 
+      image: ubuntu:20.04
+      options: --network host
     if: always()
     steps:
       - name: Checkout repository
