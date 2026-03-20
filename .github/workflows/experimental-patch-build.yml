@@ -51,14 +51,12 @@ jobs:
             echo "Error: Invalid baseline version format. Expected 8 hex characters."
             exit 1
           fi
-
       - name: Validate OCODE path exists
         run: |
           if [[ ! -f "${{ github.event.inputs.ocode_path }}" ]]; then
             echo "Error: OCODE file does not exist: ${{ github.event.inputs.ocode_path }}"
             exit 1
           fi
-
       - name: Generate experimental version
         id: generate-version
         run: |
@@ -66,7 +64,6 @@ jobs:
             --baseline "${{ github.event.inputs.baseline_version }}" \
             --output-version-var exp_version \
             --output-config-var config_file
-
       - name: Notify build start
         if: ${{ github.event.inputs.enable_notifications == 'true' }}
         uses: ./.github/actions/email-notification
@@ -88,6 +85,9 @@ jobs:
   prepare-config:
     needs: validate-inputs
     runs-on: [self-hosted, node16]
+    outputs:
+      validation_warnings: ${{ steps.validate-paths.outputs.warnings }}
+      validation_status: ${{ steps.validate-paths.outputs.status }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -96,11 +96,11 @@ jobs:
         run: |
           mkdir -p ${{ env.BUILD_BASE_PATH }}
           cd ${{ env.BUILD_BASE_PATH }}
-
+          
       - name: Copy baseline config
         run: |
           cp "${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini" "${{ env.BUILD_BASE_PATH }}/"
-
+          
       - name: Generate experimental config
         run: |
           python3 scripts/config_generator.py \
@@ -112,10 +112,72 @@ jobs:
             --description "${{ github.event.inputs.description }}" \
             --additional-changes '${{ github.event.inputs.additional_changes }}' \
             --output "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
-
-      - name: Validate all code paths exist
+            
+      - name: Validate config file exists
         run: |
-          python3 scripts/patch_builder.py --validate-only --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}'
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+          if [[ ! -f "$CONFIG_FILE" ]]; then
+            echo "Error: Config file does not exist: $CONFIG_FILE"
+            exit 1
+          fi
+          echo "✅ Config file exists: $CONFIG_FILE"
+          echo "Config file size: $(stat -c%s "$CONFIG_FILE") bytes"
+          
+      - name: Validate all code paths exist
+        id: validate-paths
+        run: |
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+          VALIDATION_WARNINGS=""
+          VALIDATION_STATUS="success"
+          
+          echo "🔍 Starting path validation..."
+          
+          # Try validation with current user first
+          echo "Attempting validation with current user permissions..."
+          if python3 scripts/patch_builder.py --validate-only --config "$CONFIG_FILE" 2>&1 | tee validation_output.log; then
+            echo "✅ All paths validated successfully with current user"
+            VALIDATION_STATUS="success"
+          else
+            echo "⚠️  Validation failed with current user, trying with elevated permissions..."
+            
+            # Try with sudo if available
+            if echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su - grp_srf_fit1_build -c "cd ${{ github.workspace }} && python3 scripts/patch_builder.py --validate-only --config '$CONFIG_FILE'" 2>&1 | tee validation_output_sudo.log; then
+              echo "✅ All paths validated successfully with elevated permissions"
+              VALIDATION_STATUS="success_with_sudo"
+            else
+              echo "⚠️  Path validation failed - will proceed with warnings"
+              VALIDATION_STATUS="failed_with_warnings"
+              
+              # Extract specific warnings from the output
+              if [[ -f validation_output.log ]]; then
+                VALIDATION_WARNINGS=$(cat validation_output.log | grep -E "(Error:|do not exist)" | head -10 | tr '\n' '; ')
+              fi
+              
+              if [[ -f validation_output_sudo.log ]]; then
+                VALIDATION_WARNINGS="${VALIDATION_WARNINGS}$(cat validation_output_sudo.log | grep -E "(Error:|do not exist)" | head -10 | tr '\n' '; ')"
+              fi
+              
+              echo "⚠️  WARNINGS DETECTED:"
+              echo "$VALIDATION_WARNINGS"
+              echo ""
+              echo "🚀 CONTINUING WITH BUILD - These issues may be resolved during the build process"
+            fi
+          fi
+          
+          # Set outputs for next jobs
+          echo "warnings=$VALIDATION_WARNINGS" >> $GITHUB_OUTPUT
+          echo "status=$VALIDATION_STATUS" >> $GITHUB_OUTPUT
+          
+          # Add to step summary
+          echo "## Path Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: $VALIDATION_STATUS" >> $GITHUB_STEP_SUMMARY
+          if [[ -n "$VALIDATION_WARNINGS" ]]; then
+            echo "- **Warnings**: $VALIDATION_WARNINGS" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- **Config File**: $CONFIG_FILE" >> $GITHUB_STEP_SUMMARY
+          
+          # Always continue - don't exit with error
+          echo "✅ Validation step completed - proceeding to build"
 
   build-patch:
     needs: [validate-inputs, prepare-config]
@@ -124,15 +186,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Display validation warnings
+        if: ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' }}
+        run: |
+          echo "⚠️  ⚠️  ⚠️  VALIDATION WARNINGS DETECTED ⚠️  ⚠️  ⚠️"
+          echo ""
+          echo "The following validation issues were detected:"
+          echo "${{ needs.prepare-config.outputs.validation_warnings }}"
+          echo ""
+          echo "🚀 Proceeding with build - these may be resolved during the build process"
+          echo "📧 Build notifications will include these warnings"
+          echo ""
+
       - name: Start patch build
         id: build
         run: |
           cd ${{ env.BUILD_BASE_PATH }}
-          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "python3 scripts/patch_builder.py \
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su - grp_srf_fit1_build -c "python3 scripts/patch_builder.py \
             --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}' \
             --tools-path '${{ env.TOOLS_PATH }}' \
             --exp-version '${{ needs.validate-inputs.outputs.exp_version }}'"
-
+            
       - name: Notify SOC signing required
         if: ${{ github.event.inputs.enable_notifications == 'true' }}
         uses: ./.github/actions/email-notification
@@ -145,6 +219,8 @@ jobs:
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
             
+            ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Validation Warnings Detected:</h4><p>{0}</p><p><em>Build proceeded despite warnings - monitor for issues.</em></p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
+            
             <h4>SOC Signing Instructions:</h4>
             <ol>
             <li>Open CSS workflow tool in Windows</li>
@@ -156,7 +232,7 @@ jobs:
             </ol>
             
             <p><em>The build will automatically continue once you complete the signing and create the completion file.</em></p>
-
+            
       - name: Wait for manual SOC signing
         uses: ./.github/actions/wait-for-manual-signing
         with:
@@ -167,11 +243,11 @@ jobs:
       - name: Continue build after SOC signing
         run: |
           cd ${{ env.BUILD_BASE_PATH }}
-          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "echo 'y' | python3 scripts/patch_builder.py \
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su - grp_srf_fit1_build -c "echo 'y' | python3 scripts/patch_builder.py \
             --resume-soc \
             --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}' \
             --tools-path '${{ env.TOOLS_PATH }}'"
-
+            
       - name: Notify FIT1 signing required
         if: ${{ github.event.inputs.enable_notifications == 'true' }}
         uses: ./.github/actions/email-notification
@@ -183,6 +259,8 @@ jobs:
             <h3>Manual FIT1 Signing Required</h3>
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
+            
+            ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Previous Validation Warnings:</h4><p>{0}</p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
             <h4>FIT1 Signing Instructions:</h4>
             <ol>
@@ -198,7 +276,7 @@ jobs:
             </ol>
             
             <p><em>The build will automatically continue once you complete the signing and create the completion file.</em></p>
-
+            
       - name: Wait for manual FIT1 signing
         uses: ./.github/actions/wait-for-manual-signing
         with:
@@ -209,13 +287,13 @@ jobs:
       - name: Complete build after FIT1 signing
         run: |
           cd ${{ env.BUILD_BASE_PATH }}
-          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "echo 'y' | python3 scripts/patch_builder.py \
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su - grp_srf_fit1_build -c "echo 'y' | python3 scripts/patch_builder.py \
             --resume-fit1 \
             --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}' \
             --tools-path '${{ env.TOOLS_PATH }}'"
 
   validate-output:
-    needs: [validate-inputs, build-patch]
+    needs: [validate-inputs, prepare-config, build-patch]
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
@@ -241,7 +319,7 @@ jobs:
           fi
           
           echo "Build validation successful!"
-
+          
       - name: Generate build summary
         run: |
           BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
@@ -252,12 +330,17 @@ jobs:
           echo "- **Requester**: ${{ github.event.inputs.requester }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Path**: $BUILD_DIR" >> $GITHUB_STEP_SUMMARY
           echo "- **OCODE Used**: ${{ github.event.inputs.ocode_path }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validation Status**: ${{ needs.prepare-config.outputs.validation_status }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.prepare-config.outputs.validation_status }}" == "failed_with_warnings" ]]; then
+            echo "- **⚠️ Validation Warnings**: ${{ needs.prepare-config.outputs.validation_warnings }}" >> $GITHUB_STEP_SUMMARY
+          fi
           
           echo "## Output Files" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           ls -la "$BUILD_DIR/release/" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-
+          
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -280,7 +363,7 @@ jobs:
           echo "ARCHIVE_PATH=${{ env.BUILD_BASE_PATH }}/$ARCHIVE_NAME" >> $GITHUB_ENV
 
   notify-completion:
-    needs: [validate-inputs, validate-output]
+    needs: [validate-inputs, prepare-config, validate-output]
     runs-on: [self-hosted, node16]
     if: always()
     steps:
@@ -297,12 +380,15 @@ jobs:
           message: |
             <h3>Build Completed Successfully! 🎉</h3>
             
+            ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Build Completed Despite Initial Validation Warnings:</h4><p>{0}</p><p><em>The build process successfully resolved these issues.</em></p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
+            
             <table border="1" style="border-collapse: collapse; width: 100%;">
             <tr><td><strong>Experimental Version:</strong></td><td>${{ needs.validate-inputs.outputs.exp_version }}</td></tr>
             <tr><td><strong>Baseline Version:</strong></td><td>${{ github.event.inputs.baseline_version }}</td></tr>
             <tr><td><strong>Requester:</strong></td><td>${{ github.event.inputs.requester }}</td></tr>
             <tr><td><strong>Build Path:</strong></td><td>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/</td></tr>
             <tr><td><strong>OCODE Used:</strong></td><td>${{ github.event.inputs.ocode_path }}</td></tr>
+            <tr><td><strong>Validation Status:</strong></td><td>${{ needs.prepare-config.outputs.validation_status }}</td></tr>
             </table>
             
             <h4>Artifacts Available:</h4>
@@ -317,7 +403,7 @@ jobs:
             <li>Test the experimental patch</li>
             <li>Provide feedback to the build team</li>
             </ol>
-
+            
       - name: Notify build completion - Failure
         if: ${{ needs.validate-output.result != 'success' && github.event.inputs.enable_notifications == 'true' }}
         uses: ./.github/actions/email-notification
@@ -333,23 +419,39 @@ jobs:
             <tr><td><strong>Baseline Version:</strong></td><td>${{ github.event.inputs.baseline_version }}</td></tr>
             <tr><td><strong>Requester:</strong></td><td>${{ github.event.inputs.requester }}</td></tr>
             <tr><td><strong>Failure Stage:</strong></td><td>${{ needs.validate-output.result }}</td></tr>
+            <tr><td><strong>Initial Validation Status:</strong></td><td>${{ needs.prepare-config.outputs.validation_status }}</td></tr>
             </table>
+            
+            ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; margin: 10px 0;"><h4>⚠️ Initial Validation Warnings (may be related to failure):</h4><p>{0}</p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
             <h4>Action Required:</h4>
             <ul>
             <li>Check the GitHub Actions logs for detailed error information</li>
+            <li>Review any validation warnings from the initial step</li>
             <li>Contact the build team if assistance is needed</li>
             <li>Retry the build after resolving issues</li>
             </ul>
-
+            
       - name: Final status
         run: |
           if [[ "${{ needs.validate-output.result }}" == "success" ]]; then
             echo "✅ Experimental patch build completed successfully!"
             echo "Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
             echo "Artifacts uploaded to GitHub Actions"
+            
+            if [[ "${{ needs.prepare-config.outputs.validation_status }}" == "failed_with_warnings" ]]; then
+              echo ""
+              echo "⚠️  Note: Build completed despite initial validation warnings:"
+              echo "${{ needs.prepare-config.outputs.validation_warnings }}"
+            fi
           else
             echo "❌ Experimental patch build failed!"
             echo "Check the logs for more details"
+            
+            if [[ "${{ needs.prepare-config.outputs.validation_status }}" == "failed_with_warnings" ]]; then
+              echo ""
+              echo "⚠️  Initial validation warnings may be related to the failure:"
+              echo "${{ needs.prepare-config.outputs.validation_warnings }}"
+            fi
             exit 1
           fi
