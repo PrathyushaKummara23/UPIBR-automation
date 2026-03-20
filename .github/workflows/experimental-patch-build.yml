@@ -115,7 +115,7 @@ jobs:
 
       - name: Validate all code paths exist
         run: |
-          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "python3 scripts/patch_builder.py --validate-only --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}'"
+          python3 scripts/patch_builder.py --validate-only --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}'
 
   build-patch:
     needs: [validate-inputs, prepare-config]
