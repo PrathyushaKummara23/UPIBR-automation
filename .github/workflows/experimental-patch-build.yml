@@ -99,7 +99,7 @@ jobs:
 
       - name: Copy baseline config
         run: |
-          sudo cp "${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini" "${{ env.BUILD_BASE_PATH }}/"
+          cp "${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini" "${{ env.BUILD_BASE_PATH }}/"
 
       - name: Generate experimental config
         run: |
