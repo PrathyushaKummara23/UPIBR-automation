@@ -43,7 +43,7 @@ jobs:
       config_file: ${{ steps.generate-version.outputs.config_file }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Validate baseline version
         run: |
@@ -90,7 +90,7 @@ jobs:
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Create build directory
         run: |
@@ -99,8 +99,7 @@ jobs:
 
       - name: Copy baseline config
         run: |
-          cp ${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini \
-             ${{ env.BUILD_BASE_PATH }}/
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "cp ${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini ${{ env.BUILD_BASE_PATH }}/"
 
       - name: Generate experimental config
         run: |
@@ -116,26 +115,23 @@ jobs:
 
       - name: Validate all code paths exist
         run: |
-          python3 scripts/patch_builder.py \
-            --validate-only \
-            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "python3 scripts/patch_builder.py --validate-only --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}'"
 
   build-patch:
     needs: [validate-inputs, prepare-config]
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Start patch build
         id: build
         run: |
           cd ${{ env.BUILD_BASE_PATH }}
-          
-          python3 scripts/patch_builder.py \
-            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}" \
-            --tools-path "${{ env.TOOLS_PATH }}" \
-            --exp-version "${{ needs.validate-inputs.outputs.exp_version }}"
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "python3 scripts/patch_builder.py \
+            --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}' \
+            --tools-path '${{ env.TOOLS_PATH }}' \
+            --exp-version '${{ needs.validate-inputs.outputs.exp_version }}'"
 
       - name: Notify SOC signing required
         if: ${{ github.event.inputs.enable_notifications == 'true' }}
@@ -171,10 +167,10 @@ jobs:
       - name: Continue build after SOC signing
         run: |
           cd ${{ env.BUILD_BASE_PATH }}
-          echo "y" | python3 scripts/patch_builder.py \
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "echo 'y' | python3 scripts/patch_builder.py \
             --resume-soc \
-            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}" \
-            --tools-path "${{ env.TOOLS_PATH }}"
+            --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}' \
+            --tools-path '${{ env.TOOLS_PATH }}'"
 
       - name: Notify FIT1 signing required
         if: ${{ github.event.inputs.enable_notifications == 'true' }}
@@ -213,17 +209,17 @@ jobs:
       - name: Complete build after FIT1 signing
         run: |
           cd ${{ env.BUILD_BASE_PATH }}
-          echo "y" | python3 scripts/patch_builder.py \
+          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "echo 'y' | python3 scripts/patch_builder.py \
             --resume-fit1 \
-            --config "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}" \
-            --tools-path "${{ env.TOOLS_PATH }}"
+            --config '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}' \
+            --tools-path '${{ env.TOOLS_PATH }}'"
 
   validate-output:
     needs: [validate-inputs, build-patch]
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Validate build output
         run: |
@@ -263,7 +259,7 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: experimental-patch-${{ needs.validate-inputs.outputs.exp_version }}
           path: |
@@ -271,7 +267,6 @@ jobs:
             ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}/
             ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/fit1_${{ needs.validate-inputs.outputs.exp_version }}/
           retention-days: 30
-          compression-level: 6
 
       - name: Create build archive
         run: |
@@ -290,7 +285,7 @@ jobs:
     if: always()
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Notify build completion - Success
         if: ${{ needs.validate-output.result == 'success' && github.event.inputs.enable_notifications == 'true' }}
