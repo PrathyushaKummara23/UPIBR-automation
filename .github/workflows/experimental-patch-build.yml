@@ -99,7 +99,7 @@ jobs:
 
       - name: Copy baseline config
         run: |
-          echo "${{ secrets.BUILD_PASSWORD }}" | sudo -S su grp_srf_fit1_build -c "cp ${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini ${{ env.BUILD_BASE_PATH }}/"
+          sudo cp "${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini" "${{ env.BUILD_BASE_PATH }}/"
 
       - name: Generate experimental config
         run: |
