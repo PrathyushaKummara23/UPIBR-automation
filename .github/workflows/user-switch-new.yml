@@ -16,15 +16,66 @@ jobs:
           echo "Testing basic user switch..."
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami
 
+      - name: Verify user switch success
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying user switch..."
+          CURRENT_USER=$(echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            echo "Still running as personal account!"
+            exit 1
+          fi
+
       - name: Execute SRF operations
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Executing SRF operations..."
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo 'User: $(whoami)'
-            echo 'Directory: $(pwd)'
-            cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/
-            echo 'SRF Directory: $(pwd)'
-            ls -la | head -5
+            SWITCHED_USER=\$(whoami)
+            echo 'User verification: \$SWITCHED_USER'
+            
+            if [ \"\$SWITCHED_USER\" != \"grp_srf_fit1_build\" ]; then
+              echo 'ERROR: Not running as faceless account!'
+              echo 'Current user: \$SWITCHED_USER'
+              echo 'Expected: grp_srf_fit1_build'
+              exit 1
+            fi
+            
+            echo 'Confirmed: Running as faceless account: \$SWITCHED_USER'
+            echo 'Directory: \$(pwd)'
+            cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging
+            echo 'SRF Directory: \$(pwd)'
+            ls 
           "
+
+      - name: Final verification
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Final verification of user switch..."
+          FINAL_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "=== FINAL VERIFICATION RESULTS ==="
+          echo "Target faceless account: grp_srf_fit1_build"
+          echo "Actual running user: $FINAL_USER"
+          
+          if [ "$FINAL_USER" = "grp_srf_fit1_build" ]; then
+            echo "🎉 SUCCESS: Workflow successfully running as faceless account"
+            echo "🎉 User switch from pkummara → grp_srf_fit1_build COMPLETED"
+          else
+            echo "💥 CRITICAL FAILURE: Still running as personal account"
+            echo "💥 This is a security/compliance issue!"
+            exit 1
+          fi
