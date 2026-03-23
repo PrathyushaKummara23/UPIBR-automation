@@ -21,7 +21,7 @@ jobs:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Verifying user switch..."
-          CURRENT_USER=$(echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
           
           echo "Expected user: grp_srf_fit1_build"
           echo "Actual user: $CURRENT_USER"
@@ -72,10 +72,10 @@ jobs:
           echo "Actual running user: $FINAL_USER"
           
           if [ "$FINAL_USER" = "grp_srf_fit1_build" ]; then
-            echo "🎉 SUCCESS: Workflow successfully running as faceless account"
-            echo "🎉 User switch from pkummara → grp_srf_fit1_build COMPLETED"
+            echo "SUCCESS: Workflow successfully running as faceless account"
+            echo "User switch from pkummara → grp_srf_fit1_build COMPLETED"
           else
-            echo "💥 CRITICAL FAILURE: Still running as personal account"
-            echo "💥 This is a security/compliance issue!"
+            echo "CRITICAL FAILURE: Still running as personal account"
+            echo "This is a issue with faceless account switching!"
             exit 1
           fi
