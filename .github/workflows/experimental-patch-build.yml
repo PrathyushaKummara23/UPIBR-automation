@@ -34,6 +34,7 @@ env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   TOOLS_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
   
 jobs:
   validate-inputs:
@@ -62,7 +63,7 @@ jobs:
       - name: Generate experimental version
         id: generate-version
         run: |
-          python3 scripts/version_manager.py \
+          ${{ env.PYTHON_PATH }} scripts/version_manager.py \
             --baseline "${{ github.event.inputs.baseline_version }}" \
             --output-version-var exp_version \
             --output-config-var config_file
@@ -82,6 +83,7 @@ jobs:
             <tr><td><strong>Experimental Version:</strong></td><td>${{ steps.generate-version.outputs.exp_version }}</td></tr>
             <tr><td><strong>OCODE Path:</strong></td><td>${{ github.event.inputs.ocode_path }}</td></tr>
             <tr><td><strong>Description:</strong></td><td>${{ github.event.inputs.description }}</td></tr>
+            <tr><td><strong>Python Version:</strong></td><td>Python 3.7.4</td></tr>
             </table>
             <p>The build process has started using faceless account. You will receive notifications when manual intervention is required.</p>
 
@@ -105,13 +107,13 @@ jobs:
           if [[ -f "${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini" ]]; then
             cp "${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini" "${{ env.BUILD_BASE_PATH }}/"
           else
-            echo "⚠️  Warning: Baseline config not found, will create from template"
+            echo "⚠️ Warning: Baseline config not found, will create from template"
             echo "Expected: ${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini"
           fi
           
       - name: Generate experimental config
         run: |
-          python3 scripts/config_generator.py \
+          ${{ env.PYTHON_PATH }} scripts/config_generator.py \
             --baseline-config "${{ env.BUILD_BASE_PATH }}/config_${{ github.event.inputs.baseline_version }}.ini" \
             --exp-version "${{ needs.validate-inputs.outputs.exp_version }}" \
             --baseline-version "${{ github.event.inputs.baseline_version }}" \
@@ -141,6 +143,7 @@ jobs:
           VALIDATION_STATUS="success"
           
           echo "🔍 Starting path validation using faceless account..."
+          echo "🐍 Using Python: ${{ env.PYTHON_PATH }}"
           echo "🛠️ Using validation script: scripts/patch_builder.py"
           
           # Run validation using faceless account
@@ -148,7 +151,7 @@ jobs:
             echo 'Running validation as: \$(whoami)'
             cd ${{ env.BUILD_BASE_PATH }}
             
-            if python3 scripts/patch_builder.py --validate-only --config \"$CONFIG_FILE\" 2>&1 | tee validation_output.log; then
+            if ${{ env.PYTHON_PATH }} scripts/patch_builder.py --validate-only --config \"$CONFIG_FILE\" 2>&1 | tee validation_output.log; then
               echo '✅ All paths validated successfully'
               echo 'success' > validation_status.tmp
             else
@@ -177,6 +180,7 @@ jobs:
           # Add to step summary
           echo "## Path Validation Results" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: $VALIDATION_STATUS" >> $GITHUB_STEP_SUMMARY
+          echo "- **Python Version**: Python 3.7.4" >> $GITHUB_STEP_SUMMARY
           echo "- **Tool**: Intel FXT (via validation script)" >> $GITHUB_STEP_SUMMARY
           echo "- **Running as**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
           if [[ -n "$VALIDATION_WARNINGS" ]]; then
@@ -212,6 +216,7 @@ jobs:
         run: |
           echo "🔨 Starting patch build using faceless account..."
           echo "📁 Working directory: ${{ env.BUILD_BASE_PATH }}"
+          echo "🐍 Using Python: ${{ env.PYTHON_PATH }}"
           echo "🛠️ Using Intel FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
           echo "📋 Config file: ${{ needs.validate-inputs.outputs.config_file }}"
           echo ""
@@ -219,8 +224,9 @@ jobs:
           # Run the Intel FXT build tool using faceless account
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'Build running as: \$(whoami)'
+            echo 'Python version: \$(${{ env.PYTHON_PATH }} --version)'
             cd ${{ env.BUILD_BASE_PATH }}
-            python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+            ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
           "
             
       - name: Notify SOC signing required
@@ -235,6 +241,7 @@ jobs:
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
             <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py) - Running as faceless account</p>
+            <p><strong>Python Version:</strong> Python 3.7.4</p>
             
             ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Validation Warnings Detected:</h4><p>{0}</p><p><em>Build proceeded despite warnings - monitor for issues.</em></p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
@@ -262,13 +269,14 @@ jobs:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "🔨 Continuing build after SOC signing using faceless account..."
+          echo "🐍 Using Python: ${{ env.PYTHON_PATH }}"
           echo "🛠️ Using Intel FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
           
           # Continue with FXT tool using faceless account
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'Continue build running as: \$(whoami)'
             cd ${{ env.BUILD_BASE_PATH }}
-            echo 'y' | python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+            echo 'y' | ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
           "
             
       - name: Notify FIT1 signing required
@@ -283,6 +291,7 @@ jobs:
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
             <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py) - Running as faceless account</p>
+            <p><strong>Python Version:</strong> Python 3.7.4</p>
             
             ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Previous Validation Warnings:</h4><p>{0}</p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
@@ -313,13 +322,14 @@ jobs:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "🔨 Completing build after FIT1 signing using faceless account..."
+          echo "🐍 Using Python: ${{ env.PYTHON_PATH }}"
           echo "🛠️ Using Intel FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
           
           # Complete build with FXT tool using faceless account
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'Complete build running as: \$(whoami)'
             cd ${{ env.BUILD_BASE_PATH }}
-            echo 'y' | python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+            echo 'y' | ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
           "
 
   validate-output:
@@ -368,6 +378,7 @@ jobs:
           echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Requester**: ${{ github.event.inputs.requester }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Tool**: Intel FXT (fxtMuppt.py)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Python Version**: Python 3.7.4" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Account**: grp_srf_fit1_build (faceless)" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Path**: $BUILD_DIR" >> $GITHUB_STEP_SUMMARY
           echo "- **OCODE Used**: ${{ github.event.inputs.ocode_path }}" >> $GITHUB_STEP_SUMMARY
@@ -428,6 +439,7 @@ jobs:
             <tr><td><strong>Baseline Version:</strong></td><td>${{ github.event.inputs.baseline_version }}</td></tr>
             <tr><td><strong>Requester:</strong></td><td>${{ github.event.inputs.requester }}</td></tr>
             <tr><td><strong>Build Tool:</strong></td><td>Intel FXT (fxtMuppt.py)</td></tr>
+            <tr><td><strong>Python Version:</strong></td><td>Python 3.7.4</td></tr>
             <tr><td><strong>Build Account:</strong></td><td>grp_srf_fit1_build (faceless)</td></tr>
             <tr><td><strong>Build Path:</strong></td><td>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/</td></tr>
             <tr><td><strong>OCODE Used:</strong></td><td>${{ github.event.inputs.ocode_path }}</td></tr>
@@ -462,6 +474,7 @@ jobs:
             <tr><td><strong>Baseline Version:</strong></td><td>${{ github.event.inputs.baseline_version }}</td></tr>
             <tr><td><strong>Requester:</strong></td><td>${{ github.event.inputs.requester }}</td></tr>
             <tr><td><strong>Build Tool:</strong></td><td>Intel FXT (fxtMuppt.py)</td></tr>
+            <tr><td><strong>Python Version:</strong></td><td>Python 3.7.4</td></tr>
             <tr><td><strong>Build Account:</strong></td><td>grp_srf_fit1_build (faceless)</td></tr>
             <tr><td><strong>Failure Stage:</strong></td><td>${{ needs.validate-output.result }}</td></tr>
             <tr><td><strong>Initial Validation Status:</strong></td><td>${{ needs.prepare-config.outputs.validation_status }}</td></tr>
@@ -486,10 +499,12 @@ jobs:
           
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'Final check running as: \$(whoami)'
+            echo 'Python version: \$(${{ env.PYTHON_PATH }} --version)'
             
             if [[ \"${{ needs.validate-output.result }}\" == \"success\" ]]; then
               echo '✅ Experimental patch build completed successfully!'
               echo '🛠️ Build executed using Intel FXT tool (fxtMuppt.py) with faceless account'
+              echo '🐍 Using Python 3.7.4 for compatibility'
               echo '📁 Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}'
               echo '📦 Artifacts uploaded to GitHub Actions'
               
@@ -501,6 +516,7 @@ jobs:
             else
               echo '❌ Experimental patch build failed!'
               echo '🛠️ Build was attempted using Intel FXT tool (fxtMuppt.py) with faceless account'
+              echo '🐍 Used Python 3.7.4 for compatibility'
               echo '📋 Check the logs for more details'
               
               if [[ \"${{ needs.prepare-config.outputs.validation_status }}\" == \"failed_with_warnings\" ]]; then
