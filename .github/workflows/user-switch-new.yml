@@ -10,14 +10,18 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Test user switch
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Testing basic user switch..."
-          (echo "Putti1!2@"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami
 
       - name: Execute SRF operations
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Executing SRF operations..."
-          (echo "Putti1!2@"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'User: $(whoami)'
             echo 'Directory: $(pwd)'
             cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/
