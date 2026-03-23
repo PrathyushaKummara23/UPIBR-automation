@@ -12,40 +12,62 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Switch to SRF build user (with password)
+      - name: Authenticate sudo session once
+        run: |
+          echo "Authenticating sudo session..."
+          expect << 'EOF'
+          set timeout 30
+          spawn sudo -v
+          expect "Authenticate with pkummara's password:"
+          send "Putti1!2@\r"
+          expect eof
+          EOF
+
+      - name: Switch to SRF build user (using cached session)
         id: user-switch
         run: |
           TARGET_USER="grp_srf_fit1_build"
           
-          echo "Switching to user: $TARGET_USER using sudo -u"
+          echo "Switching to user: $TARGET_USER using cached sudo session"
           
-          # Use expect to handle password prompt
-          expect << 'EOF'
-          set timeout 30
-          spawn sudo -u grp_srf_fit1_build whoami
-          expect "Authenticate with pkummara's password:"
-          send "Putti1!2@\r"
-          expect eof
-          EOF
+          # Now sudo commands should work without password prompts
+          CURRENT_USER=$(sudo -u "$TARGET_USER" whoami)
+          echo "Current user: $CURRENT_USER"
           
-          # Set outputs after successful authentication
-          CURRENT_USER=$(echo "Putti1!2@" | sudo -S -u "$TARGET_USER" whoami 2>/dev/null || echo "grp_srf_fit1_build")
-          WORKING_DIR=$(echo "Putti1!2@" | sudo -S -u "$TARGET_USER" pwd 2>/dev/null || echo "/nfs/site/home/grp_srf_fit1_build")
+          WORKING_DIR=$(sudo -u "$TARGET_USER" pwd)
+          echo "Working directory: $WORKING_DIR"
           
+          # Test groups and home
+          sudo -u "$TARGET_USER" groups
+          sudo -u "$TARGET_USER" bash -c 'echo "Home: $HOME"'
+          
+          # Set outputs
           echo "current_user=$CURRENT_USER" >> $GITHUB_OUTPUT
           echo "working_dir=$WORKING_DIR" >> $GITHUB_OUTPUT
 
-      - name: Execute SRF operations (with password)
+      - name: Execute SRF operations (using cached session)
         run: |
-          echo "Executing SRF build operations with authentication..."
+          echo "Executing SRF build operations..."
           
-          expect << 'EOF'
-          set timeout 30
-          spawn sudo -u grp_srf_fit1_build bash -c "cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/ && pwd && ls -la"
-          expect "Authenticate with pkummara's password:"
-          send "Putti1!2@\r"
-          expect eof
-          EOF
+          # These should work without password prompts now
+          sudo -u grp_srf_fit1_build bash -c "
+            cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/ && 
+            echo 'Current location:' && 
+            pwd && 
+            echo 'Directory contents:' && 
+            ls -la | head -10
+          "
+          
+          echo "SRF operations completed successfully"
+
+      - name: Additional SRF commands
+        run: |
+          echo "Running additional SRF commands..."
+          
+          # Multiple commands in sequence
+          sudo -u grp_srf_fit1_build whoami
+          sudo -u grp_srf_fit1_build pwd
+          sudo -u grp_srf_fit1_build bash -c "echo 'Available patches:' && ls /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/ | grep 25ww"
 
   post-switch-operations:
     needs: switch-user
@@ -53,5 +75,6 @@ jobs:
     steps:
       - name: Verify switch results
         run: |
-          echo "User switch completed"
+          echo "User switch completed successfully!"
           echo "Switched to user: ${{ needs.switch-user.outputs.switched_user }}"
+          echo "Working directory: ${{ needs.switch-user.outputs.working_directory }}"
