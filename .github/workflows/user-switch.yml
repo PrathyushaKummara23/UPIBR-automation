@@ -95,12 +95,4 @@ jobs:
           expect eof
           EXPECT_EOF
 
-  post-switch-operations:
-    needs: switch-user
-    runs-on: [self-hosted, node16]
-    steps:
-      - name: Verify switch results
-        run: |
-          echo "User switch completed successfully"
-          echo "Switched to user: ${{ needs.switch-user.outputs.switched_user }}"
-          echo "Working directory: ${{ needs.switch-user.outputs.working_directory }}"
+  
