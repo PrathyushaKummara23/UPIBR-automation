@@ -1,4 +1,4 @@
-name: Experimental Debug Patch Build
+name: Experiment Debug Patch Build
 
 on:
   workflow_dispatch:
@@ -83,7 +83,7 @@ jobs:
             <tr><td><strong>OCODE Path:</strong></td><td>${{ github.event.inputs.ocode_path }}</td></tr>
             <tr><td><strong>Description:</strong></td><td>${{ github.event.inputs.description }}</td></tr>
             </table>
-            <p>The build process has started. You will receive notifications when manual intervention is required.</p>
+            <p>The build process has started using faceless account. You will receive notifications when manual intervention is required.</p>
 
   prepare-config:
     needs: validate-inputs
@@ -131,33 +131,43 @@ jobs:
           echo "✅ Config file exists: $CONFIG_FILE"
           echo "Config file size: $(stat -c%s "$CONFIG_FILE") bytes"
           
-      - name: Validate all code paths exist
+      - name: Validate all code paths exist (using faceless account)
         id: validate-paths
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
           VALIDATION_WARNINGS=""
           VALIDATION_STATUS="success"
           
-          echo "🔍 Starting path validation (running as pkummara)..."
+          echo "🔍 Starting path validation using faceless account..."
           echo "🛠️ Using validation script: scripts/patch_builder.py"
           
-          # Run validation using our custom script (which calls FXT tool internally)
-          if python3 scripts/patch_builder.py --validate-only --config "$CONFIG_FILE" 2>&1 | tee validation_output.log; then
-            echo "✅ All paths validated successfully"
-            VALIDATION_STATUS="success"
-          else
-            echo "⚠️  Path validation failed - will proceed with warnings"
-            VALIDATION_STATUS="failed_with_warnings"
+          # Run validation using faceless account
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Running validation as: \$(whoami)'
+            cd ${{ env.BUILD_BASE_PATH }}
             
-            # Extract specific warnings from the output
-            if [[ -f validation_output.log ]]; then
-              VALIDATION_WARNINGS=$(cat validation_output.log | grep -E "(Error:|do not exist)" | head -10 | tr '\n' '; ')
+            if python3 scripts/patch_builder.py --validate-only --config \"$CONFIG_FILE\" 2>&1 | tee validation_output.log; then
+              echo '✅ All paths validated successfully'
+              echo 'success' > validation_status.tmp
+            else
+              echo '⚠️  Path validation failed - will proceed with warnings'
+              echo 'failed_with_warnings' > validation_status.tmp
+              
+              if [[ -f validation_output.log ]]; then
+                cat validation_output.log | grep -E '(Error:|do not exist)' | head -10 | tr '\n' '; ' > validation_warnings.tmp
+              fi
             fi
-            
-            echo "⚠️  WARNINGS DETECTED:"
-            echo "$VALIDATION_WARNINGS"
-            echo ""
-            echo "🚀 CONTINUING WITH BUILD - These issues may be resolved during the build process"
+          "
+          
+          # Read results
+          if [[ -f "${{ env.BUILD_BASE_PATH }}/validation_status.tmp" ]]; then
+            VALIDATION_STATUS=$(cat "${{ env.BUILD_BASE_PATH }}/validation_status.tmp")
+          fi
+          
+          if [[ -f "${{ env.BUILD_BASE_PATH }}/validation_warnings.tmp" ]]; then
+            VALIDATION_WARNINGS=$(cat "${{ env.BUILD_BASE_PATH }}/validation_warnings.tmp")
           fi
           
           # Set outputs for next jobs
@@ -168,13 +178,12 @@ jobs:
           echo "## Path Validation Results" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: $VALIDATION_STATUS" >> $GITHUB_STEP_SUMMARY
           echo "- **Tool**: Intel FXT (via validation script)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Running as**: pkummara (no user switching)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Running as**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
           if [[ -n "$VALIDATION_WARNINGS" ]]; then
             echo "- **Warnings**: $VALIDATION_WARNINGS" >> $GITHUB_STEP_SUMMARY
           fi
           echo "- **Config File**: $CONFIG_FILE" >> $GITHUB_STEP_SUMMARY
           
-          # Always continue - don't exit with error
           echo "✅ Validation step completed - proceeding to build"
 
   build-patch:
@@ -192,22 +201,27 @@ jobs:
           echo "The following validation issues were detected:"
           echo "${{ needs.prepare-config.outputs.validation_warnings }}"
           echo ""
-          echo "🚀 Proceeding with build - these may be resolved during the build process"
+          echo "🚀 Proceeding with build using faceless account - these may be resolved during the build process"
           echo "📧 Build notifications will include these warnings"
           echo ""
 
-      - name: Start patch build (as pkummara)
+      - name: Start patch build (using faceless account)
         id: build
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          cd ${{ env.BUILD_BASE_PATH }}
-          echo "🔨 Starting patch build as user: $(whoami)"
-          echo "📁 Working directory: $(pwd)"
+          echo "🔨 Starting patch build using faceless account..."
+          echo "📁 Working directory: ${{ env.BUILD_BASE_PATH }}"
           echo "🛠️ Using Intel FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
           echo "📋 Config file: ${{ needs.validate-inputs.outputs.config_file }}"
           echo ""
           
-          # Run the Intel FXT build tool directly
-          python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+          # Run the Intel FXT build tool using faceless account
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Build running as: \$(whoami)'
+            cd ${{ env.BUILD_BASE_PATH }}
+            python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+          "
             
       - name: Notify SOC signing required
         if: ${{ github.event.inputs.enable_notifications == 'true' }}
@@ -220,7 +234,7 @@ jobs:
             <h3>Manual SOC Signing Required</h3>
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
-            <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py)</p>
+            <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py) - Running as faceless account</p>
             
             ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Validation Warnings Detected:</h4><p>{0}</p><p><em>Build proceeded despite warnings - monitor for issues.</em></p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
@@ -243,14 +257,19 @@ jobs:
           build_path: "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
           timeout_minutes: 30
 
-      - name: Continue build after SOC signing (as pkummara)
+      - name: Continue build after SOC signing (using faceless account)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          cd ${{ env.BUILD_BASE_PATH }}
-          echo "🔨 Continuing build after SOC signing as user: $(whoami)"
+          echo "🔨 Continuing build after SOC signing using faceless account..."
           echo "🛠️ Using Intel FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
           
-          # Continue with FXT tool - typically just press 'y' to continue
-          echo 'y' | python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+          # Continue with FXT tool using faceless account
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Continue build running as: \$(whoami)'
+            cd ${{ env.BUILD_BASE_PATH }}
+            echo 'y' | python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+          "
             
       - name: Notify FIT1 signing required
         if: ${{ github.event.inputs.enable_notifications == 'true' }}
@@ -263,7 +282,7 @@ jobs:
             <h3>Manual FIT1 Signing Required</h3>
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
-            <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py)</p>
+            <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py) - Running as faceless account</p>
             
             ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Previous Validation Warnings:</h4><p>{0}</p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
@@ -289,14 +308,19 @@ jobs:
           build_path: "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
           timeout_minutes: 30
 
-      - name: Complete build after FIT1 signing (as pkummara)
+      - name: Complete build after FIT1 signing (using faceless account)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          cd ${{ env.BUILD_BASE_PATH }}
-          echo "🔨 Completing build after FIT1 signing as user: $(whoami)"
+          echo "🔨 Completing build after FIT1 signing using faceless account..."
           echo "🛠️ Using Intel FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
           
-          # Complete build with FXT tool
-          echo 'y' | python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+          # Complete build with FXT tool using faceless account
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Complete build running as: \$(whoami)'
+            cd ${{ env.BUILD_BASE_PATH }}
+            echo 'y' | python3 ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+          "
 
   validate-output:
     needs: [validate-inputs, prepare-config, build-patch]
@@ -305,29 +329,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Validate build output
+      - name: Validate build output (using faceless account)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
           
-          echo "🔍 Validating build output in: $BUILD_DIR"
-          echo "👤 Running as user: $(whoami)"
+          echo "🔍 Validating build output using faceless account..."
+          echo "📁 Build directory: $BUILD_DIR"
           
-          if [[ ! -d "$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}" ]]; then
-            echo "Error: SOC directory not found"
-            exit 1
-          fi
-          
-          if [[ ! -d "$BUILD_DIR/fit1_${{ needs.validate-inputs.outputs.exp_version }}" ]]; then
-            echo "Error: FIT1 directory not found"
-            exit 1
-          fi
-          
-          if [[ ! -d "$BUILD_DIR/release" ]]; then
-            echo "Error: Release directory not found"
-            exit 1
-          fi
-          
-          echo "✅ Build validation successful!"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Validation running as: \$(whoami)'
+            
+            if [[ ! -d \"$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}\" ]]; then
+              echo 'Error: SOC directory not found'
+              exit 1
+            fi
+            
+            if [[ ! -d \"$BUILD_DIR/fit1_${{ needs.validate-inputs.outputs.exp_version }}\" ]]; then
+              echo 'Error: FIT1 directory not found'
+              exit 1
+            fi
+            
+            if [[ ! -d \"$BUILD_DIR/release\" ]]; then
+              echo 'Error: Release directory not found'
+              exit 1
+            fi
+            
+            echo '✅ Build validation successful!'
+          "
           
       - name: Generate build summary
         run: |
@@ -338,6 +368,7 @@ jobs:
           echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Requester**: ${{ github.event.inputs.requester }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Tool**: Intel FXT (fxtMuppt.py)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Account**: grp_srf_fit1_build (faceless)" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Path**: $BUILD_DIR" >> $GITHUB_STEP_SUMMARY
           echo "- **OCODE Used**: ${{ github.event.inputs.ocode_path }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Validation Status**: ${{ needs.prepare-config.outputs.validation_status }}" >> $GITHUB_STEP_SUMMARY
@@ -397,6 +428,7 @@ jobs:
             <tr><td><strong>Baseline Version:</strong></td><td>${{ github.event.inputs.baseline_version }}</td></tr>
             <tr><td><strong>Requester:</strong></td><td>${{ github.event.inputs.requester }}</td></tr>
             <tr><td><strong>Build Tool:</strong></td><td>Intel FXT (fxtMuppt.py)</td></tr>
+            <tr><td><strong>Build Account:</strong></td><td>grp_srf_fit1_build (faceless)</td></tr>
             <tr><td><strong>Build Path:</strong></td><td>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/</td></tr>
             <tr><td><strong>OCODE Used:</strong></td><td>${{ github.event.inputs.ocode_path }}</td></tr>
             <tr><td><strong>Validation Status:</strong></td><td>${{ needs.prepare-config.outputs.validation_status }}</td></tr>
@@ -430,6 +462,7 @@ jobs:
             <tr><td><strong>Baseline Version:</strong></td><td>${{ github.event.inputs.baseline_version }}</td></tr>
             <tr><td><strong>Requester:</strong></td><td>${{ github.event.inputs.requester }}</td></tr>
             <tr><td><strong>Build Tool:</strong></td><td>Intel FXT (fxtMuppt.py)</td></tr>
+            <tr><td><strong>Build Account:</strong></td><td>grp_srf_fit1_build (faceless)</td></tr>
             <tr><td><strong>Failure Stage:</strong></td><td>${{ needs.validate-output.result }}</td></tr>
             <tr><td><strong>Initial Validation Status:</strong></td><td>${{ needs.prepare-config.outputs.validation_status }}</td></tr>
             </table>
@@ -440,35 +473,41 @@ jobs:
             <ul>
             <li>Check the GitHub Actions logs for detailed error information</li>
             <li>Review any validation warnings from the initial step</li>
-            <li>Verify pkummara user has necessary file permissions</li>
+            <li>Verify faceless account has necessary file permissions</li>
             <li>Contact the build team if assistance is needed</li>
             <li>Retry the build after resolving issues</li>
             </ul>
             
       - name: Final status
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          echo "👤 Final status check running as user: $(whoami)"
+          echo "🔍 Final status check using faceless account..."
           
-          if [[ "${{ needs.validate-output.result }}" == "success" ]]; then
-            echo "✅ Experimental patch build completed successfully!"
-            echo "🛠️ Build executed using Intel FXT tool (fxtMuppt.py)"
-            echo "📁 Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
-            echo "📦 Artifacts uploaded to GitHub Actions"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Final check running as: \$(whoami)'
             
-            if [[ "${{ needs.prepare-config.outputs.validation_status }}" == "failed_with_warnings" ]]; then
-              echo ""
-              echo "⚠️  Note: Build completed despite initial validation warnings:"
-              echo "${{ needs.prepare-config.outputs.validation_warnings }}"
+            if [[ \"${{ needs.validate-output.result }}\" == \"success\" ]]; then
+              echo '✅ Experimental patch build completed successfully!'
+              echo '🛠️ Build executed using Intel FXT tool (fxtMuppt.py) with faceless account'
+              echo '📁 Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}'
+              echo '📦 Artifacts uploaded to GitHub Actions'
+              
+              if [[ \"${{ needs.prepare-config.outputs.validation_status }}\" == \"failed_with_warnings\" ]]; then
+                echo ''
+                echo '⚠️  Note: Build completed despite initial validation warnings:'
+                echo '${{ needs.prepare-config.outputs.validation_warnings }}'
+              fi
+            else
+              echo '❌ Experimental patch build failed!'
+              echo '🛠️ Build was attempted using Intel FXT tool (fxtMuppt.py) with faceless account'
+              echo '📋 Check the logs for more details'
+              
+              if [[ \"${{ needs.prepare-config.outputs.validation_status }}\" == \"failed_with_warnings\" ]]; then
+                echo ''
+                echo '⚠️  Initial validation warnings may be related to the failure:'
+                echo '${{ needs.prepare-config.outputs.validation_warnings }}'
+              fi
+              exit 1
             fi
-          else
-            echo "❌ Experimental patch build failed!"
-            echo "🛠️ Build was attempted using Intel FXT tool (fxtMuppt.py)"
-            echo "📋 Check the logs for more details"
-            
-            if [[ "${{ needs.prepare-config.outputs.validation_status }}" == "failed_with_warnings" ]]; then
-              echo ""
-              echo "⚠️  Initial validation warnings may be related to the failure:"
-              echo "${{ needs.prepare-config.outputs.validation_warnings }}"
-            fi
-            exit 1
-          fi
+          "
