@@ -22,34 +22,26 @@ jobs:
         run: |
           echo "Current user before switch: $(whoami)"
           echo "Current directory: $(pwd)"
-          echo "Available sudo commands: $(sudo -l)"
 
-      - name: Switch to SRF build user
+      - name: Switch to SRF build user (Method 1 - Direct sudo su)
         id: user-switch
         run: |
-          TARGET_USER="${{ github.event.inputs.target_user }}"
-          HARDCODED_PASSWORD="Putti1!2@"
+          TARGET_USER="grp_srf_fit1_build"
           
-          # Validate target user exists
-          if ! id "$TARGET_USER" &>/dev/null; then
-            echo "Error: User $TARGET_USER does not exist"
-            exit 1
-          fi
+          # Method 1: Use sudo su directly (matches your permissions)
+          echo "Switching to user: $TARGET_USER using sudo su"
           
-          # Switch user and capture info
-          echo "Switching to user: $TARGET_USER"
-          SWITCH_RESULT=$(echo "$HARDCODED_PASSWORD" | sudo -S su - "$TARGET_USER" -c "
+          # Test basic switch
+          sudo su - "$TARGET_USER" -c "
             echo 'SUCCESS: Switched to user: $(whoami)'
             echo 'Working directory: $(pwd)'
             echo 'Groups: $(groups)'
             echo 'Home directory: $HOME'
-          ")
-          
-          echo "$SWITCH_RESULT"
+          "
           
           # Set outputs
-          CURRENT_USER=$(echo "$HARDCODED_PASSWORD" | sudo -S su - "$TARGET_USER" -c "whoami")
-          WORKING_DIR=$(echo "$HARDCODED_PASSWORD" | sudo -S su - "$TARGET_USER" -c "pwd")
+          CURRENT_USER=$(sudo su - "$TARGET_USER" -c "whoami")
+          WORKING_DIR=$(sudo su - "$TARGET_USER" -c "pwd")
           
           echo "current_user=$CURRENT_USER" >> $GITHUB_OUTPUT
           echo "working_dir=$WORKING_DIR" >> $GITHUB_OUTPUT
@@ -57,30 +49,24 @@ jobs:
       - name: Execute SRF operations as switched user
         run: |
           echo "Executing SRF build operations..."
-          echo "Putti1!2@" | sudo -S su - grp_srf_fit1_build -c "
+          sudo su - grp_srf_fit1_build -c "
             cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/
             echo 'Current location: $(pwd)'
             ls -la
-            # Add your SRF build commands here
             echo 'SRF operations completed successfully'
           "
 
-  post-switch-operations:
-    needs: switch-user
-    runs-on: [self-hosted, node16]
-    steps:
-      - name: Verify switch results
+      - name: Alternative method if above fails
+        if: failure()
         run: |
-          echo "User switch completed successfully"
-          echo "Switched to user: ${{ needs.switch-user.outputs.switched_user }}"
-          echo "Working directory: ${{ needs.switch-user.outputs.working_directory }}"
-          
-      - name: Test additional commands as switched user
-        run: |
-          echo "Testing additional commands..."
-          echo "Putti1!2@" | sudo -S su - grp_srf_fit1_build -c "
-            whoami
-            pwd
-            echo 'Testing file access...'
-            ls -la /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/ | head -5
-          "
+          echo "Trying alternative method with expect..."
+          expect << 'EOF'
+          spawn sudo su grp_srf_fit1_build
+          expect "Authenticate with pkummara's password:"
+          send "Putti1!2@\r"
+          expect "grp_srf_fit1_build@"
+          send "whoami\r"
+          send "pwd\r"
+          send "exit\r"
+          expect eof
+          EOF
