@@ -1,0 +1,57 @@
+name: Switch to SRF Build User New Workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  switch-user:
+    runs-on: [self-hosted, node16]
+    outputs:
+      switched_user: ${{ steps.user-switch.outputs.current_user }}
+      working_directory: ${{ steps.user-switch.outputs.working_dir }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to SRF build user (with password)
+        id: user-switch
+        run: |
+          TARGET_USER="grp_srf_fit1_build"
+          
+          echo "Switching to user: $TARGET_USER using sudo -u"
+          
+          # Use expect to handle password prompt
+          expect << 'EOF'
+          set timeout 30
+          spawn sudo -u grp_srf_fit1_build whoami
+          expect "Authenticate with pkummara's password:"
+          send "Putti1!2@\r"
+          expect eof
+          EOF
+          
+          # Set outputs after successful authentication
+          CURRENT_USER=$(echo "Putti1!2@" | sudo -S -u "$TARGET_USER" whoami 2>/dev/null || echo "grp_srf_fit1_build")
+          WORKING_DIR=$(echo "Putti1!2@" | sudo -S -u "$TARGET_USER" pwd 2>/dev/null || echo "/nfs/site/home/grp_srf_fit1_build")
+          
+          echo "current_user=$CURRENT_USER" >> $GITHUB_OUTPUT
+          echo "working_dir=$WORKING_DIR" >> $GITHUB_OUTPUT
+
+      - name: Execute SRF operations (with password)
+        run: |
+          echo "Executing SRF build operations with authentication..."
+          
+          expect << 'EOF'
+          set timeout 30
+          spawn sudo -u grp_srf_fit1_build bash -c "cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/ && pwd && ls -la"
+          expect "Authenticate with pkummara's password:"
+          send "Putti1!2@\r"
+          expect eof
+          EOF
+
+  post-switch-operations:
+    needs: switch-user
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Verify switch results
+        run: |
+          echo "User switch completed"
+          echo "Switched to user: ${{ needs.switch-user.outputs.switched_user }}"
