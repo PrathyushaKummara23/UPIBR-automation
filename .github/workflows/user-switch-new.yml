@@ -1,97 +1,26 @@
-name: Switch to SRF Build User Hello
+name: Switch to SRF Build User (Ultra Simple)
 on:
   workflow_dispatch:
 
 jobs:
   switch-user:
     runs-on: [self-hosted, node16]
-    outputs:
-      switched_user: ${{ steps.user-switch.outputs.current_user }}
-      working_directory: ${{ steps.user-switch.outputs.working_dir }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: One-time authentication and execute all commands
-        id: user-switch
+      - name: Test user switch
         run: |
-          echo "Executing all commands in single expect session..."
-          
-          expect << 'EOF'
-          set timeout 60
-          
-          # Start with a command that requires password
-          spawn sudo -u grp_srf_fit1_build bash
-          
-          expect {
-            "Authenticate with pkummara's password:" {
-              send "Putti1!2@\r"
-              exp_continue
-            }
-            "$ " {
-              # We're now in the shell as grp_srf_fit1_build
-              send "echo 'SUCCESS: Authentication completed'\r"
-              expect "$ "
-              
-              send "whoami\r"
-              expect "$ "
-              
-              send "pwd\r"
-              expect "$ "
-              
-              send "groups\r"
-              expect "$ "
-              
-              send "echo \$HOME\r"
-              expect "$ "
-              
-              send "cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/\r"
-              expect "$ "
-              
-              send "pwd\r"
-              expect "$ "
-              
-              send "ls -la | head -10\r"
-              expect "$ "
-              
-              send "echo 'All operations completed successfully'\r"
-              expect "$ "
-              
-              send "exit\r"
-            }
-            timeout {
-              puts "Timeout occurred"
-              exit 1
-            }
-          }
-          
-          expect eof
-          EOF
-          
-          # Set outputs (we know these values from the session above)
-          echo "current_user=grp_srf_fit1_build" >> $GITHUB_OUTPUT
-          echo "working_dir=/nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod" >> $GITHUB_OUTPUT
+          echo "Testing basic user switch..."
+          (echo "Putti1!2@"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami
 
-  post-switch-operations:
-    needs: switch-user
-    runs-on: [self-hosted, node16]
-    steps:
-      - name: Verify switch results
+      - name: Execute SRF operations
         run: |
-          echo "User switch completed successfully!"
-          echo "Switched to user: ${{ needs.switch-user.outputs.switched_user }}"
-          echo "Working directory: ${{ needs.switch-user.outputs.working_directory }}"
-          
-      - name: Run additional commands if needed
-        run: |
-          echo "Running additional commands..."
-          expect << 'EOF'
-          set timeout 30
-          spawn sudo -u grp_srf_fit1_build bash -c "whoami && pwd && echo 'Additional commands completed'"
-          expect {
-            "Authenticate with pkummara's password:" {
-              send "Putti1!2@\r"
-            }
-            eof
-          }
-          EOF
+          echo "Executing SRF operations..."
+          (echo "Putti1!2@"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'User: $(whoami)'
+            echo 'Directory: $(pwd)'
+            cd /nfs/site/disks/dcsg_0729/patches/GNR/B0/staging/uCode/prod/
+            echo 'SRF Directory: $(pwd)'
+            ls -la | head -5
+          "
