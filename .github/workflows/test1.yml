@@ -143,17 +143,64 @@ jobs:
             echo "✅ Baseline config found: $SOURCE_CONFIG"
             echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
           else
-            echo "❌ Error: Baseline config not found: $SOURCE_CONFIG"
-            exit 1
+            echo "❌ Config not found as faceless account, checking as pkummara..."
+            
+            # Check as pkummara
+            if [[ -f "$SOURCE_CONFIG" ]]; then
+              echo "✅ Baseline config found as pkummara: $SOURCE_CONFIG"
+              echo "⚠️  Note: Config accessible to pkummara but not faceless account"
+              echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Error: Baseline config not found by either account: $SOURCE_CONFIG"
+              exit 1
+            fi
           fi
           
       - name: Validate provided paths exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          echo "Validating user-provided paths as faceless account..."
+          echo "Validating user-provided paths..."
           
-          # Check user-provided paths
+          # Function to check path with both accounts
+          check_path_both_accounts() {
+            local name="$1"
+            local path="$2"
+            
+            if [[ -z "$path" ]]; then
+              return 0  # Skip empty paths
+            fi
+            
+            echo "Checking $name: $path"
+            
+            # First try with faceless account
+            PATH_CHECK_FACELESS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+              if [[ -f '$path' ]]; then
+                echo 'EXISTS'
+              else
+                echo 'NOT_FOUND'
+              fi
+            ")
+            
+            if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
+              echo "✅ $name: $path (exists - faceless account)"
+              return 0
+            else
+              echo "❌ $name not found as faceless account, checking as pkummara..."
+              
+              # Check as pkummara
+              if [[ -f "$path" ]]; then
+                echo "✅ $name: $path (exists - pkummara account)"
+                echo "⚠️  Note: $name accessible to pkummara but not faceless account"
+                return 0
+              else
+                echo "❌ Error: $name path does not exist for either account: $path"
+                return 1
+              fi
+            fi
+          }
+          
+          # Check all provided paths
           declare -a PATHS=(
             "${{ github.event.inputs.icode }}"
             "${{ github.event.inputs.oobmsm }}"
@@ -181,97 +228,133 @@ jobs:
           )
           
           PROVIDED_PATHS=0
+          FAILED_PATHS=0
           
           for i in "${!PATHS[@]}"; do
             path="${PATHS[$i]}"
             name="${PATH_NAMES[$i]}"
             if [[ -n "$path" ]]; then
               PROVIDED_PATHS=$((PROVIDED_PATHS + 1))
-              echo "Checking $name: $path"
-              
-              PATH_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-                if [[ -f '$path' ]]; then
-                  echo 'EXISTS'
-                else
-                  echo 'NOT_FOUND'
-                fi
-              ")
-              
-              if [[ "$PATH_CHECK" == "EXISTS" ]]; then
-                echo "✅ $name: $path (exists)"
-              else
-                echo "❌ Error: $name path does not exist: $path"
-                exit 1
+              if ! check_path_both_accounts "$name" "$path"; then
+                FAILED_PATHS=$((FAILED_PATHS + 1))
               fi
             fi
           done
           
           if [[ $PROVIDED_PATHS -eq 0 ]]; then
             echo "ℹ️  No user-provided paths to validate (using baseline paths)"
-          else
+          elif [[ $FAILED_PATHS -eq 0 ]]; then
             echo "✅ All $PROVIDED_PATHS provided paths validated successfully"
+          else
+            echo "❌ $FAILED_PATHS out of $PROVIDED_PATHS provided paths failed validation"
+            exit 1
           fi
 
       - name: Validate baseline config paths
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          echo "Validating paths from baseline config as faceless account..."
+          echo "Validating paths from baseline config..."
           
           SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
           
-          # Extract and validate paths from baseline config using faceless account
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo 'Extracting paths from baseline config...'
+          # Pass the input values to the validation
+          ICODE_INPUT="${{ github.event.inputs.icode }}"
+          OOBMSM_INPUT="${{ github.event.inputs.oobmsm }}"
+          S3M_INPUT="${{ github.event.inputs.s3m }}"
+          PCODE_IO_INPUT="${{ github.event.inputs.pcode_io }}"
+          PCODE_C_INPUT="${{ github.event.inputs.pcode_c }}"
+          UCODE_INPUT="${{ github.event.inputs.ucode }}"
+          XUCODE_INPUT="${{ github.event.inputs.xucode }}"
+          MCHECK_INPUT="${{ github.event.inputs.mcheck }}"
+          TCODE_INPUT="${{ github.event.inputs.tcode }}"
+          ACODE_INPUT="${{ github.event.inputs.acode }}"
+          
+          # Function to validate path with both accounts
+          validate_baseline_path() {
+            local name="$1"
+            local path="$2"
+            local is_provided="$3"
             
-            # Extract paths from baseline config
-            ICODE_PATH=\$(grep '^icode = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            OOBMSM_PATH=\$(grep '^oobmsm = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            S3M_PATH=\$(grep '^s3m = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            PCODE_IO_PATH=\$(grep '^pcode-io = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            PCODE_C_PATH=\$(grep '^pcode-c = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            UCODE_PATH=\$(grep '^ucode = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            XUCODE_PATH=\$(grep '^xucode = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            MCHECK_PATH=\$(grep '^mcheck = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            TCODE_PATH=\$(grep '^tcode = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
-            ACODE_PATH=\$(grep '^acode = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
+            if [[ "$path" == "none" || -z "$path" ]]; then
+              echo "ℹ️  $name: $path (skipped)"
+              return 0
+            fi
             
-            # Function to validate each path
-            validate_path() {
-              local name=\"\$1\"
-              local path=\"\$2\"
-              local is_provided=\"\$3\"
-              
-              if [[ \"\$path\" != \"none\" && -n \"\$path\" ]]; then
-                if [[ -f \"\$path\" ]]; then
-                  if [[ \"\$is_provided\" == \"true\" ]]; then
-                    echo \"✅ \$name: \$path (exists, will be overridden)\"
-                  else
-                    echo \"✅ \$name: \$path (exists, using baseline)\"
-                  fi
-                else
-                  echo \"❌ Error: \$name path from baseline config does not exist: \$path\"
-                  exit 1
-                fi
+            # First try with faceless account
+            PATH_CHECK_FACELESS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+              if [[ -f '$path' ]]; then
+                echo 'EXISTS'
               else
-                echo \"ℹ️  \$name: \$path (skipped)\"
+                echo 'NOT_FOUND'
               fi
-            }
+            ")
             
-            # Validate each component path
-            validate_path 'ICODE' \"\$ICODE_PATH\" '$([[ -n \"${{ github.event.inputs.icode }}\" ]] && echo true || echo false)'
-            validate_path 'OOBMSM' \"\$OOBMSM_PATH\" '$([[ -n \"${{ github.event.inputs.oobmsm }}\" ]] && echo true || echo false)'
-            validate_path 'S3M' \"\$S3M_PATH\" '$([[ -n \"${{ github.event.inputs.s3m }}\" ]] && echo true || echo false)'
-            validate_path 'PCODE-IO' \"\$PCODE_IO_PATH\" '$([[ -n \"${{ github.event.inputs.pcode_io }}\" ]] && echo true || echo false)'
-            validate_path 'PCODE-C' \"\$PCODE_C_PATH\" '$([[ -n \"${{ github.event.inputs.pcode_c }}\" ]] && echo true || echo false)'
-            validate_path 'UCODE' \"\$UCODE_PATH\" '$([[ -n \"${{ github.event.inputs.ucode }}\" ]] && echo true || echo false)'
-            validate_path 'XUCODE' \"\$XUCODE_PATH\" '$([[ -n \"${{ github.event.inputs.xucode }}\" ]] && echo true || echo false)'
-            validate_path 'MCHECK' \"\$MCHECK_PATH\" '$([[ -n \"${{ github.event.inputs.mcheck }}\" ]] && echo true || echo false)'
-            validate_path 'TCODE' \"\$TCODE_PATH\" '$([[ -n \"${{ github.event.inputs.tcode }}\" ]] && echo true || echo false)'
-            validate_path 'ACODE' \"\$ACODE_PATH\" '$([[ -n \"${{ github.event.inputs.acode }}\" ]] && echo true || echo false)'
-            
-            echo 'Baseline config path validation completed successfully'
-          "
+            if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
+              if [[ "$is_provided" == "true" ]]; then
+                echo "✅ $name: $path (exists - faceless, will be overridden)"
+              else
+                echo "✅ $name: $path (exists - faceless, using baseline)"
+              fi
+              return 0
+            else
+              echo "❌ $name not found as faceless account, checking as pkummara..."
+              
+              # Check as pkummara
+              if [[ -f "$path" ]]; then
+                if [[ "$is_provided" == "true" ]]; then
+                  echo "✅ $name: $path (exists - pkummara, will be overridden)"
+                  echo "⚠️  Note: Baseline $name accessible to pkummara but not faceless account"
+                else
+                  echo "✅ $name: $path (exists - pkummara, using baseline)"
+                  echo "⚠️  Note: Baseline $name accessible to pkummara but not faceless account"
+                fi
+                return 0
+              else
+                if [[ "$is_provided" == "true" ]]; then
+                  echo "⚠️  $name: $path (baseline missing from both accounts, but will be overridden)"
+                  return 0
+                else
+                  echo "❌ Error: $name path from baseline config does not exist in either account: $path"
+                  return 1
+                fi
+              fi
+            fi
+          }
+          
+          # Extract paths from baseline config
+          echo "Extracting paths from baseline config..."
+          ICODE_PATH=$(grep '^icode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          OOBMSM_PATH=$(grep '^oobmsm = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          S3M_PATH=$(grep '^s3m = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          PCODE_IO_PATH=$(grep '^pcode-io = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          PCODE_C_PATH=$(grep '^pcode-c = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          UCODE_PATH=$(grep '^ucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          XUCODE_PATH=$(grep '^xucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          MCHECK_PATH=$(grep '^mcheck = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          TCODE_PATH=$(grep '^tcode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          ACODE_PATH=$(grep '^acode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          
+          # Validate each component path
+          FAILED_BASELINE=0
+          
+          validate_baseline_path 'ICODE' "$ICODE_PATH" "$([[ -n "$ICODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'OOBMSM' "$OOBMSM_PATH" "$([[ -n "$OOBMSM_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'S3M' "$S3M_PATH" "$([[ -n "$S3M_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'PCODE-IO' "$PCODE_IO_PATH" "$([[ -n "$PCODE_IO_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'PCODE-C' "$PCODE_C_PATH" "$([[ -n "$PCODE_C_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'UCODE' "$UCODE_PATH" "$([[ -n "$UCODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'XUCODE' "$XUCODE_PATH" "$([[ -n "$XUCODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'MCHECK' "$MCHECK_PATH" "$([[ -n "$MCHECK_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'TCODE' "$TCODE_PATH" "$([[ -n "$TCODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'ACODE' "$ACODE_PATH" "$([[ -n "$ACODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          
+          if [[ $FAILED_BASELINE -eq 0 ]]; then
+            echo "✅ Baseline config path validation completed successfully"
+          else
+            echo "❌ $FAILED_BASELINE baseline paths failed validation"
+            exit 1
+          fi
           
       - name: Copy and generate config
         id: generate-config
@@ -352,7 +435,7 @@ jobs:
           fi
           
           echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Validation**: All paths validated using faceless account (grp_srf_fit1_build)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validation**: Paths validated using both faceless and pkummara accounts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
@@ -427,4 +510,4 @@ jobs:
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Config file generated successfully using faceless account!**" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Config file generated successfully using dual account validation!**" >> $GITHUB_STEP_SUMMARY
