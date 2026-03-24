@@ -1,0 +1,28 @@
+name: Experiment Debug Patch Build SRF
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_version:
+        description: 'Baseline version (8 hex chars)'
+        required: true
+        type: string
+      ocode_path:
+        description: 'OCODE file path'
+        required: true
+        type: string
+      requester:
+        description: 'Your name'
+        required: true
+        type: string
+
+jobs:
+  test-job:
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Test step
+        run: |
+          echo "This is a test workflow"
+          echo "Baseline: ${{ github.event.inputs.baseline_version }}"
+          echo "OCODE: ${{ github.event.inputs.ocode_path }}"
+          echo "Requester: ${{ github.event.inputs.requester }}"
