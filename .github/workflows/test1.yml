@@ -8,13 +8,8 @@ on:
         required: true
         type: string
       ocode_path:
-        description: 'OCODE path)'
+        description: 'OCODE path'
         required: true
-        type: string
-      description:
-        description: 'Patch description'
-        required: false
-        default: 'SRF Experiment Debug Unified Patch'
         type: string
       enable_notifications:
         description: 'Enable email notifications'
