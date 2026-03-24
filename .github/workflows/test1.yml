@@ -4,25 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       baseline_version:
-        description: 'Baseline version (e.g., 830003A3)'
+        description: 'Baseline version'
         required: true
         type: string
       ocode_path:
-        description: 'OCODE path (e.g., /nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin)'
-        required: true
-        type: string
-      requester:
-        description: 'Requester name'
+        description: 'OCODE path)'
         required: true
         type: string
       description:
         description: 'Patch description'
         required: false
         default: 'SRF Experiment Debug Unified Patch'
-        type: string
-      additional_changes:
-        description: 'Additional code changes (JSON format: {"icode": "path", "pcode-io": "path"})'
-        required: false
         type: string
       enable_notifications:
         description: 'Enable email notifications'
@@ -79,7 +71,6 @@ jobs:
         run: |
           echo "📧 Build start notification would be sent here"
           echo "Experimental Version: ${{ steps.generate-version.outputs.exp_version }}"
-          echo "Requester: ${{ github.event.inputs.requester }}"
 
   prepare-config:
     needs: validate-inputs
@@ -101,9 +92,9 @@ jobs:
           BASELINE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/build_area_0x${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini"
           if [[ -f "$BASELINE_CONFIG" ]]; then
             cp "$BASELINE_CONFIG" "${{ env.BUILD_BASE_PATH }}/"
-            echo "✅ Copied baseline config from: $BASELINE_CONFIG"
+            echo "Copied baseline config from: $BASELINE_CONFIG"
           else
-            echo "⚠️ Warning: Baseline config not found at: $BASELINE_CONFIG"
+            echo "Warning: Baseline config not found at: $BASELINE_CONFIG"
             echo "Will create config from template"
           fi
           
@@ -115,10 +106,10 @@ jobs:
           EXP_CONFIG="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
           SCRIPT_PATH="${{ github.workspace }}/scripts/config_generator.py"
           
-          echo "🐍 Using config generator script: $SCRIPT_PATH"
-          echo "📋 Baseline config: $BASELINE_CONFIG"
-          echo "📋 Output config: $EXP_CONFIG"
-          echo "🔐 Signing mode: Using existing css-debug from baseline config"
+          echo "Using config generator script: $SCRIPT_PATH"
+          echo "Baseline config: $BASELINE_CONFIG"
+          echo "Output config: $EXP_CONFIG"
+          echo "Signing mode: Using existing css-debug from baseline config"
           
           # Run config generator using faceless account
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
@@ -126,7 +117,7 @@ jobs:
             cd ${{ env.BUILD_BASE_PATH }}
             
             if [[ -f '$BASELINE_CONFIG' ]]; then
-              echo '✅ Using existing baseline config file'
+              echo 'Using existing baseline config file'
               ${{ env.PYTHON_PATH }} '$SCRIPT_PATH' \
                 --baseline-config '$BASELINE_CONFIG' \
                 --exp-version '${{ needs.validate-inputs.outputs.exp_version }}' \
@@ -134,15 +125,14 @@ jobs:
                 --ocode-path '${{ github.event.inputs.ocode_path }}' \
                 --build-path '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}' \
                 --description '${{ github.event.inputs.description }}' \
-                --additional-changes '${{ github.event.inputs.additional_changes }}' \
                 --output '$EXP_CONFIG'
             else
-              echo '⚠️ Baseline config not found, cannot proceed without baseline'
+              echo 'Baseline config not found, cannot proceed without baseline'
               echo 'Expected location: $BASELINE_CONFIG'
               exit 1
             fi
             
-            echo '✅ Config generation completed using Python script'
+            echo 'Config generation completed using Python script'
           "
           
       - name: Validate config file exists
@@ -152,7 +142,7 @@ jobs:
             echo "Error: Config file does not exist: $CONFIG_FILE"
             exit 1
           fi
-          echo "✅ Config file exists: $CONFIG_FILE"
+          echo "Config file exists: $CONFIG_FILE"
           echo "Config file size: $(stat -c%s "$CONFIG_FILE") bytes"
           echo "Config file contents:"
           cat "$CONFIG_FILE"
@@ -166,9 +156,9 @@ jobs:
           VALIDATION_WARNINGS=""
           VALIDATION_STATUS="success"
           
-          echo "🔍 Starting path validation using faceless account..."
-          echo "🐍 Using Python: ${{ env.PYTHON_PATH }}"
-          echo "📋 Config file: $CONFIG_FILE"
+          echo "Starting path validation using faceless account..."
+          echo "Using Python: ${{ env.PYTHON_PATH }}"
+          echo "Config file: $CONFIG_FILE"
           
           # Run validation using faceless account
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
@@ -227,4 +217,4 @@ jobs:
           fi
           echo "- **Config File**: $CONFIG_FILE" >> $GITHUB_STEP_SUMMARY
           
-          echo "✅ Validation step completed - config preparation finished"
+          echo "Validation step completed - config preparation finished"
