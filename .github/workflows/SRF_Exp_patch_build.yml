@@ -267,10 +267,11 @@ jobs:
             echo 'Python version: \$(${{ env.PYTHON_PATH }} --version)'
             cd ${{ env.BUILD_BASE_PATH }}
             
-            # Execute the complete build process
             echo 'Starting FXT build with css-debug signing...'
-            echo '${{ secrets.FA_PASSWORD }}' | ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} > build_output.log 2>&1
+            exec 3< <(printf '%s\n' "\$FA_PASSWORD")
+            ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} <&3 > build_output.log 2>&1
             BUILD_EXIT_CODE=\$?
+            exec 3<&-
             
             echo 'Build completed with exit code: '\$BUILD_EXIT_CODE
             echo 'Build output:'
