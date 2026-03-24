@@ -150,6 +150,9 @@ jobs:
             # Update build_path for F-patches
             sed -i "s|build_path = .*|build_path = ${{ env.BUILD_BASE_PATH }}|" "$NEW_CONFIG"
             
+            # Change patch description for F-patches
+            sed -i "s/patch_description = .*/patch_description = SRF experiment debug patch/" "$NEW_CONFIG"
+            
             # Change F-patch specific fields from "yes" to "no" (debug patch settings)
             sed -i 's/^release = yes/release = no/' "$NEW_CONFIG"
             sed -i 's/^fiv_register = yes/fiv_register = no/' "$NEW_CONFIG"
@@ -189,6 +192,7 @@ jobs:
           if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
             echo "### F-Patch (Debug) Modifications Applied:" >> $GITHUB_STEP_SUMMARY
             echo "- **build_path**: Updated to ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **patch_description**: Changed to 'SRF experiment debug patch'" >> $GITHUB_STEP_SUMMARY
             echo "- **Debug settings applied**:" >> $GITHUB_STEP_SUMMARY
             echo "  - **release**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
             echo "  - **fiv_register**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
