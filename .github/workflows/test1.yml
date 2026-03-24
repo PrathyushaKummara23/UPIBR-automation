@@ -57,7 +57,7 @@ env:
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
   
 jobs:
-  Prepare-config:
+  prepare-config:
     runs-on: [self-hosted, node16]
     outputs:
       config_file: ${{ steps.generate-config.outputs.config_file }}
@@ -77,10 +77,10 @@ jobs:
           echo "Actual user: $CURRENT_USER"
           
           if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
-            echo "SUCCESS: User switch to faceless account successful"
+            echo "✅ SUCCESS: User switch to faceless account successful"
             echo "Running as: $CURRENT_USER"
           else
-            echo "FAILURE: User switch failed"
+            echo "❌ FAILURE: User switch failed"
             echo "Expected: grp_srf_fit1_build"
             echo "Got: $CURRENT_USER"
             exit 1
@@ -106,15 +106,19 @@ jobs:
           NEW_CLEAN="${NEW_CLEAN#0x}"
           
           if [[ ! "$BASELINE_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
-            echo "Error: Invalid baseline version format"
+            echo "❌ Error: Invalid baseline version format: $BASELINE_CLEAN"
             exit 1
           fi
           if [[ ! "$NEW_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
-            echo "Error: Invalid new version format"
+            echo "❌ Error: Invalid new version format: $NEW_CLEAN"
             exit 1
           fi
+          
+          echo "✅ Version validation passed"
+          echo "  - Baseline: $BASELINE_CLEAN"
+          echo "  - New: $NEW_CLEAN"
 
-      - name: Validate baseline config exists (as faceless account)
+      - name: Validate baseline config exists
         id: validate-baseline
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -125,6 +129,8 @@ jobs:
           SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${BASELINE_CLEAN}/release/config_${BASELINE_CLEAN}.ini"
           
           echo "Checking baseline config as faceless account..."
+          echo "Config path: $SOURCE_CONFIG"
+          
           CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '$SOURCE_CONFIG' ]]; then
               echo 'EXISTS'
@@ -134,21 +140,21 @@ jobs:
           ")
           
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
-            echo "Baseline config found: $SOURCE_CONFIG"
+            echo "✅ Baseline config found: $SOURCE_CONFIG"
             echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
           else
-            echo "Error: Baseline config not found: $SOURCE_CONFIG"
+            echo "❌ Error: Baseline config not found: $SOURCE_CONFIG"
             exit 1
           fi
           
-      - name: Validate provided paths exist (as faceless account)
+      - name: Validate provided paths exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Validating user-provided paths as faceless account..."
           
           # Check user-provided paths
-          PATHS=(
+          declare -a PATHS=(
             "${{ github.event.inputs.icode }}"
             "${{ github.event.inputs.oobmsm }}"
             "${{ github.event.inputs.s3m }}"
@@ -161,7 +167,7 @@ jobs:
             "${{ github.event.inputs.acode }}"
           )
           
-          PATH_NAMES=(
+          declare -a PATH_NAMES=(
             "ICODE"
             "OOBMSM"
             "S3M"
@@ -174,10 +180,13 @@ jobs:
             "ACODE"
           )
           
+          PROVIDED_PATHS=0
+          
           for i in "${!PATHS[@]}"; do
             path="${PATHS[$i]}"
             name="${PATH_NAMES[$i]}"
             if [[ -n "$path" ]]; then
+              PROVIDED_PATHS=$((PROVIDED_PATHS + 1))
               echo "Checking $name: $path"
               
               PATH_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
@@ -189,15 +198,21 @@ jobs:
               ")
               
               if [[ "$PATH_CHECK" == "EXISTS" ]]; then
-                echo "$name: $path (exists)"
+                echo "✅ $name: $path (exists)"
               else
-                echo "Error: $name path does not exist: $path"
+                echo "❌ Error: $name path does not exist: $path"
                 exit 1
               fi
             fi
           done
+          
+          if [[ $PROVIDED_PATHS -eq 0 ]]; then
+            echo "ℹ️  No user-provided paths to validate (using baseline paths)"
+          else
+            echo "✅ All $PROVIDED_PATHS provided paths validated successfully"
+          fi
 
-      - name: Validate baseline config paths (as faceless account)
+      - name: Validate baseline config paths
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
@@ -207,6 +222,8 @@ jobs:
           
           # Extract and validate paths from baseline config using faceless account
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Extracting paths from baseline config...'
+            
             # Extract paths from baseline config
             ICODE_PATH=\$(grep '^icode = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
             OOBMSM_PATH=\$(grep '^oobmsm = ' '$SOURCE_CONFIG' | cut -d'=' -f2 | xargs)
@@ -228,16 +245,16 @@ jobs:
               if [[ \"\$path\" != \"none\" && -n \"\$path\" ]]; then
                 if [[ -f \"\$path\" ]]; then
                   if [[ \"\$is_provided\" == \"true\" ]]; then
-                    echo \"\$name: \$path (exists, will be overridden)\"
+                    echo \"✅ \$name: \$path (exists, will be overridden)\"
                   else
-                    echo \"\$name: \$path (exists, using baseline)\"
+                    echo \"✅ \$name: \$path (exists, using baseline)\"
                   fi
                 else
-                  echo \"Error: \$name path from baseline config does not exist: \$path\"
+                  echo \"❌ Error: \$name path from baseline config does not exist: \$path\"
                   exit 1
                 fi
               else
-                echo \"\$name: \$path (skipped)\"
+                echo \"ℹ️  \$name: \$path (skipped)\"
               fi
             }
             
@@ -252,9 +269,11 @@ jobs:
             validate_path 'MCHECK' \"\$MCHECK_PATH\" '$([[ -n \"${{ github.event.inputs.mcheck }}\" ]] && echo true || echo false)'
             validate_path 'TCODE' \"\$TCODE_PATH\" '$([[ -n \"${{ github.event.inputs.tcode }}\" ]] && echo true || echo false)'
             validate_path 'ACODE' \"\$ACODE_PATH\" '$([[ -n \"${{ github.event.inputs.acode }}\" ]] && echo true || echo false)'
+            
+            echo 'Baseline config path validation completed successfully'
           "
           
-      - name: Copy and generate config (as faceless account)
+      - name: Copy and generate config
         id: generate-config
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -269,6 +288,8 @@ jobs:
           NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
           
           echo "Generating config file as faceless account..."
+          echo "Source: $SOURCE_CONFIG"
+          echo "Target: $NEW_CONFIG"
           
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             mkdir -p '${{ env.BUILD_BASE_PATH }}'
@@ -311,7 +332,7 @@ jobs:
             [[ -n '${{ github.event.inputs.tcode }}' ]] && sed -i 's|^tcode = .*|tcode = ${{ github.event.inputs.tcode }}|' '$NEW_CONFIG'
             [[ -n '${{ github.event.inputs.acode }}' ]] && sed -i 's|^acode = .*|acode = ${{ github.event.inputs.acode }}|' '$NEW_CONFIG'
             
-            echo 'Config file generated: $NEW_CONFIG'
+            echo 'Config file generated successfully'
             echo 'Generated config file contents:'
             cat '$NEW_CONFIG'
           "
@@ -325,7 +346,7 @@ jobs:
           echo "- **New Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
-            echo "- **Patch Type**: F-Patch ( Experiment Debug Patch)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Patch Type**: F-Patch (Debug)" >> $GITHUB_STEP_SUMMARY
           else
             echo "- **Patch Type**: Regular Patch" >> $GITHUB_STEP_SUMMARY
           fi
@@ -406,4 +427,4 @@ jobs:
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Config file generated successfully using faceless account!**" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Config file generated successfully using faceless account!**" >> $GITHUB_STEP_SUMMARY
