@@ -269,7 +269,7 @@ jobs:
             
             # Execute the complete build process
             echo 'Starting FXT build with css-debug signing...'
-            ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} > build_output.log 2>&1
+            echo '${{ secrets.FA_PASSWORD }}' | ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} > build_output.log 2>&1
             BUILD_EXIT_CODE=\$?
             
             echo 'Build completed with exit code: '\$BUILD_EXIT_CODE
@@ -294,6 +294,7 @@ jobs:
       - name: Validate build output (using faceless account)
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
         run: |
           BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
           
@@ -301,6 +302,7 @@ jobs:
           echo "📁 Build directory: $BUILD_DIR"
           
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            export FA_PASSWORD='$FA_PASSWORD'
             echo 'Validation running as: \$(whoami)'
             
             if [[ ! -d \"$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}\" ]]; then
