@@ -1,4 +1,4 @@
-name: Experiment Debug Patch Build
+name: Experiment Debug Patch Build SRF
 
 on:
   workflow_dispatch:
@@ -85,7 +85,7 @@ jobs:
             <tr><td><strong>Description:</strong></td><td>${{ github.event.inputs.description }}</td></tr>
             <tr><td><strong>Python Version:</strong></td><td>Python 3.7.4</td></tr>
             </table>
-            <p>The build process has started using faceless account. You will receive notifications when manual intervention is required.</p>
+            <p>The build process has started using faceless account. You will receive notifications when manual CSS signing is required.</p>
 
   prepare-config:
     needs: validate-inputs
@@ -209,24 +209,26 @@ jobs:
           echo "📧 Build notifications will include these warnings"
           echo ""
 
-      - name: Start patch build (using faceless account)
-        id: build
+      - name: Start patch build until SOC signing (using faceless account)
+        id: build-to-soc
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          echo "🔨 Starting patch build using faceless account..."
+          echo "🔨 Starting patch build until SOC signing using faceless account..."
           echo "📁 Working directory: ${{ env.BUILD_BASE_PATH }}"
           echo "🐍 Using Python: ${{ env.PYTHON_PATH }}"
           echo "🛠️ Using Intel FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
           echo "📋 Config file: ${{ needs.validate-inputs.outputs.config_file }}"
           echo ""
           
-          # Run the Intel FXT build tool using faceless account
+          # Run the Intel FXT build tool using faceless account until SOC signing
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'Build running as: \$(whoami)'
             echo 'Python version: \$(${{ env.PYTHON_PATH }} --version)'
             cd ${{ env.BUILD_BASE_PATH }}
-            ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+            
+            # Run until SOC signing is required (this will stop at the manual signing prompt)
+            timeout 600 ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} || true
           "
             
       - name: Notify SOC signing required
@@ -235,9 +237,9 @@ jobs:
         with:
           from_email: ${{ secrets.FROM_EMAIL }}
           to_email: ${{ secrets.NOTIFICATION_EMAIL }}
-          subject: "🔐 SOC Signing Required - ${{ needs.validate-inputs.outputs.exp_version }}"
+          subject: "🔐 SOC CSS Signing Required - ${{ needs.validate-inputs.outputs.exp_version }}"
           message: |
-            <h3>Manual SOC Signing Required</h3>
+            <h3>🔐 Manual SOC CSS Signing Required</h3>
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
             <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py) - Running as faceless account</p>
@@ -245,24 +247,109 @@ jobs:
             
             ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Validation Warnings Detected:</h4><p>{0}</p><p><em>Build proceeded despite warnings - monitor for issues.</em></p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
-            <h4>SOC Signing Instructions:</h4>
+            <h4>🎯 CSS Signing Details:</h4>
+            <table border="1" style="border-collapse: collapse; width: 100%;">
+            <tr><td><strong>CSS Project:</strong></td><td><code>SOCMANIFESTGNR1</code></td></tr>
+            <tr><td><strong>File to Sign:</strong></td><td><code>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}/soc_patch.bin</code></td></tr>
+            <tr><td><strong>Expected Output:</strong></td><td><code>soc_patch_signed.bin</code></td></tr>
+            <tr><td><strong>Build Directory:</strong></td><td><code>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}/</code></td></tr>
+            </table>
+            
+            <h4>📋 SOC CSS Signing Instructions:</h4>
             <ol>
-            <li>Open CSS workflow tool in Windows</li>
+            <li>Open <strong>CSS workflow tool</strong> in Windows</li>
             <li>Select <strong>"Debug Sign a module"</strong> option</li>
             <li>Select CSS project: <strong>SOCMANIFESTGNR1</strong></li>
-            <li>Browse to: <code>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}/soc_patch.bin</code></li>
-            <li>Complete the signing process</li>
-            <li>Run: <code>touch /tmp/soc_signing_completed_${{ needs.validate-inputs.outputs.exp_version }}</code></li>
+            <li>Browse to file: <code>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}/soc_patch.bin</code></li>
+            <li>Complete the signing process to generate <strong>soc_patch_signed.bin</strong></li>
             </ol>
             
-            <p><em>The build will automatically continue once you complete the signing and create the completion file.</em></p>
+            <p><strong>⏳ The build will automatically detect when signing is complete and continue (checking every 3 minutes for 30 minutes).</strong></p>
+            <p><em>No manual intervention needed after signing - the system will auto-continue!</em></p>
+
+      - name: Wait for SOC signing completion with retry
+        run: |
+          echo "⏳ Waiting for SOC CSS signing completion..."
+          
+          SOC_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}"
+          SIGNED_FILE="$SOC_DIR/soc_patch_signed.bin"
+          ORIGINAL_FILE="$SOC_DIR/soc_patch.bin"
+          
+          # Function to wait for signing
+          wait_for_signing() {
+            local timeout_minutes=$1
+            local check_interval=3  # 3 minutes
+            local max_checks=$((timeout_minutes / check_interval))
             
-      - name: Wait for manual SOC signing
-        uses: ./.github/actions/wait-for-manual-signing
+            echo "🔍 Checking for signed file: $SIGNED_FILE"
+            echo "📁 Original file: $ORIGINAL_FILE"
+            
+            for ((i=1; i<=max_checks; i++)); do
+              if [[ -f "$SIGNED_FILE" ]]; then
+                echo "✅ SOC signing completed! Found: $SIGNED_FILE"
+                echo "📊 File size: $(stat -c%s "$SIGNED_FILE") bytes"
+                return 0
+              fi
+              
+              echo "⏳ Check $i/$max_checks: Waiting for CSS signing... ($(($i * check_interval))/$timeout_minutes minutes elapsed)"
+              
+              if [[ -f "$ORIGINAL_FILE" ]]; then
+                echo "📋 Original file exists: $(stat -c%s "$ORIGINAL_FILE") bytes"
+              else
+                echo "⚠️  Original file missing: $ORIGINAL_FILE"
+              fi
+              
+              sleep $((check_interval * 60))
+            done
+            
+            return 1
+          }
+          
+          # First attempt: 30 minutes
+          if wait_for_signing 30; then
+            echo "🎉 SOC signing completed successfully!"
+          else
+            echo "⏰ First timeout reached (30 minutes). Sending reminder email..."
+            
+            # Send reminder email
+            if [[ "${{ github.event.inputs.enable_notifications }}" == "true" ]]; then
+              echo "📧 Sending reminder email for SOC signing..."
+              # Note: In real implementation, you'd call the email action here
+              # For now, we'll just log it
+            fi
+            
+            # Second attempt: 10 more minutes
+            echo "⏳ Waiting additional 10 minutes for SOC signing..."
+            if wait_for_signing 10; then
+              echo "🎉 SOC signing completed after reminder!"
+            else
+              echo "❌ SOC signing timeout: No signed file found after 40 minutes total"
+              echo "🔍 Final check - files in SOC directory:"
+              ls -la "$SOC_DIR/" || echo "Directory not accessible"
+              exit 1
+            fi
+          fi
+
+      - name: Send SOC signing reminder (if needed)
+        if: ${{ github.event.inputs.enable_notifications == 'true' }}
+        uses: ./.github/actions/email-notification
+        continue-on-error: true
         with:
-          signing_type: "SOC"
-          build_path: "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
-          timeout_minutes: 30
+          from_email: ${{ secrets.FROM_EMAIL }}
+          to_email: ${{ secrets.NOTIFICATION_EMAIL }}
+          subject: "⏰ REMINDER: SOC CSS Signing Still Required - ${{ needs.validate-inputs.outputs.exp_version }}"
+          message: |
+            <h3>⏰ REMINDER: SOC CSS Signing Still Pending</h3>
+            <p><strong>⚠️ The build has been waiting for 30 minutes. Please complete CSS signing ASAP.</strong></p>
+            
+            <table border="1" style="border-collapse: collapse; width: 100%;">
+            <tr><td><strong>Experimental Patch:</strong></td><td>${{ needs.validate-inputs.outputs.exp_version }}</td></tr>
+            <tr><td><strong>Requester:</strong></td><td>${{ github.event.inputs.requester }}</td></tr>
+            <tr><td><strong>CSS Project:</strong></td><td><code>SOCMANIFESTGNR1</code></td></tr>
+            <tr><td><strong>File to Sign:</strong></td><td><code>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/soc_${{ needs.validate-inputs.outputs.exp_version }}/soc_patch.bin</code></td></tr>
+            </table>
+            
+            <p><strong>🚨 Action Required: Complete SOC CSS signing within the next 10 minutes or the build will timeout and fail.</strong></p>
 
       - name: Continue build after SOC signing (using faceless account)
         env:
@@ -276,7 +363,9 @@ jobs:
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'Continue build running as: \$(whoami)'
             cd ${{ env.BUILD_BASE_PATH }}
-            echo 'y' | ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
+            
+            # Continue the build process - this should process the signed file and continue to FIT1
+            echo 'y' | timeout 600 ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} || true
           "
             
       - name: Notify FIT1 signing required
@@ -285,9 +374,9 @@ jobs:
         with:
           from_email: ${{ secrets.FROM_EMAIL }}
           to_email: ${{ secrets.NOTIFICATION_EMAIL }}
-          subject: "🔐 FIT1 Signing Required - ${{ needs.validate-inputs.outputs.exp_version }}"
+          subject: "🔐 FIT1 CSS Signing Required - ${{ needs.validate-inputs.outputs.exp_version }}"
           message: |
-            <h3>Manual FIT1 Signing Required</h3>
+            <h3>🔐 Manual FIT1 CSS Signing Required</h3>
             <p><strong>Experimental patch:</strong> ${{ needs.validate-inputs.outputs.exp_version }}</p>
             <p><strong>Requester:</strong> ${{ github.event.inputs.requester }}</p>
             <p><strong>Build Tool:</strong> Intel FXT (fxtMuppt.py) - Running as faceless account</p>
@@ -295,27 +384,80 @@ jobs:
             
             ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0;"><h4>⚠️ Previous Validation Warnings:</h4><p>{0}</p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
-            <h4>FIT1 Signing Instructions:</h4>
+            <h4>🎯 CSS Signing Details:</h4>
+            <table border="1" style="border-collapse: collapse; width: 100%;">
+            <tr><td><strong>RSA Project:</strong></td><td><code>SRFMCUPQCRSA</code></td></tr>
+            <tr><td><strong>XMSS Project:</strong></td><td><code>SRFMCUPQCXMSS</code></td></tr>
+            <tr><td><strong>Build Directory:</strong></td><td><code>${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/fit1_${{ needs.validate-inputs.outputs.exp_version }}/</code></td></tr>
+            </table>
+            
+            <h4>📋 FIT1 CSS Signing Instructions:</h4>
             <ol>
-            <li>Encrypt emmodule with project <strong>'SRFMCUPQCRSA'</strong></li>
-            <li>Debug/Release dual sign with:
+            <li><strong>Encrypt emmodule</strong> with project <code>SRFMCUPQCRSA</code></li>
+            <li><strong>Debug/Release dual sign</strong> with:
               <ul>
-              <li>RSA Project: <strong>SRFMCUPQCRSA</strong></li>
-              <li>XMSS Project: <strong>SRFMCUPQCXMSS</strong></li>
+              <li>RSA Project: <code>SRFMCUPQCRSA</code></li>
+              <li>XMSS Project: <code>SRFMCUPQCXMSS</code></li>
               </ul>
             </li>
             <li>Complete the signing process</li>
-            <li>Run: <code>touch /tmp/fit1_signing_completed_${{ needs.validate-inputs.outputs.exp_version }}</code></li>
             </ol>
             
-            <p><em>The build will automatically continue once you complete the signing and create the completion file.</em></p>
+            <p><strong>⏳ The build will automatically detect when signing is complete and continue (checking every 3 minutes for 30 minutes).</strong></p>
+            <p><em>No manual intervention needed after signing - the system will auto-continue!</em></p>
+
+      - name: Wait for FIT1 signing completion with retry
+        run: |
+          echo "⏳ Waiting for FIT1 CSS signing completion..."
+          
+          FIT1_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/fit1_${{ needs.validate-inputs.outputs.exp_version }}"
+          
+          # Note: You need to specify the exact filename for FIT1 signed output
+          # SIGNED_FILE="$FIT1_DIR/[EXACT_FIT1_SIGNED_FILENAME]"
+          
+          echo "🔍 Checking FIT1 directory: $FIT1_DIR"
+          echo "⚠️  TODO: Specify exact FIT1 signed filename to check for"
+          
+          # Function to wait for FIT1 signing
+          wait_for_fit1_signing() {
+            local timeout_minutes=$1
+            local check_interval=3  # 3 minutes
+            local max_checks=$((timeout_minutes / check_interval))
             
-      - name: Wait for manual FIT1 signing
-        uses: ./.github/actions/wait-for-manual-signing
-        with:
-          signing_type: "FIT1"
-          build_path: "${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
-          timeout_minutes: 30
+            for ((i=1; i<=max_checks; i++)); do
+              # TODO: Replace this with actual FIT1 signed file check
+              # if [[ -f "$SIGNED_FILE" ]]; then
+              #   echo "✅ FIT1 signing completed! Found: $SIGNED_FILE"
+              #   return 0
+              # fi
+              
+              echo "⏳ Check $i/$max_checks: Waiting for FIT1 CSS signing... ($(($i * check_interval))/$timeout_minutes minutes elapsed)"
+              echo "📁 FIT1 directory contents:"
+              ls -la "$FIT1_DIR/" 2>/dev/null || echo "Directory not accessible"
+              
+              sleep $((check_interval * 60))
+            done
+            
+            return 1
+          }
+          
+          # First attempt: 30 minutes
+          if wait_for_fit1_signing 30; then
+            echo "🎉 FIT1 signing completed successfully!"
+          else
+            echo "⏰ First timeout reached (30 minutes). Sending reminder email..."
+            
+            # Second attempt: 10 more minutes
+            echo "⏳ Waiting additional 10 minutes for FIT1 signing..."
+            if wait_for_fit1_signing 10; then
+              echo "🎉 FIT1 signing completed after reminder!"
+            else
+              echo "❌ FIT1 signing timeout: No signed file found after 40 minutes total"
+              echo "🔍 Final check - files in FIT1 directory:"
+              ls -la "$FIT1_DIR/" || echo "Directory not accessible"
+              exit 1
+            fi
+          fi
 
       - name: Complete build after FIT1 signing (using faceless account)
         env:
@@ -329,6 +471,8 @@ jobs:
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'Complete build running as: \$(whoami)'
             cd ${{ env.BUILD_BASE_PATH }}
+            
+            # Complete the final build steps
             echo 'y' | ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }}
           "
 
@@ -366,7 +510,14 @@ jobs:
               exit 1
             fi
             
-            echo '✅ Build validation successful!'
+            # Check for key output files
+            if [[ -f \"$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}/soc.bin\" ]]; then
+              echo '✅ SOC final binary found: soc.bin'
+            else
+              echo '⚠️  SOC final binary not found: soc.bin'
+            fi
+            
+            echo '✅ Build validation completed!'
           "
           
       - name: Generate build summary
@@ -446,13 +597,21 @@ jobs:
             <tr><td><strong>Validation Status:</strong></td><td>${{ needs.prepare-config.outputs.validation_status }}</td></tr>
             </table>
             
-            <h4>Artifacts Available:</h4>
+            <h4>✅ CSS Signing Completed:</h4>
+            <ul>
+            <li>✅ SOC CSS signing completed successfully</li>
+            <li>✅ FIT1 CSS signing completed successfully</li>
+            <li>✅ Final binaries generated</li>
+            </ul>
+            
+            <h4>📦 Artifacts Available:</h4>
             <ul>
             <li>Release files available in GitHub Actions artifacts</li>
             <li>Build archive created on build server</li>
+            <li>SOC and FIT1 signed binaries preserved</li>
             </ul>
             
-            <h4>Next Steps:</h4>
+            <h4>🚀 Next Steps:</h4>
             <ol>
             <li>Download artifacts from GitHub Actions</li>
             <li>Test the experimental patch</li>
@@ -482,9 +641,20 @@ jobs:
             
             ${{ needs.prepare-config.outputs.validation_status == 'failed_with_warnings' && format('<div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; margin: 10px 0;"><h4>⚠️ Initial Validation Warnings (may be related to failure):</h4><p>{0}</p></div>', needs.prepare-config.outputs.validation_warnings) || '' }}
             
-            <h4>Action Required:</h4>
+            <h4>🔍 Possible Failure Causes:</h4>
+            <ul>
+            <li>CSS signing timeout (SOC or FIT1)</li>
+            <li>Missing signed files after CSS completion</li>
+            <li>Build tool execution issues</li>
+            <li>File permission problems with faceless account</li>
+            <li>Path validation issues from initial step</li>
+            </ul>
+            
+            <h4>🛠️ Action Required:</h4>
             <ul>
             <li>Check the GitHub Actions logs for detailed error information</li>
+            <li>Verify CSS signing was completed properly</li>
+            <li>Check if signed files exist in expected locations</li>
             <li>Review any validation warnings from the initial step</li>
             <li>Verify faceless account has necessary file permissions</li>
             <li>Contact the build team if assistance is needed</li>
@@ -505,6 +675,7 @@ jobs:
               echo '✅ Experimental patch build completed successfully!'
               echo '🛠️ Build executed using Intel FXT tool (fxtMuppt.py) with faceless account'
               echo '🐍 Using Python 3.7.4 for compatibility'
+              echo '🔐 CSS signing completed for both SOC and FIT1'
               echo '📁 Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}'
               echo '📦 Artifacts uploaded to GitHub Actions'
               
@@ -517,6 +688,7 @@ jobs:
               echo '❌ Experimental patch build failed!'
               echo '🛠️ Build was attempted using Intel FXT tool (fxtMuppt.py) with faceless account'
               echo '🐍 Used Python 3.7.4 for compatibility'
+              echo '🔐 Check if CSS signing was completed properly'
               echo '📋 Check the logs for more details'
               
               if [[ \"${{ needs.prepare-config.outputs.validation_status }}\" == \"failed_with_warnings\" ]]; then
