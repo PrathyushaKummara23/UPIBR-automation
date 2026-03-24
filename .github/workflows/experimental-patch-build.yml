@@ -45,139 +45,82 @@ jobs:
 
       - name: Initialize Kerberos Authentication
         env:
-          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          SRF_FACELESS_PASSWORD: ${{ secrets.SRF_FACELESS_PASSWORD }}
         run: |
-          echo "🔐 Initializing Kerberos authentication..."
-          echo "🎫 Running ktab registration..."
+          echo "🔐 Initializing Kerberos authentication for SRF faceless account..."
+          echo "👤 Switching to grp_srf_fit1_build account first..."
           
-          # Method 1: Try with expect if available
-          if command -v expect >/dev/null 2>&1; then
-            echo "Using expect method for ktab..."
-            expect << EOF
-          spawn /usr/intel/bin/ktab -i
-          expect "Please enter your password"
-          send "$FA_PASSWORD\r"
-          expect eof
-          EOF
-            KTAB_EXIT_CODE=$?
-          else
-            # Method 2: Try with here-document
-            echo "Using here-document method for ktab..."
-            /usr/intel/bin/ktab -i << EOF
-          $FA_PASSWORD
-          EOF
-            KTAB_EXIT_CODE=$?
+          # Switch to faceless account and run Kerberos initialization
+          (echo "$BUILD_PASSWORD"; sleep 2) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo '🔐 Running Kerberos initialization as: \$(whoami)'
+            echo '🎫 Running ktab registration...'
             
-            # Method 3: Fallback with printf and timeout
-            if [[ $KTAB_EXIT_CODE -ne 0 ]]; then
-              echo "Trying fallback method for ktab..."
-              timeout 30 bash -c "printf '%s\n' '$FA_PASSWORD' | /usr/intel/bin/ktab -i" || KTAB_EXIT_CODE=$?
-            fi
-          fi
-          
-          if [[ $KTAB_EXIT_CODE -eq 0 ]]; then
-            echo "✅ ktab registration completed successfully"
-          else
-            echo "❌ ktab registration failed with exit code: $KTAB_EXIT_CODE"
-            echo "Attempting alternative ktab method..."
+            # Initialize ktab with SRF faceless account password
+            echo '$SRF_FACELESS_PASSWORD' | /usr/intel/bin/ktab -i
+            KTAB_EXIT_CODE=\$?
             
-            # Method 4: Direct file descriptor approach
-            exec 3< <(echo "$FA_PASSWORD")
-            /usr/intel/bin/ktab -i <&3
-            KTAB_EXIT_CODE=$?
-            exec 3<&-
-            
-            if [[ $KTAB_EXIT_CODE -eq 0 ]]; then
-              echo "✅ ktab registration completed with alternative method"
+            if [[ \$KTAB_EXIT_CODE -eq 0 ]]; then
+              echo '✅ ktab registration completed successfully'
             else
-              echo "❌ All ktab methods failed. Continuing anyway..."
-              # Don't exit here, continue with kcron
+              echo '❌ ktab registration failed with exit code: '\$KTAB_EXIT_CODE
+              exit 1
             fi
-          fi
-          
-          echo "🔄 Running kcron registration..."
-          
-          # Method 1: Try with expect if available
-          if command -v expect >/dev/null 2>&1; then
-            echo "Using expect method for kcron..."
-            expect << EOF
-          spawn /usr/intel/bin/kcron -i
-          expect "Overwrite (y/n)?"
-          send "y\r"
-          expect "Please enter your password"
-          send "$FA_PASSWORD\r"
-          expect eof
-          EOF
-            KCRON_EXIT_CODE=$?
-          else
-            # Method 2: Try with here-document
-            echo "Using here-document method for kcron..."
-            /usr/intel/bin/kcron -i << EOF
-          y
-          $FA_PASSWORD
-          EOF
-            KCRON_EXIT_CODE=$?
             
-            # Method 3: Fallback with printf and timeout
-            if [[ $KCRON_EXIT_CODE -ne 0 ]]; then
-              echo "Trying fallback method for kcron..."
-              timeout 30 bash -c "printf 'y\n%s\n' '$FA_PASSWORD' | /usr/intel/bin/kcron -i" || KCRON_EXIT_CODE=$?
-            fi
-          fi
-          
-          if [[ $KCRON_EXIT_CODE -eq 0 ]]; then
-            echo "✅ kcron registration completed successfully"
-          else
-            echo "❌ kcron registration failed with exit code: $KCRON_EXIT_CODE"
-            echo "Attempting alternative kcron method..."
+            echo '🔄 Running kcron registration...'
             
-            # Method 4: Interactive simulation with sleep
-            (
-              sleep 1
-              echo "y"
-              sleep 1
-              echo "$FA_PASSWORD"
-              sleep 1
-            ) | /usr/intel/bin/kcron -i
-            KCRON_EXIT_CODE=$?
-            
-            if [[ $KCRON_EXIT_CODE -eq 0 ]]; then
-              echo "✅ kcron registration completed with alternative method"
+            # Check if kcron already exists and handle accordingly
+            if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
+              echo '✅ kcron already registered and active'
             else
-              echo "❌ All kcron methods failed. This may cause build issues."
-              # Continue anyway - some builds might work without kcron
+              # Initialize kcron with SRF faceless account password (auto-answer 'y' for overwrite)
+              (echo 'y'; echo '$SRF_FACELESS_PASSWORD') | /usr/intel/bin/kcron -i
+              KCRON_EXIT_CODE=\$?
+              
+              if [[ \$KCRON_EXIT_CODE -eq 0 ]]; then
+                echo '✅ kcron registration completed successfully'
+              else
+                echo '❌ kcron registration failed with exit code: '\$KCRON_EXIT_CODE
+                exit 1
+              fi
             fi
-          fi
-          
-          echo "🎉 Kerberos initialization process completed!"
+            
+            echo '🎉 Kerberos initialization completed successfully!'
+          "
           
       - name: Verify Kerberos Status
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "🔍 Verifying Kerberos authentication status..."
           
-          # Check if keytab exists and is valid
-          if /usr/intel/bin/klist -k >/dev/null 2>&1; then
-            echo "✅ Keytab is available and valid"
-            /usr/intel/bin/klist -k 2>/dev/null || echo "Could not list keytab contents"
-          else
-            echo "⚠️ Warning: Could not verify keytab status"
-          fi
-          
-          # Check kcron status
-          if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
-            echo "✅ kcron is registered and active"
-          else
-            echo "⚠️ Warning: Could not verify kcron status"
-          fi
-          
-          # Check if we can access network resources (basic connectivity test)
-          if ping -c 1 -W 5 intel.com >/dev/null 2>&1; then
-            echo "✅ Network connectivity verified"
-          else
-            echo "⚠️ Warning: Network connectivity issues detected"
-          fi
-          
-          echo "🔐 Kerberos verification completed"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Verification running as: \$(whoami)'
+            
+            # Check if keytab exists and is valid
+            if /usr/intel/bin/klist -k >/dev/null 2>&1; then
+              echo '✅ Keytab is available and valid'
+              /usr/intel/bin/klist -k 2>/dev/null || echo 'Could not list keytab contents'
+            else
+              echo '⚠️ Warning: Could not verify keytab status'
+            fi
+            
+            # Check kcron status
+            if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
+              echo '✅ kcron is registered and active'
+            else
+              echo '⚠️ Warning: Could not verify kcron status'
+            fi
+            
+            # Check if we can access network resources (basic connectivity test)
+            if ping -c 1 -W 5 intel.com >/dev/null 2>&1; then
+              echo '✅ Network connectivity verified'
+            else
+              echo '⚠️ Warning: Network connectivity issues detected'
+            fi
+            
+            echo '🔐 Kerberos verification completed'
+          "
 
   validate-inputs:
     needs: kerberos-init
