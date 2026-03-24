@@ -17,22 +17,16 @@ def generate_config(baseline_config, exp_version, baseline_version, ocode_path,
     config.read(baseline_config)
     
     # Modify DEFAULT section
-    config['default']['version'] = f'0x{exp_version}'
-    config['default']['build_path'] = build_path
-    config['default']['patch_description'] = description
-    config['default']['force'] = 'yes'
-    config['default']['release'] = 'no'
-    config['default']['fiv_register'] = 'no'
-    config['default']['fiv_crawler'] = 'no'
-    config['default']['release_notes'] = 'no'
-    config['default']['prev_version'] = f'0x{baseline_version}'
+    if 'DEFAULT' not in config:
+        config.add_section('DEFAULT')
     
-    # Modify SOC section
-    config['SOC']['soc_sign'] = 'manual'
+    config['DEFAULT']['patch_version'] = f'0x{exp_version}'
+    
+    # Modify SOC section - Update OCODE path
+    if 'SOC' not in config:
+        config.add_section('SOC')
+    
     config['SOC']['oobmsm'] = ocode_path
-    
-    # Modify FIT1 section
-    config['FIT1']['fit1_sign'] = 'manual'
     
     # Handle additional changes
     if additional_changes:
@@ -41,7 +35,10 @@ def generate_config(baseline_config, exp_version, baseline_version, ocode_path,
             for key, value in changes.items():
                 if key in config['SOC']:
                     config['SOC'][key] = value
-                    print(f"Updated {key} to {value}")
+                    print(f"Updated SOC.{key} to {value}")
+                elif key in config['FIT1']:
+                    config['FIT1'][key] = value
+                    print(f"Updated FIT1.{key} to {value}")
         except json.JSONDecodeError:
             print("Warning: Could not parse additional_changes JSON")
     
@@ -50,6 +47,8 @@ def generate_config(baseline_config, exp_version, baseline_version, ocode_path,
         config.write(f)
     
     print(f"Generated config file: {output_file}")
+    print(f"Experimental version: {exp_version}")
+    print(f"OCODE path: {ocode_path}")
 
 def main():
     parser = argparse.ArgumentParser(description='Generate experimental patch config')

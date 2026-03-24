@@ -1,4 +1,4 @@
-name: Experiment Debug Patch Build SRF
+name: Experiment Debug Patch Build
 
 on:
   workflow_dispatch:
@@ -21,13 +21,13 @@ on:
         default: 'SRF Experiment Debug Unified Patch'
         type: string
       additional_changes:
-        description: 'Additional code changes (JSON: {"icode": "path", "pcode-io": "path"})'
+        description: 'Additional code changes (JSON format: {"icode": "path", "pcode-io": "path"})'
         required: false
         type: string
       enable_notifications:
         description: 'Enable email notifications'
         required: false
-        default: false
+        default: true
         type: boolean
 
 env:
@@ -37,93 +37,7 @@ env:
   PYTHON_PATH: /usr/intel/bin/python3.7.4
   
 jobs:
-  kerberos-init:
-    runs-on: [self-hosted, node16]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Initialize Kerberos Authentication
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-          SRF_FACELESS_PASSWORD: ${{ secrets.SRF_FACELESS_PASSWORD }}
-        run: |
-          echo "🔐 Initializing Kerberos authentication for SRF faceless account..."
-          echo "👤 Switching to grp_srf_fit1_build account first..."
-          
-          # Switch to faceless account and run Kerberos initialization
-          (echo "$BUILD_PASSWORD"; sleep 2) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo '🔐 Running Kerberos initialization as: \$(whoami)'
-            echo '🎫 Running ktab registration...'
-            
-            # Initialize ktab with SRF faceless account password
-            echo '$SRF_FACELESS_PASSWORD' | /usr/intel/bin/ktab -i
-            KTAB_EXIT_CODE=\$?
-            
-            if [[ \$KTAB_EXIT_CODE -eq 0 ]]; then
-              echo '✅ ktab registration completed successfully'
-            else
-              echo '❌ ktab registration failed with exit code: '\$KTAB_EXIT_CODE
-              exit 1
-            fi
-            
-            echo '🔄 Running kcron registration...'
-            
-            # Check if kcron already exists and handle accordingly
-            if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
-              echo '✅ kcron already registered and active'
-            else
-              # Initialize kcron with SRF faceless account password (auto-answer 'y' for overwrite)
-              (echo 'y'; echo '$SRF_FACELESS_PASSWORD') | /usr/intel/bin/kcron -i
-              KCRON_EXIT_CODE=\$?
-              
-              if [[ \$KCRON_EXIT_CODE -eq 0 ]]; then
-                echo '✅ kcron registration completed successfully'
-              else
-                echo '❌ kcron registration failed with exit code: '\$KCRON_EXIT_CODE
-                exit 1
-              fi
-            fi
-            
-            echo '🎉 Kerberos initialization completed successfully!'
-          "
-          
-      - name: Verify Kerberos Status
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "🔍 Verifying Kerberos authentication status..."
-          
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo 'Verification running as: \$(whoami)'
-            
-            # Check if keytab exists and is valid
-            if /usr/intel/bin/klist -k >/dev/null 2>&1; then
-              echo '✅ Keytab is available and valid'
-              /usr/intel/bin/klist -k 2>/dev/null || echo 'Could not list keytab contents'
-            else
-              echo '⚠️ Warning: Could not verify keytab status'
-            fi
-            
-            # Check kcron status
-            if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
-              echo '✅ kcron is registered and active'
-            else
-              echo '⚠️ Warning: Could not verify kcron status'
-            fi
-            
-            # Check if we can access network resources (basic connectivity test)
-            if ping -c 1 -W 5 intel.com >/dev/null 2>&1; then
-              echo '✅ Network connectivity verified'
-            else
-              echo '⚠️ Warning: Network connectivity issues detected'
-            fi
-            
-            echo '🔐 Kerberos verification completed'
-          "
-
   validate-inputs:
-    needs: kerberos-init
     runs-on: [self-hosted, node16]
     outputs:
       exp_version: ${{ steps.generate-version.outputs.exp_version }}
@@ -168,7 +82,7 @@ jobs:
           echo "Requester: ${{ github.event.inputs.requester }}"
 
   prepare-config:
-    needs: [kerberos-init, validate-inputs]
+    needs: validate-inputs
     runs-on: [self-hosted, node16]
     outputs:
       validation_warnings: ${{ steps.validate-paths.outputs.warnings }}
@@ -193,51 +107,43 @@ jobs:
             echo "Will create config from template"
           fi
           
-      - name: Generate experimental config
+      - name: Generate experimental config using Python script
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           BASELINE_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${{ github.event.inputs.baseline_version }}.ini"
           EXP_CONFIG="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+          SCRIPT_PATH="${{ github.workspace }}/scripts/config_generator.py"
           
-          if [[ -f "$BASELINE_CONFIG" ]]; then
-            # Copy and modify baseline config
-            cp "$BASELINE_CONFIG" "$EXP_CONFIG"
+          echo "🐍 Using config generator script: $SCRIPT_PATH"
+          echo "📋 Baseline config: $BASELINE_CONFIG"
+          echo "📋 Output config: $EXP_CONFIG"
+          echo "🔐 Signing mode: Using existing css-debug from baseline config"
+          
+          # Run config generator using faceless account
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Config generation running as: \$(whoami)'
+            cd ${{ env.BUILD_BASE_PATH }}
             
-            # Update experimental version
-            sed -i "s/patch_version = 0x${{ github.event.inputs.baseline_version }}/patch_version = 0x${{ needs.validate-inputs.outputs.exp_version }}/g" "$EXP_CONFIG"
+            if [[ -f '$BASELINE_CONFIG' ]]; then
+              echo '✅ Using existing baseline config file'
+              ${{ env.PYTHON_PATH }} '$SCRIPT_PATH' \
+                --baseline-config '$BASELINE_CONFIG' \
+                --exp-version '${{ needs.validate-inputs.outputs.exp_version }}' \
+                --baseline-version '${{ github.event.inputs.baseline_version }}' \
+                --ocode-path '${{ github.event.inputs.ocode_path }}' \
+                --build-path '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}' \
+                --description '${{ github.event.inputs.description }}' \
+                --additional-changes '${{ github.event.inputs.additional_changes }}' \
+                --output '$EXP_CONFIG'
+            else
+              echo '⚠️ Baseline config not found, cannot proceed without baseline'
+              echo 'Expected location: $BASELINE_CONFIG'
+              exit 1
+            fi
             
-            # Update OCODE path
-            sed -i "s|oobmsm = .*|oobmsm = ${{ github.event.inputs.ocode_path }}|g" "$EXP_CONFIG"
-            
-            # Change signing from manual to css-debug
-            sed -i "s/soc_sign = manual/soc_sign = css-debug/g" "$EXP_CONFIG"
-            sed -i "s/fit1_sign = manual/fit1_sign = css-debug/g" "$EXP_CONFIG"
-            
-            echo "✅ Generated experimental config: $EXP_CONFIG"
-          else
-            # Create basic config template with css-debug signing
-            cat > "$EXP_CONFIG" << EOF
-[DEFAULT]
-patch_version = 0x${{ needs.validate-inputs.outputs.exp_version }}
-project_name = SRF
-se_svn = 6
-fit1_only = no
-
-[SOC]
-soc_sign = css-debug
-icode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_iCode/main/0x24164200/icode_enc_dbug.bin
-oobmsm = ${{ github.event.inputs.ocode_path }}
-pcode-io = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_Pcode/main/srf-c0_25ww35_UPLR2_0x00001124/gnr_io_c0/pcode-io_enc_dbug.bin
-pcode-c = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_Pcode/main/srf-c0_25ww35_UPLR2_0x00001124/gnr_atom_b0/pcode-c_enc_dbug.bin
-s3m = /nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww02/26ww02.5_T6087_s3m_fw_SESVN0_SVN1_REVID2.0.0.00169_C0/S3M_1_0_2.0.0.00169_enc_dbug.IP_0100.bin
-
-[FIT1]
-fit1_sign = css-debug
-ucode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e000102a
-xucode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc
-mcheck = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_Mcheck/main/mcheck_srf_c0_0.20.10.948-full_mcheck_srf-b0-product/MCHECK_SECTION.inc
-EOF
-            echo "✅ Created experimental config from template: $EXP_CONFIG"
-          fi
+            echo '✅ Config generation completed using Python script'
+          "
           
       - name: Validate config file exists
         run: |
@@ -324,7 +230,7 @@ EOF
           echo "✅ Validation step completed - proceeding to build"
 
   build-patch:
-    needs: [kerberos-init, validate-inputs, prepare-config]
+    needs: [validate-inputs, prepare-config]
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
@@ -379,7 +285,7 @@ EOF
           "
 
   validate-output:
-    needs: [kerberos-init, validate-inputs, prepare-config, build-patch]
+    needs: [validate-inputs, prepare-config, build-patch]
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
@@ -438,7 +344,6 @@ EOF
           BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
           
           echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Kerberos Status**: ✅ Initialized" >> $GITHUB_STEP_SUMMARY
           echo "- **Experimental Version**: ${{ needs.validate-inputs.outputs.exp_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Requester**: ${{ github.event.inputs.requester }}" >> $GITHUB_STEP_SUMMARY
@@ -487,7 +392,7 @@ EOF
           fi
 
   notify-completion:
-    needs: [kerberos-init, validate-inputs, prepare-config, validate-output]
+    needs: [validate-inputs, prepare-config, validate-output]
     runs-on: [self-hosted, node16]
     if: always()
     steps:
@@ -500,7 +405,6 @@ EOF
           echo "📧 Build Completed Successfully! 🎉"
           echo "=================================="
           echo ""
-          echo "🔐 Kerberos Authentication: ✅ Initialized"
           echo "Experimental Version: ${{ needs.validate-inputs.outputs.exp_version }}"
           echo "Baseline Version: ${{ github.event.inputs.baseline_version }}"
           echo "Requester: ${{ github.event.inputs.requester }}"
@@ -512,7 +416,6 @@ EOF
           echo "OCODE Used: ${{ github.event.inputs.ocode_path }}"
           echo "Validation Status: ${{ needs.prepare-config.outputs.validation_status }}"
           echo ""
-          echo "✅ Kerberos authentication completed successfully"
           echo "✅ Automated CSS-debug signing completed successfully"
           echo "✅ Final binaries generated without manual intervention"
           echo ""
@@ -527,7 +430,6 @@ EOF
           echo "📧 Build Failed ❌"
           echo "=================="
           echo ""
-          echo "🔐 Kerberos Status: ${{ needs.kerberos-init.result }}"
           echo "Experimental Version: ${{ needs.validate-inputs.outputs.exp_version }}"
           echo "Baseline Version: ${{ github.event.inputs.baseline_version }}"
           echo "Requester: ${{ github.event.inputs.requester }}"
@@ -539,7 +441,6 @@ EOF
           echo "Initial Validation Status: ${{ needs.prepare-config.outputs.validation_status }}"
           echo ""
           echo "🔍 Possible Failure Causes:"
-          echo "- Kerberos authentication issues"
           echo "- CSS-debug signing configuration issues"
           echo "- Build tool execution problems"
           echo "- File permission problems with faceless account"
@@ -548,7 +449,6 @@ EOF
           echo ""
           echo "🛠️ Action Required:"
           echo "- Check the GitHub Actions logs for detailed error information"
-          echo "- Verify Kerberos authentication completed successfully"
           echo "- Verify CSS-debug signing configuration is correct"
           echo "- Review any validation warnings from the initial step"
           echo "- Verify faceless account has necessary permissions for CSS-debug"
@@ -567,7 +467,6 @@ EOF
             
             if [[ \"${{ needs.validate-output.result }}\" == \"success\" ]]; then
               echo '✅ Experimental patch build completed successfully!'
-              echo '🔐 Kerberos authentication was initialized successfully'
               echo '🛠️ Build executed using Intel FXT tool (fxtMuppt.py) with faceless account'
               echo '🐍 Using Python 3.7.4 for compatibility'
               echo '🔐 CSS-debug signing completed automatically'
@@ -581,7 +480,6 @@ EOF
               fi
             else
               echo '❌ Experimental patch build failed!'
-              echo '🔐 Kerberos status: ${{ needs.kerberos-init.result }}'
               echo '🛠️ Build was attempted using Intel FXT tool (fxtMuppt.py) with faceless account'
               echo '🐍 Used Python 3.7.4 for compatibility'
               echo '🔐 CSS-debug signing was configured for automation'
