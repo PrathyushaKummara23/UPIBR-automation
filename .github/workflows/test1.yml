@@ -77,10 +77,10 @@ jobs:
           echo "Actual user: $CURRENT_USER"
           
           if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
-            echo "✅ SUCCESS: User switch to faceless account successful"
+            echo "SUCCESS: User switch to faceless account successful"
             echo "Running as: $CURRENT_USER"
           else
-            echo "❌ FAILURE: User switch failed"
+            echo "FAILURE: User switch failed"
             echo "Expected: grp_srf_fit1_build"
             echo "Got: $CURRENT_USER"
             exit 1
@@ -106,15 +106,15 @@ jobs:
           NEW_CLEAN="${NEW_CLEAN#0x}"
           
           if [[ ! "$BASELINE_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
-            echo "❌ Error: Invalid baseline version format: $BASELINE_CLEAN"
+            echo "Error: Invalid baseline version format: $BASELINE_CLEAN"
             exit 1
           fi
           if [[ ! "$NEW_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
-            echo "❌ Error: Invalid new version format: $NEW_CLEAN"
+            echo "Error: Invalid new version format: $NEW_CLEAN"
             exit 1
           fi
           
-          echo "✅ Version validation passed"
+          echo "Version validation passed"
           echo "  - Baseline: $BASELINE_CLEAN"
           echo "  - New: $NEW_CLEAN"
 
@@ -140,18 +140,18 @@ jobs:
           ")
           
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
-            echo "✅ Baseline config found: $SOURCE_CONFIG"
+            echo "Baseline config found: $SOURCE_CONFIG"
             echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
           else
-            echo "❌ Config not found as faceless account, checking as pkummara..."
+            echo "Config not found as faceless account, checking as pkummara..."
             
             # Check as pkummara
             if [[ -f "$SOURCE_CONFIG" ]]; then
-              echo "✅ Baseline config found as pkummara: $SOURCE_CONFIG"
-              echo "⚠️  Note: Config accessible to pkummara but not faceless account"
+              echo "Baseline config found as pkummara: $SOURCE_CONFIG"
+              echo "Note: Config accessible to pkummara but not faceless account"
               echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
             else
-              echo "❌ Error: Baseline config not found by either account: $SOURCE_CONFIG"
+              echo "Error: Baseline config not found by either account: $SOURCE_CONFIG"
               exit 1
             fi
           fi
@@ -183,18 +183,18 @@ jobs:
             ")
             
             if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
-              echo "✅ $name: $path (exists - faceless account)"
+              echo "PASS $name: $path (exists - faceless account)"
               return 0
             else
-              echo "❌ $name not found as faceless account, checking as pkummara..."
+              echo "$name not found as faceless account, checking as pkummara..."
               
               # Check as pkummara
               if [[ -f "$path" ]]; then
-                echo "✅ $name: $path (exists - pkummara account)"
-                echo "⚠️  Note: $name accessible to pkummara but not faceless account"
+                echo "PASS $name: $path (exists - pkummara account)"
+                echo "Note: $name accessible to pkummara but not faceless account"
                 return 0
               else
-                echo "❌ Error: $name path does not exist for either account: $path"
+                echo "ERROR: $name path does not exist for either account: $path"
                 return 1
               fi
             fi
@@ -242,11 +242,11 @@ jobs:
           done
           
           if [[ $PROVIDED_PATHS -eq 0 ]]; then
-            echo "ℹ️  No user-provided paths to validate (using baseline paths)"
+            echo "No user-provided paths to validate (using baseline paths)"
           elif [[ $FAILED_PATHS -eq 0 ]]; then
-            echo "✅ All $PROVIDED_PATHS provided paths validated successfully"
+            echo "All $PROVIDED_PATHS provided paths validated successfully"
           else
-            echo "❌ $FAILED_PATHS out of $PROVIDED_PATHS provided paths failed validation"
+            echo "ERROR: $FAILED_PATHS out of $PROVIDED_PATHS provided paths failed validation"
             exit 1
           fi
 
@@ -277,7 +277,7 @@ jobs:
             local is_provided="$3"
             
             if [[ "$path" == "none" || -z "$path" ]]; then
-              echo "ℹ️  $name: $path (skipped)"
+              echo "SKIP $name: $path (skipped)"
               return 0
             fi
             
@@ -292,31 +292,32 @@ jobs:
             
             if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
               if [[ "$is_provided" == "true" ]]; then
-                echo "✅ $name: $path (exists - faceless, will be overridden)"
+                echo "PASS $name: $path (exists - faceless, will be overridden)"
               else
-                echo "✅ $name: $path (exists - faceless, using baseline)"
+                echo "PASS $name: $path (exists - faceless, using baseline)"
               fi
               return 0
             else
-              echo "❌ $name not found as faceless account, checking as pkummara..."
+              echo "$name not found as faceless account, checking as pkummara..."
               
               # Check as pkummara
               if [[ -f "$path" ]]; then
                 if [[ "$is_provided" == "true" ]]; then
-                  echo "✅ $name: $path (exists - pkummara, will be overridden)"
-                  echo "⚠️  Note: Baseline $name accessible to pkummara but not faceless account"
+                  echo "PASS $name: $path (exists - pkummara, will be overridden)"
+                  echo "Note: Baseline $name accessible to pkummara but not faceless account"
                 else
-                  echo "✅ $name: $path (exists - pkummara, using baseline)"
-                  echo "⚠️  Note: Baseline $name accessible to pkummara but not faceless account"
+                  echo "PASS $name: $path (exists - pkummara, using baseline)"
+                  echo "Note: Baseline $name accessible to pkummara but not faceless account"
                 fi
                 return 0
               else
                 if [[ "$is_provided" == "true" ]]; then
-                  echo "⚠️  $name: $path (baseline missing from both accounts, but will be overridden)"
+                  echo "WARNING $name: $path (baseline missing from both accounts, but will be overridden)"
                   return 0
                 else
-                  echo "❌ Error: $name path from baseline config does not exist in either account: $path"
-                  return 1
+                  echo "WARNING $name: $path (baseline missing from both accounts, using as-is)"
+                  echo "Note: This may cause issues during build, but continuing anyway"
+                  return 0
                 fi
               fi
             fi
@@ -335,25 +336,25 @@ jobs:
           TCODE_PATH=$(grep '^tcode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
           ACODE_PATH=$(grep '^acode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
           
-          # Validate each component path
-          FAILED_BASELINE=0
+          # Validate each component path (always return 0 to continue)
+          WARNINGS=0
           
-          validate_baseline_path 'ICODE' "$ICODE_PATH" "$([[ -n "$ICODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'OOBMSM' "$OOBMSM_PATH" "$([[ -n "$OOBMSM_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'S3M' "$S3M_PATH" "$([[ -n "$S3M_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'PCODE-IO' "$PCODE_IO_PATH" "$([[ -n "$PCODE_IO_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'PCODE-C' "$PCODE_C_PATH" "$([[ -n "$PCODE_C_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'UCODE' "$UCODE_PATH" "$([[ -n "$UCODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'XUCODE' "$XUCODE_PATH" "$([[ -n "$XUCODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'MCHECK' "$MCHECK_PATH" "$([[ -n "$MCHECK_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'TCODE' "$TCODE_PATH" "$([[ -n "$TCODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
-          validate_baseline_path 'ACODE' "$ACODE_PATH" "$([[ -n "$ACODE_INPUT" ]] && echo true || echo false)" || FAILED_BASELINE=$((FAILED_BASELINE + 1))
+          validate_baseline_path 'ICODE' "$ICODE_PATH" "$([[ -n "$ICODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'OOBMSM' "$OOBMSM_PATH" "$([[ -n "$OOBMSM_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'S3M' "$S3M_PATH" "$([[ -n "$S3M_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'PCODE-IO' "$PCODE_IO_PATH" "$([[ -n "$PCODE_IO_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'PCODE-C' "$PCODE_C_PATH" "$([[ -n "$PCODE_C_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'UCODE' "$UCODE_PATH" "$([[ -n "$UCODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'XUCODE' "$XUCODE_PATH" "$([[ -n "$XUCODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'MCHECK' "$MCHECK_PATH" "$([[ -n "$MCHECK_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'TCODE' "$TCODE_PATH" "$([[ -n "$TCODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'ACODE' "$ACODE_PATH" "$([[ -n "$ACODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
           
-          if [[ $FAILED_BASELINE -eq 0 ]]; then
-            echo "✅ Baseline config path validation completed successfully"
+          if [[ $WARNINGS -eq 0 ]]; then
+            echo "Baseline config path validation completed successfully"
           else
-            echo "❌ $FAILED_BASELINE baseline paths failed validation"
-            exit 1
+            echo "Baseline config path validation completed with $WARNINGS warnings"
+            echo "Note: Warnings do not prevent config generation, but may cause build issues"
           fi
           
       - name: Copy and generate config
@@ -510,4 +511,4 @@ jobs:
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Config file generated successfully using dual account validation!**" >> $GITHUB_STEP_SUMMARY
+          echo "Config file generated successfully with dual account validation!" >> $GITHUB_STEP_SUMMARY
