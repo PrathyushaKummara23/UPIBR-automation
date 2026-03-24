@@ -185,7 +185,13 @@ jobs:
           echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **New Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Patch Type**: ${{ steps.check-patch-type.outputs.is_f_patch == 'true' && 'F-Patch (Debug)' || 'Regular Patch' }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
+            echo "- **Patch Type**: F-Patch (Debug)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Patch Type**: Regular Patch" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -204,13 +210,61 @@ jobs:
           
           echo "### Updated Components:" >> $GITHUB_STEP_SUMMARY
           
-          [[ -n "${{ github.event.inputs.icode }}" ]] && echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.oobmsm }}" ]] && echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.s3m }}" ]] && echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.pcode_io }}" ]] && echo "- **PCODE-IO**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.pcode_c }}" ]] && echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.ucode }}" ]] && echo "- **UCODE**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.xucode }}" ]] && echo "- **XUCODE**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.mcheck }}" ]] && echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.tcode }}" ]] && echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ github.event.inputs.acode }}" ]] && echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          COMPONENTS_UPDATED=false
+          
+          if [[ -n "${{ github.event.inputs.icode }}" ]]; then
+            echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.oobmsm }}" ]]; then
+            echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.s3m }}" ]]; then
+            echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.pcode_io }}" ]]; then
+            echo "- **PCODE-IO**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.pcode_c }}" ]]; then
+            echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.ucode }}" ]]; then
+            echo "- **UCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.xucode }}" ]]; then
+            echo "- **XUCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.mcheck }}" ]]; then
+            echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.tcode }}" ]]; then
+            echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.acode }}" ]]; then
+            echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ "$COMPONENTS_UPDATED" == "false" ]]; then
+            echo "- No component paths were updated (using baseline paths)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Config file generated successfully!**" >> $GITHUB_STEP_SUMMARY
