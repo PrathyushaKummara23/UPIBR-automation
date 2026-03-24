@@ -1,4 +1,4 @@
-name: Experiment Debug Patch Build
+name: Experiment Debug Patch Build SRF
 
 on:
   workflow_dispatch:
@@ -21,13 +21,13 @@ on:
         default: 'SRF Experiment Debug Unified Patch'
         type: string
       additional_changes:
-        description: 'Additional code changes (JSON format: {"icode": "path", "pcode-io": "path"})'
+        description: 'Additional code changes (JSON: {"icode": "path", "pcode-io": "path"})'
         required: false
         type: string
       enable_notifications:
         description: 'Enable email notifications'
         required: false
-        default: true
+        default: false
         type: boolean
 
 env:
@@ -37,7 +37,68 @@ env:
   PYTHON_PATH: /usr/intel/bin/python3.7.4
   
 jobs:
+  kerberos-init:
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Initialize Kerberos Authentication
+        env:
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+        run: |
+          echo "🔐 Initializing Kerberos authentication..."
+          echo "🎫 Running ktab registration..."
+          
+          # Initialize ktab with FA password
+          echo "$FA_PASSWORD" | /usr/intel/bin/ktab -i
+          KTAB_EXIT_CODE=$?
+          
+          if [[ $KTAB_EXIT_CODE -eq 0 ]]; then
+            echo "✅ ktab registration completed successfully"
+          else
+            echo "❌ ktab registration failed with exit code: $KTAB_EXIT_CODE"
+            exit 1
+          fi
+          
+          echo "🔄 Running kcron registration..."
+          
+          # Initialize kcron with FA password (auto-answer 'y' for overwrite)
+          (echo "y"; echo "$FA_PASSWORD") | /usr/intel/bin/kcron -i
+          KCRON_EXIT_CODE=$?
+          
+          if [[ $KCRON_EXIT_CODE -eq 0 ]]; then
+            echo "✅ kcron registration completed successfully"
+          else
+            echo "❌ kcron registration failed with exit code: $KCRON_EXIT_CODE"
+            exit 1
+          fi
+          
+          echo "🎉 Kerberos initialization completed successfully!"
+          
+      - name: Verify Kerberos Status
+        run: |
+          echo "🔍 Verifying Kerberos authentication status..."
+          
+          # Check if keytab exists and is valid
+          if /usr/intel/bin/klist -k >/dev/null 2>&1; then
+            echo "✅ Keytab is available and valid"
+            /usr/intel/bin/klist -k
+          else
+            echo "⚠️ Warning: Could not verify keytab status"
+          fi
+          
+          # Check kcron status
+          if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
+            echo "✅ kcron is registered and active"
+          else
+            echo "⚠️ Warning: Could not verify kcron status"
+          fi
+          
+          echo "🔐 Kerberos verification completed"
+
   validate-inputs:
+    needs: kerberos-init
     runs-on: [self-hosted, node16]
     outputs:
       exp_version: ${{ steps.generate-version.outputs.exp_version }}
@@ -82,7 +143,7 @@ jobs:
           echo "Requester: ${{ github.event.inputs.requester }}"
 
   prepare-config:
-    needs: validate-inputs
+    needs: [kerberos-init, validate-inputs]
     runs-on: [self-hosted, node16]
     outputs:
       validation_warnings: ${{ steps.validate-paths.outputs.warnings }}
@@ -238,7 +299,7 @@ jobs:
           echo "✅ Validation step completed - proceeding to build"
 
   build-patch:
-    needs: [validate-inputs, prepare-config]
+    needs: [kerberos-init, validate-inputs, prepare-config]
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
@@ -293,7 +354,7 @@ jobs:
           "
 
   validate-output:
-    needs: [validate-inputs, prepare-config, build-patch]
+    needs: [kerberos-init, validate-inputs, prepare-config, build-patch]
     runs-on: [self-hosted, node16]
     steps:
       - name: Checkout repository
@@ -352,6 +413,7 @@ jobs:
           BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
           
           echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Kerberos Status**: ✅ Initialized" >> $GITHUB_STEP_SUMMARY
           echo "- **Experimental Version**: ${{ needs.validate-inputs.outputs.exp_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Requester**: ${{ github.event.inputs.requester }}" >> $GITHUB_STEP_SUMMARY
@@ -400,7 +462,7 @@ jobs:
           fi
 
   notify-completion:
-    needs: [validate-inputs, prepare-config, validate-output]
+    needs: [kerberos-init, validate-inputs, prepare-config, validate-output]
     runs-on: [self-hosted, node16]
     if: always()
     steps:
@@ -413,6 +475,7 @@ jobs:
           echo "📧 Build Completed Successfully! 🎉"
           echo "=================================="
           echo ""
+          echo "🔐 Kerberos Authentication: ✅ Initialized"
           echo "Experimental Version: ${{ needs.validate-inputs.outputs.exp_version }}"
           echo "Baseline Version: ${{ github.event.inputs.baseline_version }}"
           echo "Requester: ${{ github.event.inputs.requester }}"
@@ -424,6 +487,7 @@ jobs:
           echo "OCODE Used: ${{ github.event.inputs.ocode_path }}"
           echo "Validation Status: ${{ needs.prepare-config.outputs.validation_status }}"
           echo ""
+          echo "✅ Kerberos authentication completed successfully"
           echo "✅ Automated CSS-debug signing completed successfully"
           echo "✅ Final binaries generated without manual intervention"
           echo ""
@@ -438,6 +502,7 @@ jobs:
           echo "📧 Build Failed ❌"
           echo "=================="
           echo ""
+          echo "🔐 Kerberos Status: ${{ needs.kerberos-init.result }}"
           echo "Experimental Version: ${{ needs.validate-inputs.outputs.exp_version }}"
           echo "Baseline Version: ${{ github.event.inputs.baseline_version }}"
           echo "Requester: ${{ github.event.inputs.requester }}"
@@ -449,6 +514,7 @@ jobs:
           echo "Initial Validation Status: ${{ needs.prepare-config.outputs.validation_status }}"
           echo ""
           echo "🔍 Possible Failure Causes:"
+          echo "- Kerberos authentication issues"
           echo "- CSS-debug signing configuration issues"
           echo "- Build tool execution problems"
           echo "- File permission problems with faceless account"
@@ -457,6 +523,7 @@ jobs:
           echo ""
           echo "🛠️ Action Required:"
           echo "- Check the GitHub Actions logs for detailed error information"
+          echo "- Verify Kerberos authentication completed successfully"
           echo "- Verify CSS-debug signing configuration is correct"
           echo "- Review any validation warnings from the initial step"
           echo "- Verify faceless account has necessary permissions for CSS-debug"
@@ -475,6 +542,7 @@ jobs:
             
             if [[ \"${{ needs.validate-output.result }}\" == \"success\" ]]; then
               echo '✅ Experimental patch build completed successfully!'
+              echo '🔐 Kerberos authentication was initialized successfully'
               echo '🛠️ Build executed using Intel FXT tool (fxtMuppt.py) with faceless account'
               echo '🐍 Using Python 3.7.4 for compatibility'
               echo '🔐 CSS-debug signing completed automatically'
@@ -488,6 +556,7 @@ jobs:
               fi
             else
               echo '❌ Experimental patch build failed!'
+              echo '🔐 Kerberos status: ${{ needs.kerberos-init.result }}'
               echo '🛠️ Build was attempted using Intel FXT tool (fxtMuppt.py) with faceless account'
               echo '🐍 Used Python 3.7.4 for compatibility'
               echo '🔐 CSS-debug signing was configured for automation'
