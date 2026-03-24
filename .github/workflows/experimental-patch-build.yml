@@ -47,7 +47,7 @@ jobs:
           echo "🔐 Initializing Kerberos authentication..."
           echo "👤 Switching to grp_srf_fit1_build account..."
           
-          (echo "$BUILD_PASSWORD"; sleep 2) | sudo -S -u grp_srf_fit1_build bash << 'KERBEROS_SCRIPT'
+          (echo "$BUILD_PASSWORD"; sleep 2) | sudo -S -u grp_srf_fit1_build bash << 'KERBEROS_END'
           echo "🔐 Running as: $(whoami)"
           echo "🎫 Running ktab registration..."
           
@@ -78,7 +78,7 @@ jobs:
           fi
           
           echo "🎉 Kerberos initialization completed!"
-          KERBEROS_SCRIPT
+          KERBEROS_END
 
       - name: Verify Kerberos Status
         env:
@@ -86,7 +86,7 @@ jobs:
         run: |
           echo "🔍 Verifying Kerberos status..."
           
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'VERIFY_SCRIPT'
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'VERIFY_END'
           echo "Verification running as: $(whoami)"
           
           if /usr/intel/bin/klist -k >/dev/null 2>&1; then
@@ -102,7 +102,7 @@ jobs:
           fi
           
           echo "🔐 Kerberos verification completed"
-          VERIFY_SCRIPT
+          VERIFY_END
 
   validate-inputs:
     needs: kerberos-init
@@ -187,7 +187,7 @@ jobs:
             echo "✅ Modified baseline config for experimental build"
           else
             echo "📋 Creating config from template..."
-            cat > "$EXP_CONFIG" << EOF
+            cat > "$EXP_CONFIG" << 'CONFIG_END'
 [DEFAULT]
 patch_version = 0x${{ needs.validate-inputs.outputs.exp_version }}
 project_name = SRF
@@ -207,7 +207,7 @@ fit1_sign = css-debug
 ucode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e000102a
 xucode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc
 mcheck = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_Mcheck/main/mcheck_srf_c0_0.20.10.948-full_mcheck_srf-b0-product/MCHECK_SECTION.inc
-EOF
+CONFIG_END
             echo "✅ Created config from template"
           fi
           
@@ -249,7 +249,7 @@ EOF
           echo "👤 Requester: ${{ github.event.inputs.requester }}"
           echo ""
           
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'BUILD_SCRIPT'
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'BUILD_END'
           echo "🔨 Build executing as: $(whoami)"
           echo "🐍 Python version: $(${{ env.PYTHON_PATH }} --version)"
           
@@ -272,7 +272,7 @@ EOF
             echo "❌ Build failed with exit code: $BUILD_EXIT_CODE"
             exit $BUILD_EXIT_CODE
           fi
-          BUILD_SCRIPT
+          BUILD_END
 
   validate-output:
     needs: [kerberos-init, validate-inputs, prepare-config, build-patch]
@@ -289,12 +289,11 @@ EOF
           echo "🔍 Validating build output..."
           echo "📁 Build directory: $BUILD_DIR"
           
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'VALIDATE_SCRIPT'
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'VALIDATE_END'
           BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
           
           echo "🔍 Validation running as: $(whoami)"
           
-          # Check for expected directories
           if [[ -d "$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}" ]]; then
             echo "✅ SOC directory found"
           else
@@ -309,7 +308,6 @@ EOF
             exit 1
           fi
           
-          # List contents for verification
           echo "📂 SOC directory contents:"
           ls -la "$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}/" 2>/dev/null || echo "Cannot access SOC directory"
           
@@ -322,7 +320,7 @@ EOF
           fi
           
           echo "✅ Build output validation completed"
-          VALIDATE_SCRIPT
+          VALIDATE_END
 
       - name: Generate build summary
         run: |
@@ -382,7 +380,7 @@ EOF
         run: |
           echo "🏁 Final workflow status check..."
           
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'FINAL_SCRIPT'
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'FINAL_END'
           echo "Final check running as: $(whoami)"
           
           if [[ "${{ needs.validate-output.result }}" == "success" ]]; then
@@ -411,3 +409,4 @@ EOF
             echo "📋 Please check the individual job logs for detailed error information"
             exit 1
           fi
+          FINAL_END
