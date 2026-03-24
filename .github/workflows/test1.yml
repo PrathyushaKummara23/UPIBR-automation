@@ -61,17 +61,35 @@ jobs:
     runs-on: [self-hosted, node16]
     outputs:
       config_file: ${{ steps.generate-config.outputs.config_file }}
+      is_f_patch: ${{ steps.check-patch-type.outputs.is_f_patch }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Check patch type
+        id: check-patch-type
+        run: |
+          if [[ "${{ github.event.inputs.new_version }}" =~ ^[Ff] ]]; then
+            echo "is_f_patch=true" >> $GITHUB_OUTPUT
+            echo "Detected F-patch (Debug patch)"
+          else
+            echo "is_f_patch=false" >> $GITHUB_OUTPUT
+            echo "Detected regular patch"
+          fi
+
       - name: Validate versions
         run: |
-          if [[ ! "${{ github.event.inputs.baseline_version }}" =~ ^[0-9A-F]{8}$ ]]; then
+          # Remove 0x prefix if present for validation
+          BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          if [[ ! "$BASELINE_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
             echo "Error: Invalid baseline version format"
             exit 1
           fi
-          if [[ ! "${{ github.event.inputs.new_version }}" =~ ^[0-9A-F]{8}$ ]]; then
+          if [[ ! "$NEW_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
             echo "Error: Invalid new version format"
             exit 1
           fi
@@ -101,8 +119,14 @@ jobs:
       - name: Copy and generate config
         id: generate-config
         run: |
-          SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini"
-          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${{ github.event.inputs.new_version }}.ini"
+          # Clean version numbers (remove 0x prefix if present)
+          BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${BASELINE_CLEAN}/release/config_${BASELINE_CLEAN}.ini"
+          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
           
           mkdir -p "${{ env.BUILD_BASE_PATH }}"
           
@@ -114,7 +138,26 @@ jobs:
           cp "$SOURCE_CONFIG" "$NEW_CONFIG"
           
           # Update version in config file
-          sed -i "s/version = 0x${{ github.event.inputs.baseline_version }}/version = 0x${{ github.event.inputs.new_version }}/g" "$NEW_CONFIG"
+          sed -i "s/version = 0x${BASELINE_CLEAN}/version = 0x${NEW_CLEAN}/g" "$NEW_CONFIG"
+          
+          # Update prev_version to baseline version
+          sed -i "s/prev_version = .*/prev_version = 0x${BASELINE_CLEAN}/g" "$NEW_CONFIG"
+          
+          # For F-patches (debug patches), update build_path and change specific fields to "no"
+          if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
+            echo "Applying F-patch (debug patch) specific changes..."
+            
+            # Update build_path for F-patches
+            sed -i "s|build_path = .*|build_path = ${{ env.BUILD_BASE_PATH }}|" "$NEW_CONFIG"
+            
+            # Change F-patch specific fields from "yes" to "no" (debug patch settings)
+            sed -i 's/^release = yes/release = no/' "$NEW_CONFIG"
+            sed -i 's/^fiv_register = yes/fiv_register = no/' "$NEW_CONFIG"
+            sed -i 's/^release_notes = yes/release_notes = no/' "$NEW_CONFIG"
+            
+            # fiv_crawler is already "no" in baseline, but ensure it stays "no"
+            sed -i 's/^fiv_crawler = yes/fiv_crawler = no/' "$NEW_CONFIG"
+          fi
           
           # Update paths if provided
           [[ -n "${{ github.event.inputs.icode }}" ]] && sed -i "s|^icode = .*|icode = ${{ github.event.inputs.icode }}|" "$NEW_CONFIG"
@@ -128,17 +171,33 @@ jobs:
           [[ -n "${{ github.event.inputs.tcode }}" ]] && sed -i "s|^tcode = .*|tcode = ${{ github.event.inputs.tcode }}|" "$NEW_CONFIG"
           [[ -n "${{ github.event.inputs.acode }}" ]] && sed -i "s|^acode = .*|acode = ${{ github.event.inputs.acode }}|" "$NEW_CONFIG"
           
-          echo "config_file=config_${{ github.event.inputs.new_version }}.ini" >> $GITHUB_OUTPUT
+          echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
           
           echo "Config file generated: $NEW_CONFIG"
+          echo "Generated config file contents:"
+          cat "$NEW_CONFIG"
           
       - name: Display config summary
         run: |
           echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **New Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Patch Type**: ${{ steps.check-patch-type.outputs.is_f_patch == 'true' && 'F-Patch (Debug)' || 'Regular Patch' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
+            echo "### F-Patch (Debug) Modifications Applied:" >> $GITHUB_STEP_SUMMARY
+            echo "- **build_path**: Updated to ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Debug settings applied**:" >> $GITHUB_STEP_SUMMARY
+            echo "  - **release**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "  - **fiv_register**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "  - **fiv_crawler**: Ensured 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "  - **release_notes**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "- **prev_version**: Set to baseline version (${{ github.event.inputs.baseline_version }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo "### Updated Components:" >> $GITHUB_STEP_SUMMARY
           
           [[ -n "${{ github.event.inputs.icode }}" ]] && echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
