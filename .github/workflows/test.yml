@@ -4,25 +4,410 @@ on:
   workflow_dispatch:
     inputs:
       baseline_version:
-        description: 'Baseline version (8 hex chars)'
+        description: 'Baseline version (8 hex chars, e.g. 830003A3)'
         required: true
         type: string
       ocode_path:
-        description: 'OCODE file path'
+        description: 'Full path to OCODE file'
         required: true
         type: string
       requester:
-        description: 'Your name'
+        description: 'Your name/username'
         required: true
         type: string
+      description:
+        description: 'Build description'
+        required: false
+        default: 'SRF Experiment Debug Unified Patch'
+        type: string
+      enable_notifications:
+        description: 'Enable build notifications'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
+  TOOLS_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM
+  PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
 
 jobs:
-  test-job:
+  kerberos-init:
     runs-on: [self-hosted, node16]
     steps:
-      - name: Test step
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Initialize Kerberos Authentication
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          SRF_FACELESS_PASSWORD: ${{ secrets.SRF_FACELESS_PASSWORD }}
         run: |
-          echo "This is a test workflow"
-          echo "Baseline: ${{ github.event.inputs.baseline_version }}"
-          echo "OCODE: ${{ github.event.inputs.ocode_path }}"
-          echo "Requester: ${{ github.event.inputs.requester }}"
+          echo "🔐 Initializing Kerberos authentication..."
+          echo "👤 Switching to grp_srf_fit1_build account..."
+          
+          (echo "$BUILD_PASSWORD"; sleep 2) | sudo -S -u grp_srf_fit1_build bash << 'KERBEROS_END'
+          echo "🔐 Running as: $(whoami)"
+          echo "🎫 Running ktab registration..."
+          
+          echo "$SRF_FACELESS_PASSWORD" | /usr/intel/bin/ktab -i
+          KTAB_EXIT_CODE=$?
+          
+          if [[ $KTAB_EXIT_CODE -eq 0 ]]; then
+            echo "✅ ktab registration completed successfully"
+          else
+            echo "❌ ktab registration failed with exit code: $KTAB_EXIT_CODE"
+            exit 1
+          fi
+          
+          echo "🔄 Running kcron registration..."
+          
+          if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
+            echo "✅ kcron already registered and active"
+          else
+            (echo "y"; echo "$SRF_FACELESS_PASSWORD") | /usr/intel/bin/kcron -i
+            KCRON_EXIT_CODE=$?
+            
+            if [[ $KCRON_EXIT_CODE -eq 0 ]]; then
+              echo "✅ kcron registration completed successfully"
+            else
+              echo "❌ kcron registration failed with exit code: $KCRON_EXIT_CODE"
+              exit 1
+            fi
+          fi
+          
+          echo "🎉 Kerberos initialization completed!"
+          KERBEROS_END
+
+      - name: Verify Kerberos Status
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "🔍 Verifying Kerberos status..."
+          
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'VERIFY_END'
+          echo "Verification running as: $(whoami)"
+          
+          if /usr/intel/bin/klist -k >/dev/null 2>&1; then
+            echo "✅ Keytab is available and valid"
+          else
+            echo "⚠️ Warning: Could not verify keytab status"
+          fi
+          
+          if /usr/intel/bin/kcron -s >/dev/null 2>&1; then
+            echo "✅ kcron is registered and active"
+          else
+            echo "⚠️ Warning: Could not verify kcron status"
+          fi
+          
+          echo "🔐 Kerberos verification completed"
+          VERIFY_END
+
+  validate-inputs:
+    needs: kerberos-init
+    runs-on: [self-hosted, node16]
+    outputs:
+      exp_version: ${{ steps.generate-version.outputs.exp_version }}
+      config_file: ${{ steps.generate-version.outputs.config_file }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Validate baseline version format
+        run: |
+          if [[ ! "${{ github.event.inputs.baseline_version }}" =~ ^[0-9A-F]{8}$ ]]; then
+            echo "❌ Error: Invalid baseline version format"
+            echo "Expected: 8 hexadecimal characters (0-9, A-F)"
+            echo "Received: ${{ github.event.inputs.baseline_version }}"
+            exit 1
+          fi
+          echo "✅ Baseline version format is valid"
+
+      - name: Validate OCODE path
+        run: |
+          if [[ ! -f "${{ github.event.inputs.ocode_path }}" ]]; then
+            echo "❌ Error: OCODE file does not exist"
+            echo "Path: ${{ github.event.inputs.ocode_path }}"
+            exit 1
+          fi
+          echo "✅ OCODE file exists"
+          echo "File size: $(stat -c%s '${{ github.event.inputs.ocode_path }}') bytes"
+
+      - name: Generate experimental version
+        id: generate-version
+        run: |
+          BASELINE="${{ github.event.inputs.baseline_version }}"
+          EXP_VERSION="F${BASELINE:1}"
+          CONFIG_FILE="config_${EXP_VERSION}.ini"
+          
+          echo "exp_version=$EXP_VERSION" >> $GITHUB_OUTPUT
+          echo "config_file=$CONFIG_FILE" >> $GITHUB_OUTPUT
+          
+          echo "✅ Generated experimental version: $EXP_VERSION"
+          echo "✅ Config file name: $CONFIG_FILE"
+
+  prepare-config:
+    needs: [kerberos-init, validate-inputs]
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Create build directory
+        run: |
+          mkdir -p ${{ env.BUILD_BASE_PATH }}
+          echo "✅ Build directory ready: ${{ env.BUILD_BASE_PATH }}"
+
+      - name: Copy baseline config if available
+        run: |
+          BASELINE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/build_area_0x${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini"
+          
+          if [[ -f "$BASELINE_CONFIG" ]]; then
+            cp "$BASELINE_CONFIG" "${{ env.BUILD_BASE_PATH }}/"
+            echo "✅ Copied baseline config from: $BASELINE_CONFIG"
+          else
+            echo "⚠️ Baseline config not found, will create from template"
+          fi
+
+      - name: Generate experimental config
+        run: |
+          BASELINE_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${{ github.event.inputs.baseline_version }}.ini"
+          EXP_CONFIG="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+          
+          if [[ -f "$BASELINE_CONFIG" ]]; then
+            echo "📋 Modifying existing baseline config..."
+            cp "$BASELINE_CONFIG" "$EXP_CONFIG"
+            
+            sed -i "s/patch_version = 0x${{ github.event.inputs.baseline_version }}/patch_version = 0x${{ needs.validate-inputs.outputs.exp_version }}/g" "$EXP_CONFIG"
+            sed -i "s|oobmsm = .*|oobmsm = ${{ github.event.inputs.ocode_path }}|g" "$EXP_CONFIG"
+            sed -i "s/soc_sign = manual/soc_sign = css-debug/g" "$EXP_CONFIG"
+            sed -i "s/fit1_sign = manual/fit1_sign = css-debug/g" "$EXP_CONFIG"
+            
+            echo "✅ Modified baseline config for experimental build"
+          else
+            echo "📋 Creating config from template..."
+            cat > "$EXP_CONFIG" << 'CONFIG_END'
+[DEFAULT]
+patch_version = 0x${{ needs.validate-inputs.outputs.exp_version }}
+project_name = SRF
+se_svn = 6
+fit1_only = no
+
+[SOC]
+soc_sign = css-debug
+icode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_iCode/main/0x24164200/icode_enc_dbug.bin
+oobmsm = ${{ github.event.inputs.ocode_path }}
+pcode-io = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_Pcode/main/srf-c0_25ww35_UPLR2_0x00001124/gnr_io_c0/pcode-io_enc_dbug.bin
+pcode-c = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_Pcode/main/srf-c0_25ww35_UPLR2_0x00001124/gnr_atom_b0/pcode-c_enc_dbug.bin
+s3m = /nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww02/26ww02.5_T6087_s3m_fw_SESVN0_SVN1_REVID2.0.0.00169_C0/S3M_1_0_2.0.0.00169_enc_dbug.IP_0100.bin
+
+[FIT1]
+fit1_sign = css-debug
+ucode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e000102a
+xucode = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc
+mcheck = /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_Mcheck/main/mcheck_srf_c0_0.20.10.948-full_mcheck_srf-b0-product/MCHECK_SECTION.inc
+CONFIG_END
+            echo "✅ Created config from template"
+          fi
+          
+          echo "📄 Config file created: $EXP_CONFIG"
+          echo "📏 Config file size: $(stat -c%s "$EXP_CONFIG") bytes"
+
+      - name: Validate config file
+        run: |
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
+          
+          if [[ ! -f "$CONFIG_FILE" ]]; then
+            echo "❌ Error: Config file was not created"
+            exit 1
+          fi
+          
+          echo "✅ Config file validation passed"
+          echo "📋 Config file contents:"
+          echo "----------------------------------------"
+          cat "$CONFIG_FILE"
+          echo "----------------------------------------"
+
+  build-patch:
+    needs: [kerberos-init, validate-inputs, prepare-config]
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Execute patch build
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "🔨 Starting complete patch build..."
+          echo "📁 Working directory: ${{ env.BUILD_BASE_PATH }}"
+          echo "🐍 Python: ${{ env.PYTHON_PATH }}"
+          echo "🛠️ FXT tool: ${{ env.TOOLS_PATH }}/fxtMuppt.py"
+          echo "📋 Config: ${{ needs.validate-inputs.outputs.config_file }}"
+          echo "🔐 Signing: CSS-debug (automated)"
+          echo "👤 Requester: ${{ github.event.inputs.requester }}"
+          echo ""
+          
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'BUILD_END'
+          echo "🔨 Build executing as: $(whoami)"
+          echo "🐍 Python version: $(${{ env.PYTHON_PATH }} --version)"
+          
+          cd ${{ env.BUILD_BASE_PATH }}
+          
+          echo "🚀 Starting FXT build process..."
+          ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} > build_output.log 2>&1
+          BUILD_EXIT_CODE=$?
+          
+          echo "📋 Build completed with exit code: $BUILD_EXIT_CODE"
+          echo ""
+          echo "📄 Build output:"
+          echo "========================================"
+          cat build_output.log
+          echo "========================================"
+          
+          if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
+            echo "✅ Build completed successfully!"
+          else
+            echo "❌ Build failed with exit code: $BUILD_EXIT_CODE"
+            exit $BUILD_EXIT_CODE
+          fi
+          BUILD_END
+
+  validate-output:
+    needs: [kerberos-init, validate-inputs, prepare-config, build-patch]
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Validate build output
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+          echo "🔍 Validating build output..."
+          echo "📁 Build directory: $BUILD_DIR"
+          
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'VALIDATE_END'
+          BUILD_DIR="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+          
+          echo "🔍 Validation running as: $(whoami)"
+          
+          if [[ -d "$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}" ]]; then
+            echo "✅ SOC directory found"
+          else
+            echo "❌ SOC directory not found"
+            exit 1
+          fi
+          
+          if [[ -d "$BUILD_DIR/fit1_${{ needs.validate-inputs.outputs.exp_version }}" ]]; then
+            echo "✅ FIT1 directory found"
+          else
+            echo "❌ FIT1 directory not found"
+            exit 1
+          fi
+          
+          echo "📂 SOC directory contents:"
+          ls -la "$BUILD_DIR/soc_${{ needs.validate-inputs.outputs.exp_version }}/" 2>/dev/null || echo "Cannot access SOC directory"
+          
+          echo "📂 FIT1 directory contents:"
+          ls -la "$BUILD_DIR/fit1_${{ needs.validate-inputs.outputs.exp_version }}/" 2>/dev/null || echo "Cannot access FIT1 directory"
+          
+          if [[ -d "$BUILD_DIR/release" ]]; then
+            echo "📂 Release directory contents:"
+            ls -la "$BUILD_DIR/release/" 2>/dev/null || echo "Cannot access release directory"
+          fi
+          
+          echo "✅ Build output validation completed"
+          VALIDATE_END
+
+      - name: Generate build summary
+        run: |
+          echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Experimental Version** | ${{ needs.validate-inputs.outputs.exp_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Baseline Version** | ${{ github.event.inputs.baseline_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Requester** | ${{ github.event.inputs.requester }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Tool** | Intel FXT (fxtMuppt.py) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Python Version** | Python 3.7.4 |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Account** | grp_srf_fit1_build (faceless) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Signing Mode** | CSS-debug (automated) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Path** | ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **OCODE Used** | ${{ github.event.inputs.ocode_path }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Status: Build Completed Successfully" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: experimental-patch-${{ needs.validate-inputs.outputs.exp_version }}
+          path: |
+            ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}/
+          retention-days: 30
+          if-no-files-found: warn
+
+  notify-completion:
+    needs: [kerberos-init, validate-inputs, prepare-config, validate-output]
+    runs-on: [self-hosted, node16]
+    if: always()
+    steps:
+      - name: Build completion notification
+        if: ${{ github.event.inputs.enable_notifications == 'true' }}
+        run: |
+          if [[ "${{ needs.validate-output.result }}" == "success" ]]; then
+            echo "📧 BUILD COMPLETED SUCCESSFULLY! 🎉"
+            echo "=================================="
+            echo "✅ Kerberos: Initialized"
+            echo "✅ Experimental Version: ${{ needs.validate-inputs.outputs.exp_version }}"
+            echo "✅ Baseline Version: ${{ github.event.inputs.baseline_version }}"
+            echo "✅ Requester: ${{ github.event.inputs.requester }}"
+            echo "✅ CSS-debug signing: Completed automatically"
+            echo "✅ Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+            echo "✅ Artifacts: Available in GitHub Actions"
+          else
+            echo "📧 BUILD FAILED ❌"
+            echo "=================="
+            echo "❌ Status: ${{ needs.validate-output.result }}"
+            echo "🔍 Check the logs for detailed error information"
+          fi
+
+      - name: Final status
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "🏁 Final workflow status check..."
+          
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash << 'FINAL_END'
+          echo "Final check running as: $(whoami)"
+          
+          if [[ "${{ needs.validate-output.result }}" == "success" ]]; then
+            echo "🎉 EXPERIMENTAL PATCH BUILD COMPLETED SUCCESSFULLY!"
+            echo ""
+            echo "📋 Summary:"
+            echo "  • Kerberos authentication: ✅ Completed"
+            echo "  • Build execution: ✅ Completed"
+            echo "  • CSS-debug signing: ✅ Automated"
+            echo "  • Output validation: ✅ Passed"
+            echo "  • Artifacts: ✅ Uploaded"
+            echo ""
+            echo "📁 Build location: ${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}"
+            echo "🔢 Experimental version: ${{ needs.validate-inputs.outputs.exp_version }}"
+            echo "👤 Requester: ${{ github.event.inputs.requester }}"
+          else
+            echo "❌ EXPERIMENTAL PATCH BUILD FAILED"
+            echo ""
+            echo "🔍 Failure details:"
+            echo "  • Kerberos status: ${{ needs.kerberos-init.result }}"
+            echo "  • Validation status: ${{ needs.validate-inputs.result }}"
+            echo "  • Config status: ${{ needs.prepare-config.result }}"
+            echo "  • Build status: ${{ needs.build-patch.result }}"
+            echo "  • Output validation: ${{ needs.validate-output.result }}"
+            echo ""
+            echo "📋 Please check the individual job logs for detailed error information"
+            exit 1
+          fi
+          FINAL_END
+
