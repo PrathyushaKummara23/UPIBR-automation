@@ -7,209 +7,147 @@ on:
         description: 'Baseline version'
         required: true
         type: string
-      ocode_path:
-        description: 'OCODE path'
+      new_version:
+        description: 'New experimental version'
         required: true
         type: string
-      enable_notifications:
-        description: 'Enable email notifications'
+      icode:
+        description: 'ICODE path'
         required: false
-        default: true
-        type: boolean
+        type: string
+      oobmsm:
+        description: 'OOBMSM path'
+        required: false
+        type: string
+      s3m:
+        description: 'S3M path'
+        required: false
+        type: string
+      pcode_io:
+        description: 'PCODE-IO path'
+        required: false
+        type: string
+      pcode_c:
+        description: 'PCODE-C path'
+        required: false
+        type: string
+      ucode:
+        description: 'UCODE path'
+        required: false
+        type: string
+      xucode:
+        description: 'XUCODE path'
+        required: false
+        type: string
+      mcheck:
+        description: 'MCHECK path'
+        required: false
+        type: string
+      tcode:
+        description: 'TCODE path'
+        required: false
+        type: string
+      acode:
+        description: 'ACODE path'
+        required: false
+        type: string
 
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
-  TOOLS_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
-  PYTHON_PATH: /usr/intel/bin/python3.7.4
   
 jobs:
   validate-inputs:
     runs-on: [self-hosted, node16]
     outputs:
-      exp_version: ${{ steps.generate-version.outputs.exp_version }}
-      config_file: ${{ steps.generate-version.outputs.config_file }}
+      config_file: ${{ steps.generate-config.outputs.config_file }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Validate baseline version
+      - name: Validate versions
         run: |
           if [[ ! "${{ github.event.inputs.baseline_version }}" =~ ^[0-9A-F]{8}$ ]]; then
-            echo "Error: Invalid baseline version format. Expected 8 hex characters."
+            echo "Error: Invalid baseline version format"
+            exit 1
+          fi
+          if [[ ! "${{ github.event.inputs.new_version }}" =~ ^[0-9A-F]{8}$ ]]; then
+            echo "Error: Invalid new version format"
             exit 1
           fi
           
-      - name: Validate OCODE path exists
+      - name: Validate provided paths exist
         run: |
-          if [[ ! -f "${{ github.event.inputs.ocode_path }}" ]]; then
-            echo "Error: OCODE file does not exist: ${{ github.event.inputs.ocode_path }}"
-            exit 1
-          fi
+          PATHS=(
+            "${{ github.event.inputs.icode }}"
+            "${{ github.event.inputs.oobmsm }}"
+            "${{ github.event.inputs.s3m }}"
+            "${{ github.event.inputs.pcode_io }}"
+            "${{ github.event.inputs.pcode_c }}"
+            "${{ github.event.inputs.ucode }}"
+            "${{ github.event.inputs.xucode }}"
+            "${{ github.event.inputs.mcheck }}"
+            "${{ github.event.inputs.tcode }}"
+            "${{ github.event.inputs.acode }}"
+          )
           
-      - name: Generate experimental version
-        id: generate-version
-        run: |
-          # Generate experimental version (F + baseline without first digit)
-          BASELINE="${{ github.event.inputs.baseline_version }}"
-          EXP_VERSION="F${BASELINE:1}"
-          CONFIG_FILE="config_${EXP_VERSION}.ini"
-          
-          echo "exp_version=$EXP_VERSION" >> $GITHUB_OUTPUT
-          echo "config_file=$CONFIG_FILE" >> $GITHUB_OUTPUT
-          
-          echo "Generated experimental version: $EXP_VERSION"
-          echo "Config file: $CONFIG_FILE"
-            
-      - name: Notify build start
-        if: ${{ github.event.inputs.enable_notifications == 'true' }}
-        run: |
-          echo "📧 Build start notification would be sent here"
-          echo "Experimental Version: ${{ steps.generate-version.outputs.exp_version }}"
-
-  prepare-config:
-    needs: validate-inputs
-    runs-on: [self-hosted, node16]
-    outputs:
-      validation_warnings: ${{ steps.validate-paths.outputs.warnings }}
-      validation_status: ${{ steps.validate-paths.outputs.status }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Create build directory
-        run: |
-          mkdir -p ${{ env.BUILD_BASE_PATH }}
-          cd ${{ env.BUILD_BASE_PATH }}
-          
-      - name: Copy baseline config
-        run: |
-          BASELINE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/build_area_0x${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini"
-          if [[ -f "$BASELINE_CONFIG" ]]; then
-            cp "$BASELINE_CONFIG" "${{ env.BUILD_BASE_PATH }}/"
-            echo "Copied baseline config from: $BASELINE_CONFIG"
-          else
-            echo "Warning: Baseline config not found at: $BASELINE_CONFIG"
-            echo "Will create config from template"
-          fi
-          
-      - name: Generate experimental config using Python script
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          BASELINE_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${{ github.event.inputs.baseline_version }}.ini"
-          EXP_CONFIG="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
-          SCRIPT_PATH="${{ github.workspace }}/scripts/config_generator.py"
-          
-          echo "Using config generator script: $SCRIPT_PATH"
-          echo "Baseline config: $BASELINE_CONFIG"
-          echo "Output config: $EXP_CONFIG"
-          echo "Signing mode: Using existing css-debug from baseline config"
-          
-          # Run config generator using faceless account
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo 'Config generation running as: \$(whoami)'
-            cd ${{ env.BUILD_BASE_PATH }}
-            
-            if [[ -f '$BASELINE_CONFIG' ]]; then
-              echo 'Using existing baseline config file'
-              ${{ env.PYTHON_PATH }} '$SCRIPT_PATH' \
-                --baseline-config '$BASELINE_CONFIG' \
-                --exp-version '${{ needs.validate-inputs.outputs.exp_version }}' \
-                --baseline-version '${{ github.event.inputs.baseline_version }}' \
-                --ocode-path '${{ github.event.inputs.ocode_path }}' \
-                --build-path '${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.exp_version }}' \
-                --description '${{ github.event.inputs.description }}' \
-                --output '$EXP_CONFIG'
-            else
-              echo 'Baseline config not found, cannot proceed without baseline'
-              echo 'Expected location: $BASELINE_CONFIG'
+          for path in "${PATHS[@]}"; do
+            if [[ -n "$path" && ! -f "$path" ]]; then
+              echo "Error: Path does not exist: $path"
               exit 1
             fi
-            
-            echo 'Config generation completed using Python script'
-          "
+          done
           
-      - name: Validate config file exists
+      - name: Copy and generate config
+        id: generate-config
         run: |
-          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
-          if [[ ! -f "$CONFIG_FILE" ]]; then
-            echo "Error: Config file does not exist: $CONFIG_FILE"
+          SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${{ github.event.inputs.baseline_version }}/release/config_${{ github.event.inputs.baseline_version }}.ini"
+          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${{ github.event.inputs.new_version }}.ini"
+          
+          mkdir -p "${{ env.BUILD_BASE_PATH }}"
+          
+          if [[ ! -f "$SOURCE_CONFIG" ]]; then
+            echo "Error: Baseline config not found: $SOURCE_CONFIG"
             exit 1
           fi
-          echo "Config file exists: $CONFIG_FILE"
-          echo "Config file size: $(stat -c%s "$CONFIG_FILE") bytes"
-          echo "Config file contents:"
-          cat "$CONFIG_FILE"
           
-      - name: Validate all code paths exist (using faceless account)
-        id: validate-paths
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          cp "$SOURCE_CONFIG" "$NEW_CONFIG"
+          
+          # Update version in config file
+          sed -i "s/version = 0x${{ github.event.inputs.baseline_version }}/version = 0x${{ github.event.inputs.new_version }}/g" "$NEW_CONFIG"
+          
+          # Update paths if provided
+          [[ -n "${{ github.event.inputs.icode }}" ]] && sed -i "s|^icode = .*|icode = ${{ github.event.inputs.icode }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.oobmsm }}" ]] && sed -i "s|^oobmsm = .*|oobmsm = ${{ github.event.inputs.oobmsm }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.s3m }}" ]] && sed -i "s|^s3m = .*|s3m = ${{ github.event.inputs.s3m }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.pcode_io }}" ]] && sed -i "s|^pcode-io = .*|pcode-io = ${{ github.event.inputs.pcode_io }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.pcode_c }}" ]] && sed -i "s|^pcode-c = .*|pcode-c = ${{ github.event.inputs.pcode_c }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.ucode }}" ]] && sed -i "s|^ucode = .*|ucode = ${{ github.event.inputs.ucode }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.xucode }}" ]] && sed -i "s|^xucode = .*|xucode = ${{ github.event.inputs.xucode }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.mcheck }}" ]] && sed -i "s|^mcheck = .*|mcheck = ${{ github.event.inputs.mcheck }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.tcode }}" ]] && sed -i "s|^tcode = .*|tcode = ${{ github.event.inputs.tcode }}|" "$NEW_CONFIG"
+          [[ -n "${{ github.event.inputs.acode }}" ]] && sed -i "s|^acode = .*|acode = ${{ github.event.inputs.acode }}|" "$NEW_CONFIG"
+          
+          echo "config_file=config_${{ github.event.inputs.new_version }}.ini" >> $GITHUB_OUTPUT
+          
+          echo "Config file generated: $NEW_CONFIG"
+          
+      - name: Display config summary
         run: |
-          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/${{ needs.validate-inputs.outputs.config_file }}"
-          VALIDATION_WARNINGS=""
-          VALIDATION_STATUS="success"
+          echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Updated Components:" >> $GITHUB_STEP_SUMMARY
           
-          echo "Starting path validation using faceless account..."
-          echo "Using Python: ${{ env.PYTHON_PATH }}"
-          echo "Config file: $CONFIG_FILE"
-          
-          # Run validation using faceless account
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo 'Running validation as: \$(whoami)'
-            cd ${{ env.BUILD_BASE_PATH }}
-            
-            # Simple path validation
-            VALIDATION_FAILED=false
-            
-            # Check OCODE path
-            if [[ ! -f '${{ github.event.inputs.ocode_path }}' ]]; then
-              echo 'Error: OCODE path does not exist: ${{ github.event.inputs.ocode_path }}'
-              VALIDATION_FAILED=true
-            fi
-            
-            # Check other common paths from config
-            while IFS= read -r line; do
-              if [[ \$line =~ ^[a-zA-Z_-]+[[:space:]]*=[[:space:]]*(/[^[:space:]]+) ]]; then
-                path=\${BASH_REMATCH[1]}
-                if [[ ! -f \"\$path\" && ! -d \"\$path\" ]]; then
-                  echo \"Warning: Path does not exist: \$path\"
-                  VALIDATION_FAILED=true
-                fi
-              fi
-            done < '$CONFIG_FILE'
-            
-            if [[ \$VALIDATION_FAILED == true ]]; then
-              echo 'failed_with_warnings' > validation_status.tmp
-              echo 'Some paths in config do not exist' > validation_warnings.tmp
-            else
-              echo 'success' > validation_status.tmp
-            fi
-          "
-          
-          # Read results
-          if [[ -f "${{ env.BUILD_BASE_PATH }}/validation_status.tmp" ]]; then
-            VALIDATION_STATUS=$(cat "${{ env.BUILD_BASE_PATH }}/validation_status.tmp")
-          fi
-          
-          if [[ -f "${{ env.BUILD_BASE_PATH }}/validation_warnings.tmp" ]]; then
-            VALIDATION_WARNINGS=$(cat "${{ env.BUILD_BASE_PATH }}/validation_warnings.tmp")
-          fi
-          
-          # Set outputs for next jobs
-          echo "warnings=$VALIDATION_WARNINGS" >> $GITHUB_OUTPUT
-          echo "status=$VALIDATION_STATUS" >> $GITHUB_OUTPUT
-          
-          # Add to step summary
-          echo "## Path Validation Results" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status**: $VALIDATION_STATUS" >> $GITHUB_STEP_SUMMARY
-          echo "- **Python Version**: Python 3.7.4" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tool**: Intel FXT (via validation script)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Running as**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
-          if [[ -n "$VALIDATION_WARNINGS" ]]; then
-            echo "- **Warnings**: $VALIDATION_WARNINGS" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "- **Config File**: $CONFIG_FILE" >> $GITHUB_STEP_SUMMARY
-          
-          echo "Validation step completed - config preparation finished"
+          [[ -n "${{ github.event.inputs.icode }}" ]] && echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.oobmsm }}" ]] && echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.s3m }}" ]] && echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.pcode_io }}" ]] && echo "- **PCODE-IO**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.pcode_c }}" ]] && echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.ucode }}" ]] && echo "- **UCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.xucode }}" ]] && echo "- **XUCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.mcheck }}" ]] && echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.tcode }}" ]] && echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ github.event.inputs.acode }}" ]] && echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
