@@ -18,61 +18,38 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v5
       
-    - name: Basic system check
-      run: |
-        echo "=== BASIC SYSTEM CHECK ==="
-        echo "Current user: $(whoami)"
-        echo "Current directory: $(pwd)"
-        echo "Available disk space:"
-        df -h
-        echo "=== END BASIC CHECK ==="
-      
-    - name: Complete repository analysis
-      run: |
-        echo "=== COMPLETE REPOSITORY ANALYSIS ==="
-        echo "Repository root contents:"
-        ls -la
-        echo ""
-        echo "All directories in repository:"
-        find . -type d -name ".*" -o -type d ! -name ".*" | head -20
-        echo ""
-        echo "All files in repository (first 50):"
-        find . -type f | head -50
-        echo ""
-        echo "Specifically looking for .github:"
-        ls -la .github 2>/dev/null || echo ".github directory does not exist"
-        echo ""
-        echo "Looking for any JSON files anywhere:"
-        find . -name "*.json" -type f 2>/dev/null || echo "No JSON files found"
-        echo ""
-        echo "Git status:"
-        git status 2>/dev/null || echo "Not a git repository or git not available"
-        echo "=== END ANALYSIS ==="
-
-    - name: Install basic tools
-      run: |
-        echo "Installing jq..."
-        sudo apt-get update -qq
-        sudo apt-get install -y jq
-        echo "jq version: $(jq --version)"
-
-    - name: Create directories and sample files
-      run: |
-        echo "Creating required directories..."
-        mkdir -p fetched_binaries
-        mkdir -p .github
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
         
-        echo "Creating sample JSON file..."
-        cat > .github/entry_criteria_output.json << 'EOF'
+    - name: Install jq for JSON parsing
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+        
+    - name: Create output directory
+      run: |
+        mkdir -p fetched_binaries
+        
+    - name: Check for existing JSON file or create sample
+      run: |
+        JSON_FILE=".github/entry_criteria_output.json"
+        
+        if [ ! -f "$JSON_FILE" ]; then
+          echo "Creating sample entry_criteria_output.json file..."
+          mkdir -p .github
+          
+          cat > "$JSON_FILE" << 'EOF'
         {
           "ucode": {
-            "entry": "/sample/path/ucode"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e200102b"
           },
           "xucode": {
-            "entry": "/sample/path/xucode"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc"
           },
           "mcheck": {
-            "entry": "/sample/path/mcheck"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Mcheck/main/26ww04/MCHECK_SECTION.inc"
           },
           "tcode": {
             "entry": ""
@@ -81,63 +58,31 @@ jobs:
             "entry": ""
           },
           "icode": {
-            "entry": "/sample/path/icode"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_iCode/main/0x24164200/icode_enc_dbug.bin"
           },
           "oobmsm": {
-            "entry": "/sample/path/oobmsm"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin"
           },
           "pcode": {
-            "entry": "/sample/path/pcode"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
           },
           "s3m": {
-            "entry": "/sample/path/s3m"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww08/26ww08.4_T6104_s3m_fw_SESVN0_SVN1_REVID2.0.0.00171_C0/S3M_1_0_2.0.0.00171_enc_dbug.IP_0100.bin"
           }
         }
         EOF
+        fi
         
-        echo "Verifying created files:"
-        ls -la .github/
-        echo "JSON content:"
-        cat .github/entry_criteria_output.json
-
-    - name: Test JSON parsing
+        echo "Using JSON file:"
+        cat "$JSON_FILE"
+        
+    - name: Read and parse entry_criteria_output.json
+      id: parse_json
       run: |
-        echo "Testing JSON parsing..."
         JSON_FILE=".github/entry_criteria_output.json"
+        echo "Parsing $JSON_FILE..."
         
-        echo "File exists check:"
-        if [ -f "$JSON_FILE" ]; then
-          echo "✓ File exists"
-        else
-          echo "✗ File does not exist"
-          exit 1
-        fi
-        
-        echo "JSON syntax check:"
-        if jq empty "$JSON_FILE"; then
-          echo "✓ JSON is valid"
-        else
-          echo "✗ JSON is invalid"
-          exit 1
-        fi
-        
-        echo "Extracting sample values:"
-        UCODE_PATH=$(jq -r '.ucode.entry // ""' "$JSON_FILE")
-        echo "UCODE_PATH: '$UCODE_PATH'"
-        
-        if [ "$UCODE_PATH" = "/sample/path/ucode" ]; then
-          echo "✓ JSON parsing works correctly"
-        else
-          echo "✗ JSON parsing failed"
-          exit 1
-        fi
-
-    - name: Create configuration file
-      run: |
-        echo "Creating paths configuration..."
-        JSON_FILE=".github/entry_criteria_output.json"
-        
-        # Extract all paths
+        # Extract paths for each component
         UCODE_PATH=$(jq -r '.ucode.entry // ""' "$JSON_FILE")
         XUCODE_PATH=$(jq -r '.xucode.entry // ""' "$JSON_FILE")
         MCHECK_PATH=$(jq -r '.mcheck.entry // ""' "$JSON_FILE")
@@ -148,83 +93,312 @@ jobs:
         PCODE_PATH=$(jq -r '.pcode.entry // ""' "$JSON_FILE")
         S3M_PATH=$(jq -r '.s3m.entry // ""' "$JSON_FILE")
         
-        # Create config file
+        # Store paths in environment variables
+        echo "UCODE_PATH=$UCODE_PATH" >> $GITHUB_ENV
+        echo "XUCODE_PATH=$XUCODE_PATH" >> $GITHUB_ENV
+        echo "MCHECK_PATH=$MCHECK_PATH" >> $GITHUB_ENV
+        echo "TCODE_PATH=$TCODE_PATH" >> $GITHUB_ENV
+        echo "ACODE_PATH=$ACODE_PATH" >> $GITHUB_ENV
+        echo "ICODE_PATH=$ICODE_PATH" >> $GITHUB_ENV
+        echo "OOBMSM_PATH=$OOBMSM_PATH" >> $GITHUB_ENV
+        echo "PCODE_PATH=$PCODE_PATH" >> $GITHUB_ENV
+        echo "S3M_PATH=$S3M_PATH" >> $GITHUB_ENV
+        
+        echo "Extracted paths from JSON:"
+        echo "UCODE: $UCODE_PATH"
+        echo "XUCODE: $XUCODE_PATH"
+        echo "MCHECK: $MCHECK_PATH"
+        echo "TCODE: $TCODE_PATH"
+        echo "ACODE: $ACODE_PATH"
+        echo "ICODE: $ICODE_PATH"
+        echo "OOBMSM: $OOBMSM_PATH"
+        echo "PCODE: $PCODE_PATH"
+        echo "S3M: $S3M_PATH"
+        
+    - name: Create paths configuration file
+      run: |
         cat > fetched_binaries/paths_config.txt << EOF
-        ucode=$UCODE_PATH
-        xucode=$XUCODE_PATH
-        mcheck=$MCHECK_PATH
-        tcode=$TCODE_PATH
-        acode=$ACODE_PATH
-        icode=$ICODE_PATH
-        oobmsm=$OOBMSM_PATH
-        pcode=$PCODE_PATH
-        s3m=$S3M_PATH
+        ucode=${{ env.UCODE_PATH }}
+        xucode=${{ env.XUCODE_PATH }}
+        mcheck=${{ env.MCHECK_PATH }}
+        tcode=${{ env.TCODE_PATH }}
+        acode=${{ env.ACODE_PATH }}
+        icode=${{ env.ICODE_PATH }}
+        oobmsm=${{ env.OOBMSM_PATH }}
+        pcode=${{ env.PCODE_PATH }}
+        s3m=${{ env.S3M_PATH }}
         EOF
         
-        echo "Configuration file created:"
+        echo "Created paths_config.txt with content:"
         cat fetched_binaries/paths_config.txt
-
-    - name: Simulate binary collection
+        
+    - name: Create sample binary structure for testing
       run: |
-        echo "Simulating binary collection process..."
+        echo "Creating sample binary files to simulate the collection process..."
+        echo "Note: GitHub-hosted runners cannot access NFS paths (/nfs/site/disks/...)"
+        echo "This step creates sample files to demonstrate the workflow structure."
         
-        # Create some dummy files to simulate the process
-        echo "Creating sample binary files for testing..."
-        echo "dummy ucode binary" > fetched_binaries/ucode_sample.bin
-        echo "dummy icode binary" > fetched_binaries/icode_sample.bin
-        echo "Path not accessible: /sample/path/xucode" > fetched_binaries/xucode_path_not_accessible.txt
-        echo "No path specified" > fetched_binaries/tcode_no_path.txt
+        # Create sample binary files for each component
+        components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode" "s3m")
         
-        echo "Sample files created:"
+        for component in "${components[@]}"; do
+          path_var="${component^^}_PATH"
+          path_value=$(printenv "$path_var")
+          
+          if [ -n "$path_value" ] && [ "$path_value" != "" ]; then
+            echo "Processing $component with path: $path_value"
+            
+            # Create sample binary files
+            case $component in
+              "ucode")
+                echo -e "\x7fELF\x02\x01\x01\x00UCODE_SAMPLE_BINARY_DATA" > "fetched_binaries/${component}_sample.bin"
+                echo "Created sample ucode binary"
+                ;;
+              "xucode")
+                echo "XUCODE_SECTION_DATA" > "fetched_binaries/${component}_patch.xusection.inc"
+                echo "Created sample xucode include file"
+                ;;
+              "mcheck")
+                echo "MCHECK_SECTION_DATA" > "fetched_binaries/${component}_MCHECK_SECTION.inc"
+                echo "Created sample mcheck include file"
+                ;;
+              "icode")
+                echo -e "\x7fELF\x02\x01\x01\x00ICODE_ENCRYPTED_DEBUG_DATA" > "fetched_binaries/${component}_enc_dbug.bin"
+                echo "Created sample icode binary"
+                ;;
+              "oobmsm")
+                echo -e "\x7fELF\x02\x01\x01\x00OOBMSM_PATCHLET_DATA" > "fetched_binaries/${component}_patchlet_enc_dbug.bin"
+                echo "Created sample oobmsm binary"
+                ;;
+              "pcode")
+                echo -e "\x7fELF\x02\x01\x01\x00PCODE_ENCRYPTED_DEBUG_DATA" > "fetched_binaries/${component}_enc_dbug.bin"
+                echo "Created sample pcode binary"
+                ;;
+              "s3m")
+                echo -e "\x7fELF\x02\x01\x01\x00S3M_FIRMWARE_DATA" > "fetched_binaries/${component}_fw_enc_dbug.bin"
+                echo "Created sample s3m binary"
+                ;;
+              *)
+                if [ "$path_value" = "" ]; then
+                  echo "No path specified for $component" > "fetched_binaries/${component}_no_path.txt"
+                  echo "Created no-path indicator for $component"
+                else
+                  echo "Path not accessible: $path_value" > "fetched_binaries/${component}_path_not_accessible.txt"
+                  echo "Created path-not-accessible indicator for $component"
+                fi
+                ;;
+            esac
+          else
+            echo "No path specified for $component" > "fetched_binaries/${component}_no_path.txt"
+            echo "Created no-path indicator for $component"
+          fi
+        done
+        
+    - name: Attempt real binary collection (will likely fail on GitHub runners)
+      continue-on-error: true
+      run: |
+        echo "Attempting to access real NFS paths (this will likely fail on GitHub-hosted runners)..."
+        
+        # Function to copy files from a directory or file
+        copy_binaries() {
+          local source_path="$1"
+          local component_name="$2"
+          
+          if [ -n "$source_path" ] && [ "$source_path" != "null" ] && [ "$source_path" != "" ]; then
+            echo "Attempting to access $component_name from: $source_path"
+            
+            if [ -d "$source_path" ]; then
+              echo "Directory found, searching for binary files..."
+              
+              # Find and copy all .bin files
+              bin_count=0
+              while IFS= read -r -d '' file; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  cp "$file" "fetched_binaries/${component_name}_real_${filename}" 2>/dev/null && {
+                    echo "SUCCESS: Copied real file: $file"
+                    ((bin_count++))
+                  } || {
+                    echo "Failed to copy: $file"
+                  }
+                fi
+              done < <(find "$source_path" -name "*.bin" -type f -print0 2>/dev/null)
+              
+              # Also copy .inc files for xucode and mcheck
+              if [ "$component_name" = "xucode" ] || [ "$component_name" = "mcheck" ]; then
+                while IFS= read -r -d '' file; do
+                  if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    cp "$file" "fetched_binaries/${component_name}_real_${filename}" 2>/dev/null && {
+                      echo "SUCCESS: Copied real include file: $file"
+                      ((bin_count++))
+                    } || {
+                      echo "Failed to copy: $file"
+                    }
+                  fi
+                done < <(find "$source_path" -name "*.inc" -type f -print0 2>/dev/null)
+              fi
+              
+              if [ $bin_count -gt 0 ]; then
+                echo "Successfully copied $bin_count real files for $component_name"
+                # Remove the sample file if we got real files
+                rm -f "fetched_binaries/${component_name}_sample.bin" 2>/dev/null
+                rm -f "fetched_binaries/${component_name}_path_not_accessible.txt" 2>/dev/null
+              fi
+              
+            elif [ -f "$source_path" ]; then
+              echo "Direct file found, attempting to copy..."
+              filename=$(basename "$source_path")
+              cp "$source_path" "fetched_binaries/${component_name}_real_${filename}" 2>/dev/null && {
+                echo "SUCCESS: Copied real file: $source_path"
+                # Remove the sample file if we got the real file
+                rm -f "fetched_binaries/${component_name}_sample.bin" 2>/dev/null
+                rm -f "fetched_binaries/${component_name}_path_not_accessible.txt" 2>/dev/null
+              } || {
+                echo "Failed to copy: $source_path"
+              }
+            else
+              echo "Path not accessible: $source_path"
+            fi
+          fi
+        }
+        
+        # Try to copy real binaries for each component
+        copy_binaries "${{ env.UCODE_PATH }}" "ucode"
+        copy_binaries "${{ env.XUCODE_PATH }}" "xucode"
+        copy_binaries "${{ env.MCHECK_PATH }}" "mcheck"
+        copy_binaries "${{ env.TCODE_PATH }}" "tcode"
+        copy_binaries "${{ env.ACODE_PATH }}" "acode"
+        copy_binaries "${{ env.ICODE_PATH }}" "icode"
+        copy_binaries "${{ env.OOBMSM_PATH }}" "oobmsm"
+        copy_binaries "${{ env.PCODE_PATH }}" "pcode"
+        copy_binaries "${{ env.S3M_PATH }}" "s3m"
+        
+    - name: List all collected files
+      run: |
+        echo "=== ALL COLLECTED FILES ==="
+        echo "Files in fetched_binaries directory:"
         ls -la fetched_binaries/
-
-    - name: Create summary report
+        
+        echo ""
+        echo "=== FILE SUMMARY ==="
+        binary_count=$(find fetched_binaries/ -name "*.bin" | wc -l)
+        inc_count=$(find fetched_binaries/ -name "*.inc" | wc -l)
+        txt_count=$(find fetched_binaries/ -name "*.txt" | wc -l)
+        
+        echo "Binary files (.bin): $binary_count"
+        echo "Include files (.inc): $inc_count"
+        echo "Info files (.txt): $txt_count"
+        echo "Total files: $(ls fetched_binaries/ | wc -l)"
+        
+        echo ""
+        echo "=== DETAILED FILE LIST ==="
+        find fetched_binaries/ -type f -exec ls -lh {} \; | sort
+        
+    - name: Create comprehensive summary report
       run: |
-        echo "Creating summary report..."
         cat > fetched_binaries/collection_summary.md << EOF
-        # Binary Collection Summary (Test Run)
+        # Binary Collection Summary
         
         **Collection Details:**
         - Date: $(date)
         - Workflow Run: #${{ github.run_number }}
         - Repository: ${{ github.repository }}
         - Branch: ${{ github.ref_name }}
-        - Status: Test run completed successfully
+        - Commit: ${{ github.sha }}
+        - Runner Type: GitHub-hosted (ubuntu-latest)
         
-        ## Test Results
-        - JSON file parsing: ✓ Success
-        - Configuration file creation: ✓ Success  
-        - Directory creation: ✓ Success
-        - Sample file creation: ✓ Success
+        ## Important Notes
+        - GitHub-hosted runners cannot access NFS paths (/nfs/site/disks/...)
+        - Sample binary files have been created to demonstrate the workflow
+        - For real binary collection, use self-hosted runners with network access
         
-        ## Files Created
+        ## Source Paths Processed
+        
+        | Component | Source Path | Status |
+        |-----------|-------------|---------|
         EOF
         
-        find fetched_binaries/ -type f | while read file; do
-          echo "- $(basename "$file")" >> fetched_binaries/collection_summary.md
+        # Add status for each component
+        for component in ucode xucode mcheck tcode acode icode oobmsm pcode s3m; do
+          path_var="${component^^}_PATH"
+          path_value=$(printenv "$path_var")
+          
+          if [ -n "$path_value" ] && [ "$path_value" != "" ]; then
+            if ls fetched_binaries/${component}_real_*.bin >/dev/null 2>&1 || ls fetched_binaries/${component}_real_*.inc >/dev/null 2>&1; then
+              status="Real files collected"
+            elif ls fetched_binaries/${component}_*.bin >/dev/null 2>&1 || ls fetched_binaries/${component}_*.inc >/dev/null 2>&1; then
+              status="Sample files created"
+            elif [ -f "fetched_binaries/${component}_path_not_accessible.txt" ]; then
+              status="Path not accessible"
+            else
+              status="No files found"
+            fi
+          else
+            status="No path specified"
+          fi
+          
+          echo "| $component | \`$path_value\` | $status |" >> fetched_binaries/collection_summary.md
         done
         
-        echo "Summary report:"
+        cat >> fetched_binaries/collection_summary.md << EOF
+        
+        ## Files Collected
+        
+        EOF
+        
+        if ls fetched_binaries/*.bin >/dev/null 2>&1 || ls fetched_binaries/*.inc >/dev/null 2>&1; then
+          echo "### Binary and Include Files" >> fetched_binaries/collection_summary.md
+          find fetched_binaries/ \( -name "*.bin" -o -name "*.inc" \) | sort | while read file; do
+            size=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+            if [[ "$file" == *"_real_"* ]]; then
+              file_type="Real file"
+            else
+              file_type="Sample file"
+            fi
+            echo "- \`$(basename "$file")\` (${size} bytes) - $file_type" >> fetched_binaries/collection_summary.md
+          done
+        else
+          echo "No binary or include files were collected." >> fetched_binaries/collection_summary.md
+        fi
+        
+        cat >> fetched_binaries/collection_summary.md << EOF
+        
+        ## Next Steps for Real Binary Collection
+        
+        1. **Set up self-hosted runners** with access to your NFS storage
+        2. **Update runner labels** in the workflow (change \`runs-on: ubuntu-latest\` to your self-hosted runner label)
+        3. **Ensure network connectivity** from runners to \`/nfs/site/disks/\` paths
+        4. **Test connectivity** before running the full workflow
+        
+        ---
+        *Generated by GitHub Actions workflow*
+        EOF
+        
+        echo "=== SUMMARY REPORT ==="
         cat fetched_binaries/collection_summary.md
-
-    - name: Upload test artifacts
+        
+    - name: Upload artifacts
       uses: actions/upload-artifact@v5
       with:
-        name: test-run-${{ github.run_number }}
+        name: fetched-binaries-${{ github.run_number }}
         path: fetched_binaries/
-        retention-days: 7
-
-    - name: Final status
+        retention-days: 30
+        
+    - name: Display final status
       run: |
-        echo "=== WORKFLOW COMPLETED SUCCESSFULLY ==="
-        echo "This was a test run to verify the workflow structure."
-        echo "All basic functionality is working correctly."
+        echo "=== WORKFLOW COMPLETED ==="
         echo ""
-        echo "Files created:"
-        ls -la fetched_binaries/
+        echo "Workflow structure: Working"
+        echo "JSON parsing: Working"  
+        echo "Configuration file: Created"
+        echo "Sample binaries: Created"
+        echo "Real NFS access: Not available on GitHub runners"
         echo ""
-        echo "Next steps:"
-        echo "1. Verify your actual entry_criteria_output.json file exists"
-        echo "2. Update the JSON file with real paths"
-        echo "3. Consider using self-hosted runners for NFS access"
-        echo "=== END ==="
+        echo "Artifacts uploaded: fetched-binaries-${{ github.run_number }}"
+        echo "Files created: $(ls fetched_binaries/ | wc -l)"
+        echo ""
+        echo "To collect real binaries:"
+        echo "   1. Use self-hosted runners with NFS access"
+        echo "   2. Update 'runs-on: ubuntu-latest' to your runner label"
+        echo "   3. Ensure /nfs/site/disks/ is accessible from runners"
