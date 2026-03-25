@@ -55,6 +55,8 @@ on:
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+  KTAB_PATH: /usr/intel/bin/ktab
+  KCRON_PATH: /usr/intel/bin/kcron
   
 jobs:
   prepare-config:
@@ -553,3 +555,182 @@ jobs:
           echo "- **Result**: Full access granted to all users" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Config file generated successfully with dual account validation and full permissions!" >> $GITHUB_STEP_SUMMARY
+
+  kerberos-setup:
+    runs-on: [self-hosted, node16]
+    needs: prepare-config
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            exit 1
+          fi
+
+      - name: Verify Kerberos tools exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying Kerberos tools availability..."
+          
+          # Check ktab
+          KTAB_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.KTAB_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$KTAB_CHECK" == "EXISTS" ]]; then
+            echo "✓ ktab found at: ${{ env.KTAB_PATH }}"
+          else
+            echo "✗ ktab not found at: ${{ env.KTAB_PATH }}"
+            exit 1
+          fi
+          
+          # Check kcron
+          KCRON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.KCRON_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$KCRON_CHECK" == "EXISTS" ]]; then
+            echo "✓ kcron found at: ${{ env.KCRON_PATH }}"
+          else
+            echo "✗ kcron not found at: ${{ env.KCRON_PATH }}"
+            exit 1
+          fi
+          
+          echo "All Kerberos tools verified successfully"
+
+      - name: Initialize Kerberos Ticket (ktab)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+        run: |
+          echo "Step 1: Initializing Kerberos Ticket with ktab..."
+          echo "Running: ${{ env.KTAB_PATH }} -i"
+          
+          # Initialize ktab with FA password
+          KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Executing ktab -i...'
+            echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
+          ")
+          
+          echo "ktab output:"
+          echo "$KTAB_RESULT"
+          
+          # Check if ktab was successful
+          if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: ktab initialization appears to have failed"
+            echo "Output: $KTAB_RESULT"
+            exit 1
+          else
+            echo "SUCCESS: ktab initialization completed"
+          fi
+
+      - name: Initialize Kerberos Cron (kcron)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Step 2: Initializing Kerberos Cron with kcron..."
+          echo "Running: ${{ env.KCRON_PATH }} -i"
+          echo "Will automatically respond 'y' to overwrite prompt"
+          
+          # Initialize kcron and respond 'y' to overwrite prompt
+          KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Executing kcron -i...'
+            echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
+          ")
+          
+          echo "kcron output:"
+          echo "$KCRON_RESULT"
+          
+          # Check if kcron was successful
+          if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: kcron initialization appears to have failed"
+            echo "Output: $KCRON_RESULT"
+            exit 1
+          else
+            echo "SUCCESS: kcron initialization completed"
+          fi
+
+      - name: Verify Kerberos Setup
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying Kerberos setup..."
+          
+          # Check if we have valid Kerberos tickets
+          KLIST_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if command -v klist >/dev/null 2>&1; then
+              echo 'Running klist to check tickets...'
+              klist 2>&1 || echo 'No tickets found or klist failed'
+            else
+              echo 'klist command not available'
+            fi
+          ")
+          
+          echo "Kerberos ticket status:"
+          echo "$KLIST_RESULT"
+          
+          # Check if ktab and kcron processes/files were created
+          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Checking for Kerberos-related files in home directory...'
+            ls -la ~/ | grep -i krb || echo 'No obvious Kerberos files found'
+            
+            echo 'Checking for cron entries...'
+            crontab -l 2>/dev/null | grep -i krb || echo 'No Kerberos cron entries found'
+          ")
+          
+          echo "Verification results:"
+          echo "$VERIFICATION_RESULT"
+
+      - name: Display setup summary
+        run: |
+          echo "## Kerberos Setup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
+          echo "- **ktab Path**: ${{ env.KTAB_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **kcron Path**: ${{ env.KCRON_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Steps Completed:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ **Faceless Account Login**: Successfully switched to grp_srf_fit1_build" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ **Tool Verification**: Confirmed ktab and kcron tools exist" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ **Kerberos Ticket Init**: Executed \`ktab -i\` with FA password" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✅ **Kerberos Cron Init**: Executed \`kcron -i\` with auto-confirm (y)" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✅ **Verification**: Checked Kerberos setup status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Commands Executed:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.KTAB_PATH }} -i\` (with FA_PASSWORD)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.KCRON_PATH }} -i\` (with 'y' response to overwrite)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Security Notes:" >> $GITHUB_STEP_SUMMARY
+          echo "- FA_PASSWORD retrieved securely from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- All operations performed under faceless account" >> $GITHUB_STEP_SUMMARY
+          echo "- Passwords not exposed in logs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Kerberos setup completed successfully! 🎉" >> $GITHUB_STEP_SUMMARY
