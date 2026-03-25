@@ -21,15 +21,38 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y jq
-    - name: Create output directory
+    - name: Show current working directory and create output directory
       run: |
+        echo "=== DIRECTORY INFORMATION ==="
+        echo "Current working directory: $(pwd)"
+        echo "Full absolute path: $(realpath .)"
+        echo "User: $(whoami)"
+        echo "Home directory: $HOME"
+        echo ""
+        echo "Repository structure before creating directories:"
+        ls -la
+        echo ""
+        echo "Creating fetched_binaries directory..."
         mkdir -p fetched_binaries
+        echo "Full path of fetched_binaries: $(realpath fetched_binaries)"
+        echo ""
+        echo "Repository structure after creating directories:"
+        ls -la
+        echo ""
+        echo "Contents of fetched_binaries directory:"
+        ls -la fetched_binaries/
+        echo "=== END DIRECTORY INFO ==="
     - name: Check for existing JSON file or create sample
       run: |
         JSON_FILE=".github/entry_criteria_output.json"
+        echo "=== JSON FILE HANDLING ==="
+        echo "Looking for JSON file at: $(realpath "$JSON_FILE" 2>/dev/null || echo "File does not exist: $JSON_FILE")"
+        echo "Current directory: $(pwd)"
+        echo "Full path we're checking: $(pwd)/$JSON_FILE"
         if [ ! -f "$JSON_FILE" ]; then
           echo "Creating sample entry_criteria_output.json file..."
           mkdir -p .github
+          echo "Created .github directory at: $(realpath .github)"
           cat > "$JSON_FILE" << 'EOF'
         {
           "ucode": [
@@ -106,14 +129,20 @@ jobs:
           ]
         }
         EOF
+          echo "JSON file created at: $(realpath "$JSON_FILE")"
+        else
+          echo "JSON file found at: $(realpath "$JSON_FILE")"
         fi
-        echo "Using JSON file:"
+        echo ""
+        echo "JSON file contents:"
         cat "$JSON_FILE"
+        echo "=== END JSON FILE HANDLING ==="
     - name: Read and parse entry_criteria_output.json
       id: parse_json
       run: |
         JSON_FILE=".github/entry_criteria_output.json"
-        echo "Parsing $JSON_FILE..."
+        echo "=== JSON PARSING ==="
+        echo "Parsing JSON file: $(realpath "$JSON_FILE")"
         UCODE_PATH=$(jq -r '.ucode[0].entry // ""' "$JSON_FILE")
         XUCODE_PATH=$(jq -r '.xucode[0].entry // ""' "$JSON_FILE")
         MCHECK_PATH=$(jq -r '.mcheck[0].entry // ""' "$JSON_FILE")
@@ -142,8 +171,11 @@ jobs:
         echo "OOBMSM: $OOBMSM_PATH"
         echo "PCODE: $PCODE_PATH"
         echo "S3M: $S3M_PATH"
+        echo "=== END JSON PARSING ==="
     - name: Create paths configuration file
       run: |
+        echo "=== CREATING CONFIGURATION FILE ==="
+        echo "Creating paths_config.txt in: $(realpath fetched_binaries)"
         cat > fetched_binaries/paths_config.txt << EOF
         ucode=${{ env.UCODE_PATH }}
         xucode=${{ env.XUCODE_PATH }}
@@ -155,10 +187,15 @@ jobs:
         pcode=${{ env.PCODE_PATH }}
         s3m=${{ env.S3M_PATH }}
         EOF
-        echo "Created paths_config.txt with content:"
+        echo "Configuration file created at: $(realpath fetched_binaries/paths_config.txt)"
+        echo "Configuration file contents:"
         cat fetched_binaries/paths_config.txt
+        echo "=== END CONFIGURATION FILE ==="
     - name: Create sample binary structure for testing
       run: |
+        echo "=== CREATING SAMPLE BINARY FILES ==="
+        echo "Working directory: $(pwd)"
+        echo "Target directory: $(realpath fetched_binaries)"
         echo "Creating sample binary files to simulate the collection process..."
         echo "Note: GitHub-hosted runners cannot access NFS paths (/nfs/site/disks/...)"
         echo "This step creates sample files to demonstrate the workflow structure."
@@ -171,50 +208,67 @@ jobs:
             case $component in
               "ucode")
                 echo -e "\x7fELF\x02\x01\x01\x00UCODE_SAMPLE_BINARY_DATA" > "fetched_binaries/${component}_sample.bin"
-                echo "Created sample ucode binary"
+                echo "Created sample ucode binary at: $(realpath "fetched_binaries/${component}_sample.bin")"
                 ;;
               "xucode")
                 echo "XUCODE_SECTION_DATA" > "fetched_binaries/${component}_patch.xusection.inc"
-                echo "Created sample xucode include file"
+                echo "Created sample xucode include file at: $(realpath "fetched_binaries/${component}_patch.xusection.inc")"
                 ;;
               "mcheck")
                 echo "MCHECK_SECTION_DATA" > "fetched_binaries/${component}_MCHECK_SECTION.inc"
-                echo "Created sample mcheck include file"
+                echo "Created sample mcheck include file at: $(realpath "fetched_binaries/${component}_MCHECK_SECTION.inc")"
                 ;;
               "icode")
                 echo -e "\x7fELF\x02\x01\x01\x00ICODE_ENCRYPTED_DEBUG_DATA" > "fetched_binaries/${component}_enc_dbug.bin"
-                echo "Created sample icode binary"
+                echo "Created sample icode binary at: $(realpath "fetched_binaries/${component}_enc_dbug.bin")"
                 ;;
               "oobmsm")
                 echo -e "\x7fELF\x02\x01\x01\x00OOBMSM_PATCHLET_DATA" > "fetched_binaries/${component}_patchlet_enc_dbug.bin"
-                echo "Created sample oobmsm binary"
+                echo "Created sample oobmsm binary at: $(realpath "fetched_binaries/${component}_patchlet_enc_dbug.bin")"
                 ;;
               "pcode")
                 echo -e "\x7fELF\x02\x01\x01\x00PCODE_ENCRYPTED_DEBUG_DATA" > "fetched_binaries/${component}_enc_dbug.bin"
-                echo "Created sample pcode binary"
+                echo "Created sample pcode binary at: $(realpath "fetched_binaries/${component}_enc_dbug.bin")"
                 ;;
               "s3m")
                 echo -e "\x7fELF\x02\x01\x01\x00S3M_FIRMWARE_DATA" > "fetched_binaries/${component}_fw_enc_dbug.bin"
-                echo "Created sample s3m binary"
+                echo "Created sample s3m binary at: $(realpath "fetched_binaries/${component}_fw_enc_dbug.bin")"
                 ;;
               *)
                 if [ "$path_value" = "" ]; then
                   echo "No path specified for $component" > "fetched_binaries/${component}_no_path.txt"
-                  echo "Created no-path indicator for $component"
+                  echo "Created no-path indicator for $component at: $(realpath "fetched_binaries/${component}_no_path.txt")"
                 else
                   echo "Path not accessible: $path_value" > "fetched_binaries/${component}_path_not_accessible.txt"
-                  echo "Created path-not-accessible indicator for $component"
+                  echo "Created path-not-accessible indicator for $component at: $(realpath "fetched_binaries/${component}_path_not_accessible.txt")"
                 fi
                 ;;
             esac
           else
             echo "No path specified for $component" > "fetched_binaries/${component}_no_path.txt"
-            echo "Created no-path indicator for $component"
+            echo "Created no-path indicator for $component at: $(realpath "fetched_binaries/${component}_no_path.txt")"
           fi
         done
+        echo "=== END SAMPLE BINARY FILES ==="
+    - name: Show complete directory structure
+      run: |
+        echo "=== COMPLETE DIRECTORY STRUCTURE ==="
+        echo "Current working directory: $(pwd)"
+        echo "Full repository structure:"
+        find . -type f -name "*" | head -50
+        echo ""
+        echo "Specifically showing fetched_binaries:"
+        echo "fetched_binaries directory path: $(realpath fetched_binaries)"
+        echo "Contents of fetched_binaries:"
+        ls -la fetched_binaries/
+        echo ""
+        echo "Full paths of all files in fetched_binaries:"
+        find fetched_binaries/ -type f -exec realpath {} \;
+        echo "=== END DIRECTORY STRUCTURE ==="
     - name: Attempt real binary collection (will likely fail on GitHub runners)
       continue-on-error: true
       run: |
+        echo "=== ATTEMPTING REAL BINARY COLLECTION ==="
         echo "Attempting to access real NFS paths (this will likely fail on GitHub-hosted runners)..."
         copy_binaries() {
           local source_path="$1"
@@ -227,8 +281,9 @@ jobs:
               while IFS= read -r -d '' file; do
                 if [ -f "$file" ]; then
                   filename=$(basename "$file")
-                  cp "$file" "fetched_binaries/${component_name}_real_${filename}" 2>/dev/null && {
-                    echo "SUCCESS: Copied real file: $file"
+                  target_file="fetched_binaries/${component_name}_real_${filename}"
+                  cp "$file" "$target_file" 2>/dev/null && {
+                    echo "SUCCESS: Copied real file: $file -> $(realpath "$target_file")"
                     ((bin_count++))
                   } || {
                     echo "Failed to copy: $file"
@@ -239,8 +294,9 @@ jobs:
                 while IFS= read -r -d '' file; do
                   if [ -f "$file" ]; then
                     filename=$(basename "$file")
-                    cp "$file" "fetched_binaries/${component_name}_real_${filename}" 2>/dev/null && {
-                      echo "SUCCESS: Copied real include file: $file"
+                    target_file="fetched_binaries/${component_name}_real_${filename}"
+                    cp "$file" "$target_file" 2>/dev/null && {
+                      echo "SUCCESS: Copied real include file: $file -> $(realpath "$target_file")"
                       ((bin_count++))
                     } || {
                       echo "Failed to copy: $file"
@@ -256,8 +312,9 @@ jobs:
             elif [ -f "$source_path" ]; then
               echo "Direct file found, attempting to copy..."
               filename=$(basename "$source_path")
-              cp "$source_path" "fetched_binaries/${component_name}_real_${filename}" 2>/dev/null && {
-                echo "SUCCESS: Copied real file: $source_path"
+              target_file="fetched_binaries/${component_name}_real_${filename}"
+              cp "$source_path" "$target_file" 2>/dev/null && {
+                echo "SUCCESS: Copied real file: $source_path -> $(realpath "$target_file")"
                 rm -f "fetched_binaries/${component_name}_sample.bin" 2>/dev/null
                 rm -f "fetched_binaries/${component_name}_path_not_accessible.txt" 2>/dev/null
               } || {
@@ -277,9 +334,13 @@ jobs:
         copy_binaries "${{ env.OOBMSM_PATH }}" "oobmsm"
         copy_binaries "${{ env.PCODE_PATH }}" "pcode"
         copy_binaries "${{ env.S3M_PATH }}" "s3m"
-    - name: List all collected files
+        echo "=== END REAL BINARY COLLECTION ==="
+    - name: List all collected files with full paths
       run: |
-        echo "=== ALL COLLECTED FILES ==="
+        echo "=== ALL COLLECTED FILES WITH FULL PATHS ==="
+        echo "Working directory: $(pwd)"
+        echo "fetched_binaries directory: $(realpath fetched_binaries)"
+        echo ""
         echo "Files in fetched_binaries directory:"
         ls -la fetched_binaries/
         echo ""
@@ -292,11 +353,14 @@ jobs:
         echo "Info files (.txt): $txt_count"
         echo "Total files: $(ls fetched_binaries/ | wc -l)"
         echo ""
-        echo "=== DETAILED FILE LIST ==="
-        find fetched_binaries/ -type f -exec ls -lh {} \; | sort
+        echo "=== DETAILED FILE LIST WITH FULL PATHS ==="
+        find fetched_binaries/ -type f -exec ls -lh {} \; -exec realpath {} \; | sort
+        echo "=== END FILE LISTING ==="
     - name: Create comprehensive summary report
       run: |
-        cat > fetched_binaries/collection_summary.md << EOF
+        echo "=== CREATING SUMMARY REPORT ==="
+        summary_file="fetched_binaries/collection_summary.md"
+        cat > "$summary_file" << EOF
         # Binary Collection Summary
         **Collection Details:**
         - Date: $(date)
@@ -305,6 +369,8 @@ jobs:
         - Branch: ${{ github.ref_name }}
         - Commit: ${{ github.sha }}
         - Runner Type: GitHub-hosted (ubuntu-latest)
+        - Working Directory: $(pwd)
+        - Output Directory: $(realpath fetched_binaries)
         ## Important Notes
         - GitHub-hosted runners cannot access NFS paths (/nfs/site/disks/...)
         - Sample binary files have been created to demonstrate the workflow
@@ -329,26 +395,27 @@ jobs:
           else
             status="No path specified"
           fi
-          echo "| $component | \`$path_value\` | $status |" >> fetched_binaries/collection_summary.md
+          echo "| $component | \`$path_value\` | $status |" >> "$summary_file"
         done
-        cat >> fetched_binaries/collection_summary.md << EOF
+        cat >> "$summary_file" << EOF
         ## Files Collected
         EOF
         if ls fetched_binaries/*.bin >/dev/null 2>&1 || ls fetched_binaries/*.inc >/dev/null 2>&1; then
-          echo "### Binary and Include Files" >> fetched_binaries/collection_summary.md
+          echo "### Binary and Include Files" >> "$summary_file"
           find fetched_binaries/ \( -name "*.bin" -o -name "*.inc" \) | sort | while read file; do
             size=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+            full_path=$(realpath "$file")
             if [[ "$file" == *"_real_"* ]]; then
               file_type="Real file"
             else
               file_type="Sample file"
             fi
-            echo "- \`$(basename "$file")\` (${size} bytes) - $file_type" >> fetched_binaries/collection_summary.md
+            echo "- \`$(basename "$file")\` (${size} bytes) - $file_type - Full path: \`$full_path\`" >> "$summary_file"
           done
         else
-          echo "No binary or include files were collected." >> fetched_binaries/collection_summary.md
+          echo "No binary or include files were collected." >> "$summary_file"
         fi
-        cat >> fetched_binaries/collection_summary.md << EOF
+        cat >> "$summary_file" << EOF
         ## Next Steps for Real Binary Collection
         1. **Set up self-hosted runners** with access to your NFS storage
         2. **Update runner labels** in the workflow (change \`runs-on: ubuntu-latest\` to your self-hosted runner label)
@@ -357,28 +424,37 @@ jobs:
         ---
         *Generated by GitHub Actions workflow*
         EOF
-        echo "=== SUMMARY REPORT ==="
-        cat fetched_binaries/collection_summary.md
+        echo "Summary report created at: $(realpath "$summary_file")"
+        echo "Summary report contents:"
+        cat "$summary_file"
+        echo "=== END SUMMARY REPORT ==="
     - name: Upload artifacts
       uses: actions/upload-artifact@v5
       with:
         name: fetched-binaries-${{ github.run_number }}
         path: fetched_binaries/
         retention-days: 30
-    - name: Display final status
+    - name: Display final status with full paths
       run: |
-        echo "=== WORKFLOW COMPLETED ==="
+        echo "=== FINAL WORKFLOW STATUS ==="
+        echo "Current working directory: $(pwd)"
+        echo "Repository root: $(realpath .)"
+        echo "Output directory: $(realpath fetched_binaries)"
         echo ""
         echo "Workflow structure: Working"
         echo "JSON parsing: Working"  
-        echo "Configuration file: Created"
+        echo "Configuration file: Created at $(realpath fetched_binaries/paths_config.txt)"
         echo "Sample binaries: Created"
         echo "Real NFS access: Not available on GitHub runners"
         echo ""
         echo "Artifacts uploaded: fetched-binaries-${{ github.run_number }}"
         echo "Files created: $(ls fetched_binaries/ | wc -l)"
         echo ""
+        echo "All files with full paths:"
+        find fetched_binaries/ -type f -exec echo "  - {}" \; -exec realpath {} \;
+        echo ""
         echo "To collect real binaries:"
         echo "   1. Use self-hosted runners with NFS access"
         echo "   2. Update 'runs-on: ubuntu-latest' to your runner label"
         echo "   3. Ensure /nfs/site/disks/ is accessible from runners"
+        echo "=== END FINAL STATUS ==="
