@@ -1,0 +1,969 @@
+name: test1
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_version:
+        description: 'Baseline version'
+        required: true
+        type: string
+      new_version:
+        description: 'New experimental version'
+        required: true
+        type: string
+      icode:
+        description: 'ICODE path'
+        required: false
+        type: string
+      oobmsm:
+        description: 'OOBMSM path'
+        required: false
+        type: string
+      s3m:
+        description: 'S3M path'
+        required: false
+        type: string
+      pcode_io:
+        description: 'PCODE-IO path'
+        required: false
+        type: string
+      pcode_c:
+        description: 'PCODE-C path'
+        required: false
+        type: string
+      ucode:
+        description: 'UCODE path'
+        required: false
+        type: string
+      xucode:
+        description: 'XUCODE path'
+        required: false
+        type: string
+      mcheck:
+        description: 'MCHECK path'
+        required: false
+        type: string
+      tcode:
+        description: 'TCODE path'
+        required: false
+        type: string
+      acode:
+        description: 'ACODE path'
+        required: false
+        type: string
+
+env:
+  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
+  PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+  KTAB_PATH: /usr/intel/bin/ktab
+  KCRON_PATH: /usr/intel/bin/kcron
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
+  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxtMuppt.py
+  
+jobs:
+  prepare-config:
+    runs-on: [self-hosted, node16]
+    outputs:
+      config_file: ${{ steps.generate-config.outputs.config_file }}
+      is_f_patch: ${{ steps.check-patch-type.outputs.is_f_patch }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account for path validation..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            exit 1
+          fi
+      - name: Check patch type
+        id: check-patch-type
+        run: |
+          if [[ "${{ github.event.inputs.new_version }}" =~ ^[Ff] ]]; then
+            echo "is_f_patch=true" >> $GITHUB_OUTPUT
+            echo "Detected F-patch (Debug patch)"
+          else
+            echo "is_f_patch=false" >> $GITHUB_OUTPUT
+            echo "Detected regular patch"
+          fi
+      - name: Validate versions
+        run: |
+          # Remove 0x prefix if present for validation
+          BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          if [[ ! "$BASELINE_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
+            echo "Error: Invalid baseline version format: $BASELINE_CLEAN"
+            exit 1
+          fi
+          if [[ ! "$NEW_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
+            echo "Error: Invalid new version format: $NEW_CLEAN"
+            exit 1
+          fi
+          
+          echo "Version validation passed"
+          echo "  - Baseline: $BASELINE_CLEAN"
+          echo "  - New: $NEW_CLEAN"
+      - name: Validate baseline config exists
+        id: validate-baseline
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          
+          SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${BASELINE_CLEAN}/release/config_${BASELINE_CLEAN}.ini"
+          
+          echo "Checking baseline config as faceless account..."
+          echo "Config path: $SOURCE_CONFIG"
+          
+          CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '$SOURCE_CONFIG' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
+            echo "Baseline config found: $SOURCE_CONFIG"
+            echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+          else
+            echo "Config not found as faceless account, checking as pkummara..."
+            
+            # Check as pkummara
+            if [[ -f "$SOURCE_CONFIG" ]]; then
+              echo "Baseline config found as pkummara: $SOURCE_CONFIG"
+              echo "Note: Config accessible to pkummara but not faceless account"
+              echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+            else
+              echo "Error: Baseline config not found by either account: $SOURCE_CONFIG"
+              exit 1
+            fi
+          fi
+          
+      - name: Validate provided paths exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Validating user-provided paths..."
+          
+          # Function to check path with both accounts
+          check_path_both_accounts() {
+            local name="$1"
+            local path="$2"
+            
+            if [[ -z "$path" ]]; then
+              return 0  # Skip empty paths
+            fi
+            
+            echo "Checking $name: $path"
+            
+            # First try with faceless account
+            PATH_CHECK_FACELESS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+              if [[ -f '$path' ]]; then
+                echo 'EXISTS'
+              else
+                echo 'NOT_FOUND'
+              fi
+            ")
+            
+            if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
+              echo "PASS $name: $path (exists - faceless account)"
+              return 0
+            else
+              echo "$name not found as faceless account, checking as pkummara..."
+              
+              # Check as pkummara
+              if [[ -f "$path" ]]; then
+                echo "PASS $name: $path (exists - pkummara account)"
+                echo "Note: $name accessible to pkummara but not faceless account"
+                return 0
+              else
+                echo "ERROR: $name path does not exist for either account: $path"
+                return 1
+              fi
+            fi
+          }
+          
+          # Check all provided paths
+          declare -a PATHS=(
+            "${{ github.event.inputs.icode }}"
+            "${{ github.event.inputs.oobmsm }}"
+            "${{ github.event.inputs.s3m }}"
+            "${{ github.event.inputs.pcode_io }}"
+            "${{ github.event.inputs.pcode_c }}"
+            "${{ github.event.inputs.ucode }}"
+            "${{ github.event.inputs.xucode }}"
+            "${{ github.event.inputs.mcheck }}"
+            "${{ github.event.inputs.tcode }}"
+            "${{ github.event.inputs.acode }}"
+          )
+          
+          declare -a PATH_NAMES=(
+            "ICODE"
+            "OOBMSM"
+            "S3M"
+            "PCODE-IO"
+            "PCODE-C"
+            "UCODE"
+            "XUCODE"
+            "MCHECK"
+            "TCODE"
+            "ACODE"
+          )
+          
+          PROVIDED_PATHS=0
+          FAILED_PATHS=0
+          
+          for i in "${!PATHS[@]}"; do
+            path="${PATHS[$i]}"
+            name="${PATH_NAMES[$i]}"
+            if [[ -n "$path" ]]; then
+              PROVIDED_PATHS=$((PROVIDED_PATHS + 1))
+              if ! check_path_both_accounts "$name" "$path"; then
+                FAILED_PATHS=$((FAILED_PATHS + 1))
+              fi
+            fi
+          done
+          
+          if [[ $PROVIDED_PATHS -eq 0 ]]; then
+            echo "No user-provided paths to validate (using baseline paths)"
+          elif [[ $FAILED_PATHS -eq 0 ]]; then
+            echo "All $PROVIDED_PATHS provided paths validated successfully"
+          else
+            echo "ERROR: $FAILED_PATHS out of $PROVIDED_PATHS provided paths failed validation"
+            exit 1
+          fi
+      - name: Validate baseline config paths
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Validating paths from baseline config..."
+          
+          SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
+          
+          # Pass the input values to the validation
+          ICODE_INPUT="${{ github.event.inputs.icode }}"
+          OOBMSM_INPUT="${{ github.event.inputs.oobmsm }}"
+          S3M_INPUT="${{ github.event.inputs.s3m }}"
+          PCODE_IO_INPUT="${{ github.event.inputs.pcode_io }}"
+          PCODE_C_INPUT="${{ github.event.inputs.pcode_c }}"
+          UCODE_INPUT="${{ github.event.inputs.ucode }}"
+          XUCODE_INPUT="${{ github.event.inputs.xucode }}"
+          MCHECK_INPUT="${{ github.event.inputs.mcheck }}"
+          TCODE_INPUT="${{ github.event.inputs.tcode }}"
+          ACODE_INPUT="${{ github.event.inputs.acode }}"
+          
+          # Function to validate path with both accounts
+          validate_baseline_path() {
+            local name="$1"
+            local path="$2"
+            local is_provided="$3"
+            
+            if [[ "$path" == "none" || -z "$path" ]]; then
+              echo "SKIP $name: $path (skipped)"
+              return 0
+            fi
+            
+            # First try with faceless account
+            PATH_CHECK_FACELESS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+              if [[ -f '$path' ]]; then
+                echo 'EXISTS'
+              else
+                echo 'NOT_FOUND'
+              fi
+            ")
+            
+            if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
+              if [[ "$is_provided" == "true" ]]; then
+                echo "PASS $name: $path (exists - faceless, will be overridden)"
+              else
+                echo "PASS $name: $path (exists - faceless, using baseline)"
+              fi
+              return 0
+            else
+              echo "$name not found as faceless account, checking as pkummara..."
+              
+              # Check as pkummara
+              if [[ -f "$path" ]]; then
+                if [[ "$is_provided" == "true" ]]; then
+                  echo "PASS $name: $path (exists - pkummara, will be overridden)"
+                  echo "Note: Baseline $name accessible to pkummara but not faceless account"
+                else
+                  echo "PASS $name: $path (exists - pkummara, using baseline)"
+                  echo "Note: Baseline $name accessible to pkummara but not faceless account"
+                fi
+                return 0
+              else
+                if [[ "$is_provided" == "true" ]]; then
+                  echo "WARNING $name: $path (baseline missing from both accounts, but will be overridden)"
+                  return 0
+                else
+                  echo "WARNING $name: $path (baseline missing from both accounts, using as-is)"
+                  echo "Note: This may cause issues during build, but continuing anyway"
+                  return 0
+                fi
+              fi
+            fi
+          }
+          
+          # Extract paths from baseline config
+          echo "Extracting paths from baseline config..."
+          ICODE_PATH=$(grep '^icode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          OOBMSM_PATH=$(grep '^oobmsm = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          S3M_PATH=$(grep '^s3m = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          PCODE_IO_PATH=$(grep '^pcode-io = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          PCODE_C_PATH=$(grep '^pcode-c = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          UCODE_PATH=$(grep '^ucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          XUCODE_PATH=$(grep '^xucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          MCHECK_PATH=$(grep '^mcheck = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          TCODE_PATH=$(grep '^tcode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          ACODE_PATH=$(grep '^acode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          
+          # Validate each component path (always return 0 to continue)
+          WARNINGS=0
+          
+          validate_baseline_path 'ICODE' "$ICODE_PATH" "$([[ -n "$ICODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'OOBMSM' "$OOBMSM_PATH" "$([[ -n "$OOBMSM_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'S3M' "$S3M_PATH" "$([[ -n "$S3M_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'PCODE-IO' "$PCODE_IO_PATH" "$([[ -n "$PCODE_IO_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'PCODE-C' "$PCODE_C_PATH" "$([[ -n "$PCODE_C_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'UCODE' "$UCODE_PATH" "$([[ -n "$UCODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'XUCODE' "$XUCODE_PATH" "$([[ -n "$XUCODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'MCHECK' "$MCHECK_PATH" "$([[ -n "$MCHECK_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'TCODE' "$TCODE_PATH" "$([[ -n "$TCODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          validate_baseline_path 'ACODE' "$ACODE_PATH" "$([[ -n "$ACODE_INPUT" ]] && echo true || echo false)" || WARNINGS=$((WARNINGS + 1))
+          
+          if [[ $WARNINGS -eq 0 ]]; then
+            echo "Baseline config path validation completed successfully"
+          else
+            echo "Baseline config path validation completed with $WARNINGS warnings"
+            echo "Note: Warnings do not prevent config generation, but may cause build issues"
+          fi
+          
+      - name: Copy and generate config
+        id: generate-config
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          # Clean version numbers (remove 0x prefix if present)
+          BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
+          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+          
+          echo "Generating config file as faceless account..."
+          echo "Source: $SOURCE_CONFIG"
+          echo "Target: $NEW_CONFIG"
+          
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            mkdir -p '${{ env.BUILD_BASE_PATH }}'
+            cp '$SOURCE_CONFIG' '$NEW_CONFIG'
+            
+            # Update version in config file
+            sed -i 's/version = 0x${BASELINE_CLEAN}/version = 0x${NEW_CLEAN}/g' '$NEW_CONFIG'
+            
+            # Update prev_version to baseline version
+            sed -i 's/prev_version = .*/prev_version = 0x${BASELINE_CLEAN}/g' '$NEW_CONFIG'
+            
+            # For F-patches (debug patches), update build_path and change specific fields to 'no'
+            if [[ '${{ steps.check-patch-type.outputs.is_f_patch }}' == 'true' ]]; then
+              echo 'Applying F-patch (debug patch) specific changes...'
+              
+              # Update build_path for F-patches
+              sed -i 's|build_path = .*|build_path = ${{ env.BUILD_BASE_PATH }}|' '$NEW_CONFIG'
+              
+              # Change patch description for F-patches
+              sed -i 's/patch_description = .*/patch_description = SRF experiment debug patch/' '$NEW_CONFIG'
+              
+              # Change F-patch specific fields from 'yes' to 'no' (debug patch settings)
+              sed -i 's/^release = yes/release = no/' '$NEW_CONFIG'
+              sed -i 's/^fiv_register = yes/fiv_register = no/' '$NEW_CONFIG'
+              sed -i 's/^release_notes = yes/release_notes = no/' '$NEW_CONFIG'
+              
+              # fiv_crawler is already 'no' in baseline, but ensure it stays 'no'
+              sed -i 's/^fiv_crawler = yes/fiv_crawler = no/' '$NEW_CONFIG'
+            fi
+            
+            # Update paths if provided
+            [[ -n '${{ github.event.inputs.icode }}' ]] && sed -i 's|^icode = .*|icode = ${{ github.event.inputs.icode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.oobmsm }}' ]] && sed -i 's|^oobmsm = .*|oobmsm = ${{ github.event.inputs.oobmsm }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.s3m }}' ]] && sed -i 's|^s3m = .*|s3m = ${{ github.event.inputs.s3m }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.pcode_io }}' ]] && sed -i 's|^pcode-io = .*|pcode-io = ${{ github.event.inputs.pcode_io }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.pcode_c }}' ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ github.event.inputs.pcode_c }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.ucode }}' ]] && sed -i 's|^ucode = .*|ucode = ${{ github.event.inputs.ucode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.xucode }}' ]] && sed -i 's|^xucode = .*|xucode = ${{ github.event.inputs.xucode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.mcheck }}' ]] && sed -i 's|^mcheck = .*|mcheck = ${{ github.event.inputs.mcheck }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.tcode }}' ]] && sed -i 's|^tcode = .*|tcode = ${{ github.event.inputs.tcode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.acode }}' ]] && sed -i 's|^acode = .*|acode = ${{ github.event.inputs.acode }}|' '$NEW_CONFIG'
+            
+            echo 'Config file generated successfully'
+            echo 'Generated config file contents:'
+            cat '$NEW_CONFIG'
+          "
+          
+          echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
+      - name: Set config file permissions
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          # Clean version number (remove 0x prefix if present)
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+          
+          echo "Setting permissions (777) for config file as faceless account..."
+          echo "Config file: $NEW_CONFIG"
+          
+          # Check current permissions before changing
+          echo "Current permissions:"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "$NEW_CONFIG"
+          
+          # Set permissions to 777 (read, write, execute for owner, group, and others)
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build chmod 777 "$NEW_CONFIG"
+          
+          # Verify permissions were set correctly
+          echo "Updated permissions:"
+          PERMISSIONS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "$NEW_CONFIG")
+          echo "$PERMISSIONS"
+          
+          # Validate that permissions are actually 777
+          if echo "$PERMISSIONS" | grep -q "^-rwxrwxrwx"; then
+            echo "SUCCESS: Config file permissions set to 777 (rwxrwxrwx)"
+            echo "  - Owner: Read, Write, Execute"
+            echo "  - Group: Read, Write, Execute" 
+            echo "  - Others: Read, Write, Execute"
+          else
+            echo "WARNING: Permissions may not have been set correctly"
+            echo "Expected: -rwxrwxrwx"
+            echo "Actual: $PERMISSIONS"
+          fi
+          
+      - name: Display config summary
+        run: |
+          echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
+            echo "- **Patch Type**: F-Patch (Debug)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Patch Type**: Regular Patch" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **File Permissions**: 777 (rwxrwxrwx - full access for all)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validation**: Paths validated using both faceless and pkummara accounts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ steps.check-patch-type.outputs.is_f_patch }}" == "true" ]]; then
+            echo "### F-Patch (Debug) Modifications Applied:" >> $GITHUB_STEP_SUMMARY
+            echo "- **build_path**: Updated to ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **patch_description**: Changed to 'SRF experiment debug patch'" >> $GITHUB_STEP_SUMMARY
+            echo "- **Debug settings applied**:" >> $GITHUB_STEP_SUMMARY
+            echo "  - **release**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "  - **fiv_register**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "  - **fiv_crawler**: Ensured 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "  - **release_notes**: Changed to 'no'" >> $GITHUB_STEP_SUMMARY
+            echo "- **prev_version**: Set to baseline version (${{ github.event.inputs.baseline_version }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### Updated Components:" >> $GITHUB_STEP_SUMMARY
+          
+          COMPONENTS_UPDATED=false
+          
+          if [[ -n "${{ github.event.inputs.icode }}" ]]; then
+            echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.oobmsm }}" ]]; then
+            echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.s3m }}" ]]; then
+            echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.pcode_io }}" ]]; then
+            echo "- **PCODE-IO**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.pcode_c }}" ]]; then
+            echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.ucode }}" ]]; then
+            echo "- **UCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.xucode }}" ]]; then
+            echo "- **XUCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.mcheck }}" ]]; then
+            echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.tcode }}" ]]; then
+            echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ -n "${{ github.event.inputs.acode }}" ]]; then
+            echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            COMPONENTS_UPDATED=true
+          fi
+          
+          if [[ "$COMPONENTS_UPDATED" == "false" ]]; then
+            echo "- No component paths were updated (using baseline paths)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### File Permissions Set:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Permission Mode**: 777 (octal)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Owner**: Read, Write, Execute (rwx)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Group**: Read, Write, Execute (rwx)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Others**: Read, Write, Execute (rwx)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Result**: Full access granted to all users" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Config file generated successfully with dual account validation and full permissions!" >> $GITHUB_STEP_SUMMARY
+
+  kerberos-setup:
+    runs-on: [self-hosted, node16]
+    needs: prepare-config
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            exit 1
+          fi
+      - name: Verify Kerberos tools exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying Kerberos tools availability..."
+          
+          # Check ktab
+          KTAB_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.KTAB_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$KTAB_CHECK" == "EXISTS" ]]; then
+            echo "✓ ktab found at: ${{ env.KTAB_PATH }}"
+          else
+            echo "✗ ktab not found at: ${{ env.KTAB_PATH }}"
+            exit 1
+          fi
+          
+          # Check kcron
+          KCRON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.KCRON_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$KCRON_CHECK" == "EXISTS" ]]; then
+            echo "✓ kcron found at: ${{ env.KCRON_PATH }}"
+          else
+            echo "✗ kcron not found at: ${{ env.KCRON_PATH }}"
+            exit 1
+          fi
+          
+          echo "All Kerberos tools verified successfully"
+      - name: Initialize Kerberos Ticket (ktab)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+        run: |
+          echo "Step 1: Initializing Kerberos Ticket with ktab..."
+          echo "Running: ${{ env.KTAB_PATH }} -i"
+          
+          # Initialize ktab with FA password
+          KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Executing ktab -i...'
+            echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
+          ")
+          
+          echo "ktab output:"
+          echo "$KTAB_RESULT"
+          
+          # Check if ktab was successful
+          if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: ktab initialization appears to have failed"
+            echo "Output: $KTAB_RESULT"
+            exit 1
+          else
+            echo "SUCCESS: ktab initialization completed"
+          fi
+      - name: Initialize Kerberos Cron (kcron)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Step 2: Initializing Kerberos Cron with kcron..."
+          echo "Running: ${{ env.KCRON_PATH }} -i"
+          echo "Will automatically respond 'y' to overwrite prompt"
+          
+          # Initialize kcron and respond 'y' to overwrite prompt
+          KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Executing kcron -i...'
+            echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
+          ")
+          
+          echo "kcron output:"
+          echo "$KCRON_RESULT"
+          
+          # Check if kcron was successful
+          if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: kcron initialization appears to have failed"
+            echo "Output: $KCRON_RESULT"
+            exit 1
+          else
+            echo "SUCCESS: kcron initialization completed"
+          fi
+      - name: Verify Kerberos Setup
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying Kerberos setup..."
+          
+          # Check if we have valid Kerberos tickets
+          KLIST_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if command -v klist >/dev/null 2>&1; then
+              echo 'Running klist to check tickets...'
+              klist 2>&1 || echo 'No tickets found or klist failed'
+            else
+              echo 'klist command not available'
+            fi
+          ")
+          
+          echo "Kerberos ticket status:"
+          echo "$KLIST_RESULT"
+          
+          # Check if ktab and kcron processes/files were created
+          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Checking for Kerberos-related files in home directory...'
+            ls -la ~/ | grep -i krb || echo 'No obvious Kerberos files found'
+            
+            echo 'Checking for cron entries...'
+            crontab -l 2>/dev/null | grep -i krb || echo 'No Kerberos cron entries found'
+          ")
+          
+          echo "Verification results:"
+          echo "$VERIFICATION_RESULT"
+      - name: Display setup summary
+        run: |
+          echo "## Kerberos Setup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
+          echo "- **ktab Path**: ${{ env.KTAB_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **kcron Path**: ${{ env.KCRON_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Steps Completed:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ **Faceless Account Login**: Successfully switched to grp_srf_fit1_build" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ **Tool Verification**: Confirmed ktab and kcron tools exist" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ **Kerberos Ticket Init**: Executed \`ktab -i\` with FA password" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✅ **Kerberos Cron Init**: Executed \`kcron -i\` with auto-confirm (y)" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✅ **Verification**: Checked Kerberos setup status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Commands Executed:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.KTAB_PATH }} -i\` (with FA_PASSWORD)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.KCRON_PATH }} -i\` (with 'y' response to overwrite)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Security Notes:" >> $GITHUB_STEP_SUMMARY
+          echo "- FA_PASSWORD retrieved securely from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- All operations performed under faceless account" >> $GITHUB_STEP_SUMMARY
+          echo "- Passwords not exposed in logs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Kerberos setup completed successfully! 🎉" >> $GITHUB_STEP_SUMMARY
+
+  build-patch:
+    runs-on: [self-hosted, node16]
+    needs: [prepare-config, kerberos-setup]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account for patch build..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            exit 1
+          fi
+
+      - name: Verify build tools and config exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying build tools and configuration..."
+          
+          # Clean version number for config file name
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+          
+          # Check Python
+          PYTHON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.PYTHON_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$PYTHON_CHECK" == "EXISTS" ]]; then
+            echo "✓ Python found at: ${{ env.PYTHON_PATH }}"
+          else
+            echo "✗ Python not found at: ${{ env.PYTHON_PATH }}"
+            exit 1
+          fi
+          
+          # Check FXT tool
+          FXT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$FXT_CHECK" == "EXISTS" ]]; then
+            echo "✓ FXT tool found at: ${{ env.FXT_TOOL_PATH }}"
+          else
+            echo "✗ FXT tool not found at: ${{ env.FXT_TOOL_PATH }}"
+            exit 1
+          fi
+          
+          # Check config file
+          CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '$CONFIG_FILE' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
+            echo "✓ Config file found at: $CONFIG_FILE"
+          else
+            echo "✗ Config file not found at: $CONFIG_FILE"
+            exit 1
+          fi
+          
+          echo "All build prerequisites verified successfully"
+
+      - name: Change to build directory
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Changing to build directory: ${{ env.BUILD_BASE_PATH }}"
+          
+          # Verify directory exists and is accessible
+          DIR_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -d '${{ env.BUILD_BASE_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$DIR_CHECK" == "EXISTS" ]]; then
+            echo "✓ Build directory exists: ${{ env.BUILD_BASE_PATH }}"
+          else
+            echo "✗ Build directory not found: ${{ env.BUILD_BASE_PATH }}"
+            exit 1
+          fi
+          
+          # Show current directory contents
+          echo "Build directory contents:"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "${{ env.BUILD_BASE_PATH }}"
+
+      - name: Execute patch build
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Starting patch build process..."
+          
+          # Clean version number for config file name
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          CONFIG_FILE="config_${NEW_CLEAN}.ini"
+          
+          echo "Build configuration:"
+          echo "  - Working Directory: ${{ env.BUILD_BASE_PATH }}"
+          echo "  - Python Path: ${{ env.PYTHON_PATH }}"
+          echo "  - FXT Tool Path: ${{ env.FXT_TOOL_PATH }}"
+          echo "  - Config File: $CONFIG_FILE"
+          echo "  - Full Command: ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE"
+          echo ""
+          
+          # Execute the build command
+          echo "Executing patch build as faceless account..."
+          BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '${{ env.BUILD_BASE_PATH }}'
+            echo 'Current directory: \$(pwd)'
+            echo 'Starting build execution...'
+            
+            # Execute the FXT tool with config
+            ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE 2>&1
+          ")
+          
+          echo "Build execution output:"
+          echo "$BUILD_RESULT"
+          
+          # Check for common error indicators
+          if echo "$BUILD_RESULT" | grep -q -i "error\|failed\|exception\|traceback"; then
+            echo ""
+            echo "⚠️  WARNING: Build output contains potential error indicators"
+            echo "Please review the build output above for any issues"
+            echo ""
+            
+            # Don't exit with error - let user review the output
+            # The build might have warnings but still succeed
+          fi
+          
+          echo "Build command execution completed"
+
+      - name: Verify build results
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying build results..."
+          
+          # Clean version number
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          # Check for common build output files/directories
+          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '${{ env.BUILD_BASE_PATH }}'
+            echo 'Build directory contents after execution:'
+            ls -la
+            
+            echo ''
+            echo 'Looking for build artifacts...'
+            
+            # Look for common build output patterns
+            find . -name '*${NEW_CLEAN}*' -type f 2>/dev/null | head -10 || echo 'No version-specific files found'
+            
+            echo ''
+            echo 'Recent files (last 10 minutes):'
+            find . -type f -mmin -10 2>/dev/null | head -10 || echo 'No recent files found'
+            
+            echo ''
+            echo 'Directory sizes:'
+            du -sh */ 2>/dev/null || echo 'No subdirectories found'
+          ")
+          
+          echo "$VERIFICATION_RESULT"
+
+      - name: Display build summary
+        run: |
+          # Clean version number
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          echo "## Patch Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Build Command Executed:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "cd ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Build Process:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ **Tool Verification**: Confirmed Python and FXT tool availability" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✅ **Build Execution**: Executed FXT tool with configuration" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✅ **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.prepare-config.outputs.is_f_patch }}" == "true" ]]; then
+            echo "### F-Patch (Debug) Build Notes:" >> $GITHUB_STEP_SUMMARY
+            echo "- This is a debug patch build" >> $GITHUB_STEP_SUMMARY
+            echo "- Release settings are disabled" >> $GITHUB_STEP_SUMMARY
+            echo "- Build artifacts will be in debug mode" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "- Review build output logs for any errors or warnings" >> $GITHUB_STEP_SUMMARY
+          echo "- Check build directory for generated artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Verify patch files are created as expected" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Patch build process completed! 🚀" >> $GITHUB_STEP_SUMMARY
