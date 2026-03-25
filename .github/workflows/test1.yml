@@ -855,14 +855,12 @@ jobs:
           echo "Build directory contents:"
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "${{ env.BUILD_BASE_PATH }}"
 
-      - name: Execute patch build with dual fallback password handling
+      - name: Execute patch build with simple password
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-          CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
         run: |
-          echo "Starting patch build process with dual fallback password handling..."
+          echo "Starting patch build with simple password method..."
           
-          # Clean version number for config file name
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
           CONFIG_FILE="config_${NEW_CLEAN}.ini"
@@ -872,198 +870,16 @@ jobs:
           echo "  - Python Path: ${{ env.PYTHON_PATH }}"
           echo "  - FXT Tool Path: ${{ env.FXT_TOOL_PATH }}"
           echo "  - Config File: $CONFIG_FILE"
+          echo "  - Password: Using hardcoded srffit1build_2023 + Enter"
           echo ""
           
-          # Execute build with dual fallback approach
-          echo "Executing patch build as faceless account with fallback methods..."
           BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
             echo 'Current directory: \$(pwd)'
-            echo 'Starting build execution with dual fallback approach...'
+            echo 'Starting build with simple password + Enter...'
             
-            # Method 1: Named Pipe Approach (Primary)
-            echo 'Attempting Method 1: Named Pipe Approach...'
-            
-            try_named_pipe() {
-              # Create a named pipe for reliable password feeding
-              PIPE_NAME=\"password_pipe_\$\$\"
-              if mkfifo \"\$PIPE_NAME\" 2>/dev/null; then
-                echo 'Named pipe created successfully'
-                
-                # Start password feeder in background using the named pipe
-                (
-                  # Send password immediately multiple times
-                  for i in {1..10}; do
-                    echo '$CSS_PASSWORD' > \"\$PIPE_NAME\" 2>/dev/null || break
-                  done
-                  
-                  # Continue sending password every 3 seconds
-                  while true; do
-                    echo '$CSS_PASSWORD' > \"\$PIPE_NAME\" 2>/dev/null || break
-                    sleep 3
-                  done
-                ) &
-                FEEDER_PID=\$!
-                
-                # Start build process with timeout and input from named pipe
-                echo 'Starting FXT build process with named pipe...'
-                timeout 1800 ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf \"\$CONFIG_FILE\" < \"\$PIPE_NAME\" > build_output_method1.log 2>&1 &
-                BUILD_PID=\$!
-                
-                echo \"Build PID: \$BUILD_PID, Feeder PID: \$FEEDER_PID\"
-                
-                # Monitor build progress
-                ELAPSED=0
-                while [ \$ELAPSED -lt 1800 ]; do
-                  if ! kill -0 \$BUILD_PID 2>/dev/null; then
-                    echo \"Build process completed after \$ELAPSED seconds\"
-                    break
-                  fi
-                  
-                  if [ \$((ELAPSED % 60)) -eq 0 ]; then
-                    echo \"Build running... \$ELAPSED seconds elapsed\"
-                  fi
-                  
-                  sleep 10
-                  ELAPSED=\$((ELAPSED + 10))
-                done
-                
-                # Wait for build to complete
-                wait \$BUILD_PID 2>/dev/null
-                BUILD_EXIT=\$?
-                
-                # Clean up background processes
-                kill \$FEEDER_PID 2>/dev/null || true
-                rm -f \"\$PIPE_NAME\"
-                
-                echo 'Method 1 Build output:'
-                cat build_output_method1.log 2>/dev/null || echo 'No build output captured'
-                
-                return \$BUILD_EXIT
-              else
-                echo 'Failed to create named pipe, method 1 unavailable'
-                return 1
-              fi
-            }
-            
-            # Method 2: Python Wrapper Approach (Fallback)
-            try_python_wrapper() {
-              echo 'Attempting Method 2: Python Wrapper Approach...'
-              
-              # Set password as environment variable for the build process
-              export CSS_BUILD_PASSWORD='$CSS_PASSWORD'
-              
-              # Create a wrapper script that handles password input
-              cat > build_wrapper.py << 'PYTHON_EOF'
-          import sys
-          import os
-          import subprocess
-          import threading
-          import time
-          import signal
-          
-          def password_feeder(process):
-              password = os.environ.get('CSS_BUILD_PASSWORD', '')
-              try:
-                  # Send password multiple times initially
-                  for i in range(10):
-                      if process.poll() is not None:
-                          break
-                      process.stdin.write(password + '\n')
-                      process.stdin.flush()
-                      time.sleep(0.5)
-                  
-                  # Continue sending password periodically
-                  while process.poll() is None:
-                      try:
-                          process.stdin.write(password + '\n')
-                          process.stdin.flush()
-                          time.sleep(3)
-                      except:
-                          break
-              except Exception as e:
-                  print(f'Password feeder error: {e}')
-          
-          def timeout_handler(signum, frame):
-              print('Build process timed out after 30 minutes')
-              sys.exit(124)
-          
-          if __name__ == '__main__':
-              # Set up timeout
-              signal.signal(signal.SIGALRM, timeout_handler)
-              signal.alarm(1800)  # 30 minutes
-              
-              cmd = sys.argv[1:]
-              try:
-                  process = subprocess.Popen(
-                      cmd,
-                      stdin=subprocess.PIPE,
-                      stdout=subprocess.PIPE,
-                      stderr=subprocess.STDOUT,
-                      text=True,
-                      bufsize=0
-                  )
-                  
-                  # Start password feeding thread
-                  feeder_thread = threading.Thread(target=password_feeder, args=(process,))
-                  feeder_thread.daemon = True
-                  feeder_thread.start()
-                  
-                  # Read and print output
-                  try:
-                      for line in process.stdout:
-                          print(line.rstrip())
-                          sys.stdout.flush()
-                  except Exception as e:
-                      print(f'Output reading error: {e}')
-                  
-                  # Wait for process to complete
-                  exit_code = process.wait()
-                  signal.alarm(0)  # Cancel timeout
-                  sys.exit(exit_code)
-                  
-              except Exception as e:
-                  print(f'Process execution error: {e}')
-                  signal.alarm(0)
-                  sys.exit(1)
-          PYTHON_EOF
-              
-              # Run the build using the wrapper
-              echo 'Starting build with Python wrapper...'
-              ${{ env.PYTHON_PATH }} build_wrapper.py ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf \"\$CONFIG_FILE\" > build_output_method2.log 2>&1
-              BUILD_EXIT=\$?
-              
-              echo 'Method 2 Build output:'
-              cat build_output_method2.log 2>/dev/null || echo 'No build output captured'
-              
-              # Clean up
-              rm -f build_wrapper.py
-              
-              return \$BUILD_EXIT
-            }
-            
-            # Try Method 1 first, then fallback to Method 2
-            if try_named_pipe; then
-              BUILD_EXIT=\$?
-              echo \"Method 1 (Named Pipe) completed with exit code: \$BUILD_EXIT\"
-              rm -f build_output_method2.log 2>/dev/null
-            else
-              echo 'Method 1 failed, falling back to Method 2...'
-              if try_python_wrapper; then
-                BUILD_EXIT=\$?
-                echo \"Method 2 (Python Wrapper) completed with exit code: \$BUILD_EXIT\"
-              else
-                BUILD_EXIT=\$?
-                echo \"Both methods failed. Final exit code: \$BUILD_EXIT\"
-              fi
-              rm -f build_output_method1.log 2>/dev/null
-            fi
-            
-            # Clean up any remaining files
-            rm -f build_output_method1.log build_output_method2.log 2>/dev/null
-            
-            echo \"Build completed with exit code: \$BUILD_EXIT\"
-            exit \$BUILD_EXIT
+            # Use printf to send password and press Enter
+            printf 'srffit1build_2023\n' | timeout 1800 ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf '$CONFIG_FILE' 2>&1
           ")
           
           BUILD_EXIT_CODE=$?
@@ -1078,7 +894,6 @@ jobs:
             echo ""
             echo "WARNING: Build output contains potential error indicators"
             echo "Please review the build output above for any issues"
-            echo ""
           fi
           
           # Check exit code
@@ -1142,20 +957,16 @@ jobs:
           echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Password Handling**: Dual fallback approach (Named Pipe + Python Wrapper)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### Build Methods Available:" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Primary Method**: Named Pipe with continuous password feeding" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Fallback Method**: Python wrapper with threading and timeout handling" >> $GITHUB_STEP_SUMMARY
+          echo "- **Password Method**: Simple printf with Enter" >> $GITHUB_STEP_SUMMARY
+          echo "- **Command Used**: \`printf 'srffit1build_2023\\n'\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Build Process:" >> $GITHUB_STEP_SUMMARY
           echo "1. PASS **Tool Verification**: Confirmed Python and FXT tool availability" >> $GITHUB_STEP_SUMMARY
           echo "2. PASS **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
           echo "3. PASS **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
-          echo "4. PASS **Dual Method Setup**: Prepared both named pipe and Python wrapper approaches" >> $GITHUB_STEP_SUMMARY
-          echo "5. PASS **Build Execution**: Executed FXT tool with automatic fallback" >> $GITHUB_STEP_SUMMARY
+          echo "4. PASS **Password Setup**: Used printf with password + newline" >> $GITHUB_STEP_SUMMARY
+          echo "5. PASS **Build Execution**: Executed FXT tool with simple password input" >> $GITHUB_STEP_SUMMARY
           echo "6. PASS **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -1167,13 +978,12 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          echo "### Password Handling Features:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Method 1**: Named pipe with mkfifo for reliable IPC" >> $GITHUB_STEP_SUMMARY
-          echo "- **Method 2**: Python subprocess with threading for robust control" >> $GITHUB_STEP_SUMMARY
-          echo "- **Automatic Fallback**: If Method 1 fails, automatically tries Method 2" >> $GITHUB_STEP_SUMMARY
-          echo "- **Security**: CSS_PASSWORD retrieved from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "### Password Handling Method:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Method**: Simple printf with newline" >> $GITHUB_STEP_SUMMARY
+          echo "- **Command**: \`printf 'srffit1build_2023\\n'\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Simulates**: Typing password and pressing Enter" >> $GITHUB_STEP_SUMMARY
+          echo "- **Benefits**: Non-interactive, simple, reliable" >> $GITHUB_STEP_SUMMARY
           echo "- **Timeout**: 30 minutes maximum build time (1800 seconds)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Monitoring**: Real-time progress monitoring and process cleanup" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
@@ -1183,4 +993,4 @@ jobs:
           echo "- Test the generated patch if build was successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "Patch build process completed with robust dual fallback password handling!" >> $GITHUB_STEP_SUMMARY
+          echo "Patch build process completed with simple password + Enter method!" >> $GITHUB_STEP_SUMMARY
