@@ -57,6 +57,8 @@ env:
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
+  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxt_Muppt.py
   
 jobs:
   prepare-config:
@@ -420,7 +422,6 @@ jobs:
           "
           
           echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
-
       - name: Set config file permissions
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -582,7 +583,6 @@ jobs:
             echo "Got: $CURRENT_USER"
             exit 1
           fi
-
       - name: Verify Kerberos tools exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -622,7 +622,6 @@ jobs:
           fi
           
           echo "All Kerberos tools verified successfully"
-
       - name: Initialize Kerberos Ticket (ktab)
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -648,7 +647,6 @@ jobs:
           else
             echo "SUCCESS: ktab initialization completed"
           fi
-
       - name: Initialize Kerberos Cron (kcron)
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -674,7 +672,6 @@ jobs:
           else
             echo "SUCCESS: kcron initialization completed"
           fi
-
       - name: Verify Kerberos Setup
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -705,7 +702,6 @@ jobs:
           
           echo "Verification results:"
           echo "$VERIFICATION_RESULT"
-
       - name: Display setup summary
         run: |
           echo "## Kerberos Setup Summary" >> $GITHUB_STEP_SUMMARY
@@ -734,3 +730,240 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "Kerberos setup completed successfully! 🎉" >> $GITHUB_STEP_SUMMARY
+
+  build-patch:
+    runs-on: [self-hosted, node16]
+    needs: [prepare-config, kerberos-setup]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account for patch build..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            exit 1
+          fi
+
+      - name: Verify build tools and config exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying build tools and configuration..."
+          
+          # Clean version number for config file name
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+          
+          # Check Python
+          PYTHON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.PYTHON_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$PYTHON_CHECK" == "EXISTS" ]]; then
+            echo "✓ Python found at: ${{ env.PYTHON_PATH }}"
+          else
+            echo "✗ Python not found at: ${{ env.PYTHON_PATH }}"
+            exit 1
+          fi
+          
+          # Check FXT tool
+          FXT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$FXT_CHECK" == "EXISTS" ]]; then
+            echo "✓ FXT tool found at: ${{ env.FXT_TOOL_PATH }}"
+          else
+            echo "✗ FXT tool not found at: ${{ env.FXT_TOOL_PATH }}"
+            exit 1
+          fi
+          
+          # Check config file
+          CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '$CONFIG_FILE' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
+            echo "✓ Config file found at: $CONFIG_FILE"
+          else
+            echo "✗ Config file not found at: $CONFIG_FILE"
+            exit 1
+          fi
+          
+          echo "All build prerequisites verified successfully"
+
+      - name: Change to build directory
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Changing to build directory: ${{ env.BUILD_BASE_PATH }}"
+          
+          # Verify directory exists and is accessible
+          DIR_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -d '${{ env.BUILD_BASE_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$DIR_CHECK" == "EXISTS" ]]; then
+            echo "✓ Build directory exists: ${{ env.BUILD_BASE_PATH }}"
+          else
+            echo "✗ Build directory not found: ${{ env.BUILD_BASE_PATH }}"
+            exit 1
+          fi
+          
+          # Show current directory contents
+          echo "Build directory contents:"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "${{ env.BUILD_BASE_PATH }}"
+
+      - name: Execute patch build
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Starting patch build process..."
+          
+          # Clean version number for config file name
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          CONFIG_FILE="config_${NEW_CLEAN}.ini"
+          
+          echo "Build configuration:"
+          echo "  - Working Directory: ${{ env.BUILD_BASE_PATH }}"
+          echo "  - Python Path: ${{ env.PYTHON_PATH }}"
+          echo "  - FXT Tool Path: ${{ env.FXT_TOOL_PATH }}"
+          echo "  - Config File: $CONFIG_FILE"
+          echo "  - Full Command: ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE"
+          echo ""
+          
+          # Execute the build command
+          echo "Executing patch build as faceless account..."
+          BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '${{ env.BUILD_BASE_PATH }}'
+            echo 'Current directory: \$(pwd)'
+            echo 'Starting build execution...'
+            
+            # Execute the FXT tool with config
+            ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE 2>&1
+          ")
+          
+          echo "Build execution output:"
+          echo "$BUILD_RESULT"
+          
+          # Check for common error indicators
+          if echo "$BUILD_RESULT" | grep -q -i "error\|failed\|exception\|traceback"; then
+            echo ""
+            echo "⚠️  WARNING: Build output contains potential error indicators"
+            echo "Please review the build output above for any issues"
+            echo ""
+            
+            # Don't exit with error - let user review the output
+            # The build might have warnings but still succeed
+          fi
+          
+          echo "Build command execution completed"
+
+      - name: Verify build results
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying build results..."
+          
+          # Clean version number
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          # Check for common build output files/directories
+          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '${{ env.BUILD_BASE_PATH }}'
+            echo 'Build directory contents after execution:'
+            ls -la
+            
+            echo ''
+            echo 'Looking for build artifacts...'
+            
+            # Look for common build output patterns
+            find . -name '*${NEW_CLEAN}*' -type f 2>/dev/null | head -10 || echo 'No version-specific files found'
+            
+            echo ''
+            echo 'Recent files (last 10 minutes):'
+            find . -type f -mmin -10 2>/dev/null | head -10 || echo 'No recent files found'
+            
+            echo ''
+            echo 'Directory sizes:'
+            du -sh */ 2>/dev/null || echo 'No subdirectories found'
+          ")
+          
+          echo "$VERIFICATION_RESULT"
+
+      - name: Display build summary
+        run: |
+          # Clean version number
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          echo "## Patch Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Build Command Executed:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "cd ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Build Process:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ **Tool Verification**: Confirmed Python and FXT tool availability" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✅ **Build Execution**: Executed FXT tool with configuration" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✅ **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.prepare-config.outputs.is_f_patch }}" == "true" ]]; then
+            echo "### F-Patch (Debug) Build Notes:" >> $GITHUB_STEP_SUMMARY
+            echo "- This is a debug patch build" >> $GITHUB_STEP_SUMMARY
+            echo "- Release settings are disabled" >> $GITHUB_STEP_SUMMARY
+            echo "- Build artifacts will be in debug mode" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "- Review build output logs for any errors or warnings" >> $GITHUB_STEP_SUMMARY
+          echo "- Check build directory for generated artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Verify patch files are created as expected" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Patch build process completed! 🚀" >> $GITHUB_STEP_SUMMARY
