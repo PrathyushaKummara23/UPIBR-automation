@@ -89,6 +89,7 @@ jobs:
             echo "Got: $CURRENT_USER"
             exit 1
           fi
+
       - name: Check patch type
         id: check-patch-type
         run: |
@@ -99,6 +100,7 @@ jobs:
             echo "is_f_patch=false" >> $GITHUB_OUTPUT
             echo "Detected regular patch"
           fi
+
       - name: Validate versions
         run: |
           # Remove 0x prefix if present for validation
@@ -119,6 +121,7 @@ jobs:
           echo "Version validation passed"
           echo "  - Baseline: $BASELINE_CLEAN"
           echo "  - New: $NEW_CLEAN"
+
       - name: Validate baseline config exists
         id: validate-baseline
         env:
@@ -156,7 +159,7 @@ jobs:
               exit 1
             fi
           fi
-          
+
       - name: Validate provided paths exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -250,6 +253,7 @@ jobs:
             echo "ERROR: $FAILED_PATHS out of $PROVIDED_PATHS provided paths failed validation"
             exit 1
           fi
+
       - name: Validate baseline config paths
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -356,7 +360,7 @@ jobs:
             echo "Baseline config path validation completed with $WARNINGS warnings"
             echo "Note: Warnings do not prevent config generation, but may cause build issues"
           fi
-          
+
       - name: Copy and generate config
         id: generate-config
         env:
@@ -422,6 +426,7 @@ jobs:
           "
           
           echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
+
       - name: Set config file permissions
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -458,7 +463,7 @@ jobs:
             echo "Expected: -rwxrwxrwx"
             echo "Actual: $PERMISSIONS"
           fi
-          
+
       - name: Display config summary
         run: |
           echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
@@ -583,6 +588,7 @@ jobs:
             echo "Got: $CURRENT_USER"
             exit 1
           fi
+
       - name: Verify Kerberos tools exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -599,9 +605,9 @@ jobs:
           ")
           
           if [[ "$KTAB_CHECK" == "EXISTS" ]]; then
-            echo "✓ ktab found at: ${{ env.KTAB_PATH }}"
+            echo "PASS: ktab found at: ${{ env.KTAB_PATH }}"
           else
-            echo "✗ ktab not found at: ${{ env.KTAB_PATH }}"
+            echo "FAIL: ktab not found at: ${{ env.KTAB_PATH }}"
             exit 1
           fi
           
@@ -615,13 +621,14 @@ jobs:
           ")
           
           if [[ "$KCRON_CHECK" == "EXISTS" ]]; then
-            echo "✓ kcron found at: ${{ env.KCRON_PATH }}"
+            echo "PASS: kcron found at: ${{ env.KCRON_PATH }}"
           else
-            echo "✗ kcron not found at: ${{ env.KCRON_PATH }}"
+            echo "FAIL: kcron not found at: ${{ env.KCRON_PATH }}"
             exit 1
           fi
           
           echo "All Kerberos tools verified successfully"
+
       - name: Initialize Kerberos Ticket (ktab)
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -647,6 +654,7 @@ jobs:
           else
             echo "SUCCESS: ktab initialization completed"
           fi
+
       - name: Initialize Kerberos Cron (kcron)
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -672,6 +680,7 @@ jobs:
           else
             echo "SUCCESS: kcron initialization completed"
           fi
+
       - name: Verify Kerberos Setup
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -702,6 +711,7 @@ jobs:
           
           echo "Verification results:"
           echo "$VERIFICATION_RESULT"
+
       - name: Display setup summary
         run: |
           echo "## Kerberos Setup Summary" >> $GITHUB_STEP_SUMMARY
@@ -711,11 +721,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Steps Completed:" >> $GITHUB_STEP_SUMMARY
-          echo "1. ✅ **Faceless Account Login**: Successfully switched to grp_srf_fit1_build" >> $GITHUB_STEP_SUMMARY
-          echo "2. ✅ **Tool Verification**: Confirmed ktab and kcron tools exist" >> $GITHUB_STEP_SUMMARY
-          echo "3. ✅ **Kerberos Ticket Init**: Executed \`ktab -i\` with FA password" >> $GITHUB_STEP_SUMMARY
-          echo "4. ✅ **Kerberos Cron Init**: Executed \`kcron -i\` with auto-confirm (y)" >> $GITHUB_STEP_SUMMARY
-          echo "5. ✅ **Verification**: Checked Kerberos setup status" >> $GITHUB_STEP_SUMMARY
+          echo "1. PASS **Faceless Account Login**: Successfully switched to grp_srf_fit1_build" >> $GITHUB_STEP_SUMMARY
+          echo "2. PASS **Tool Verification**: Confirmed ktab and kcron tools exist" >> $GITHUB_STEP_SUMMARY
+          echo "3. PASS **Kerberos Ticket Init**: Executed \`ktab -i\` with FA password" >> $GITHUB_STEP_SUMMARY
+          echo "4. PASS **Kerberos Cron Init**: Executed \`kcron -i\` with auto-confirm (y)" >> $GITHUB_STEP_SUMMARY
+          echo "5. PASS **Verification**: Checked Kerberos setup status" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Commands Executed:" >> $GITHUB_STEP_SUMMARY
@@ -729,7 +739,7 @@ jobs:
           echo "- Passwords not exposed in logs" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "Kerberos setup completed successfully! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "Kerberos setup completed successfully!" >> $GITHUB_STEP_SUMMARY
 
   build-patch:
     runs-on: [self-hosted, node16]
@@ -779,9 +789,9 @@ jobs:
           ")
           
           if [[ "$PYTHON_CHECK" == "EXISTS" ]]; then
-            echo "✓ Python found at: ${{ env.PYTHON_PATH }}"
+            echo "PASS: Python found at: ${{ env.PYTHON_PATH }}"
           else
-            echo "✗ Python not found at: ${{ env.PYTHON_PATH }}"
+            echo "FAIL: Python not found at: ${{ env.PYTHON_PATH }}"
             exit 1
           fi
           
@@ -795,9 +805,9 @@ jobs:
           ")
           
           if [[ "$FXT_CHECK" == "EXISTS" ]]; then
-            echo "✓ FXT tool found at: ${{ env.FXT_TOOL_PATH }}"
+            echo "PASS: FXT tool found at: ${{ env.FXT_TOOL_PATH }}"
           else
-            echo "✗ FXT tool not found at: ${{ env.FXT_TOOL_PATH }}"
+            echo "FAIL: FXT tool not found at: ${{ env.FXT_TOOL_PATH }}"
             exit 1
           fi
           
@@ -811,9 +821,9 @@ jobs:
           ")
           
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
-            echo "✓ Config file found at: $CONFIG_FILE"
+            echo "PASS: Config file found at: $CONFIG_FILE"
           else
-            echo "✗ Config file not found at: $CONFIG_FILE"
+            echo "FAIL: Config file not found at: $CONFIG_FILE"
             exit 1
           fi
           
@@ -835,9 +845,9 @@ jobs:
           ")
           
           if [[ "$DIR_CHECK" == "EXISTS" ]]; then
-            echo "✓ Build directory exists: ${{ env.BUILD_BASE_PATH }}"
+            echo "PASS: Build directory exists: ${{ env.BUILD_BASE_PATH }}"
           else
-            echo "✗ Build directory not found: ${{ env.BUILD_BASE_PATH }}"
+            echo "FAIL: Build directory not found: ${{ env.BUILD_BASE_PATH }}"
             exit 1
           fi
           
@@ -845,11 +855,12 @@ jobs:
           echo "Build directory contents:"
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "${{ env.BUILD_BASE_PATH }}"
 
-      - name: Execute patch build
+      - name: Execute patch build with CSS password handling
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
         run: |
-          echo "Starting patch build process..."
+          echo "Starting patch build process with CSS password handling..."
           
           # Clean version number for config file name
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
@@ -861,35 +872,42 @@ jobs:
           echo "  - Python Path: ${{ env.PYTHON_PATH }}"
           echo "  - FXT Tool Path: ${{ env.FXT_TOOL_PATH }}"
           echo "  - Config File: $CONFIG_FILE"
-          echo "  - Full Command: ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE"
           echo ""
           
-          # Execute the build command
+          # Execute the build command with simple password piping
           echo "Executing patch build as faceless account..."
           BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
             echo 'Current directory: \$(pwd)'
             echo 'Starting build execution...'
             
-            # Execute the FXT tool with config
-            ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE 2>&1
+            # Execute the FXT tool with config, providing CSS password when prompted
+            echo '$CSS_PASSWORD' | timeout 1800 ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE 2>&1
           ")
+          
+          BUILD_EXIT_CODE=$?
           
           echo "Build execution output:"
           echo "$BUILD_RESULT"
+          echo ""
+          echo "Build process exit code: $BUILD_EXIT_CODE"
           
-          # Check for common error indicators
+          # Check for common error indicators in output
           if echo "$BUILD_RESULT" | grep -q -i "error\|failed\|exception\|traceback"; then
             echo ""
-            echo "⚠️  WARNING: Build output contains potential error indicators"
+            echo "WARNING: Build output contains potential error indicators"
             echo "Please review the build output above for any issues"
             echo ""
-            
-            # Don't exit with error - let user review the output
-            # The build might have warnings but still succeed
           fi
           
-          echo "Build command execution completed"
+          # Check exit code
+          if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
+            echo "SUCCESS: Build command completed successfully (exit code: 0)"
+          else
+            echo "FAILURE: Build command failed with exit code: $BUILD_EXIT_CODE"
+            echo "Please review the build output above for error details"
+            exit $BUILD_EXIT_CODE
+          fi
 
       - name: Verify build results
         env:
@@ -914,12 +932,16 @@ jobs:
             find . -name '*${NEW_CLEAN}*' -type f 2>/dev/null | head -10 || echo 'No version-specific files found'
             
             echo ''
-            echo 'Recent files (last 10 minutes):'
-            find . -type f -mmin -10 2>/dev/null | head -10 || echo 'No recent files found'
+            echo 'Recent files (last 30 minutes):'
+            find . -type f -mmin -30 2>/dev/null | head -20 || echo 'No recent files found'
             
             echo ''
             echo 'Directory sizes:'
             du -sh */ 2>/dev/null || echo 'No subdirectories found'
+            
+            echo ''
+            echo 'Looking for patch files:'
+            find . -name '*.patch' -o -name '*.bin' -o -name '*.ucode' 2>/dev/null | head -10 || echo 'No patch files found'
           ")
           
           echo "$VERIFICATION_RESULT"
@@ -935,21 +957,23 @@ jobs:
           echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Password Handling**: Automated CSS password input via pipe" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Build Command Executed:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "cd ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
+          echo "echo 'CSS_PASSWORD' | timeout 1800 ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Build Process:" >> $GITHUB_STEP_SUMMARY
-          echo "1. ✅ **Tool Verification**: Confirmed Python and FXT tool availability" >> $GITHUB_STEP_SUMMARY
-          echo "2. ✅ **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
-          echo "3. ✅ **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
-          echo "4. ✅ **Build Execution**: Executed FXT tool with configuration" >> $GITHUB_STEP_SUMMARY
-          echo "5. ✅ **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "1. PASS **Tool Verification**: Confirmed Python and FXT tool availability" >> $GITHUB_STEP_SUMMARY
+          echo "2. PASS **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
+          echo "3. PASS **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
+          echo "4. PASS **Password Automation**: Piped CSS password to build process" >> $GITHUB_STEP_SUMMARY
+          echo "5. PASS **Build Execution**: Executed FXT tool with 30-minute timeout" >> $GITHUB_STEP_SUMMARY
+          echo "6. PASS **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ needs.prepare-config.outputs.is_f_patch }}" == "true" ]]; then
@@ -960,10 +984,18 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
+          echo "### Password Handling:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Method**: Simple pipe with timeout" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security**: CSS_PASSWORD retrieved from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timeout**: 30 minutes maximum build time (1800 seconds)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Approach**: Simplified approach without expect script" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
           echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
           echo "- Review build output logs for any errors or warnings" >> $GITHUB_STEP_SUMMARY
           echo "- Check build directory for generated artifacts" >> $GITHUB_STEP_SUMMARY
           echo "- Verify patch files are created as expected" >> $GITHUB_STEP_SUMMARY
+          echo "- Test the generated patch if build was successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "Patch build process completed! 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "Patch build process completed with automated password handling!" >> $GITHUB_STEP_SUMMARY
