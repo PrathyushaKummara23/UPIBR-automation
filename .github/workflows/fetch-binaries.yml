@@ -1,0 +1,280 @@
+name: Fetch Binary Files from Entry Criteria
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  fetch-binaries:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install jq for JSON parsing
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+        
+    - name: Create output directory
+      run: |
+        mkdir -p fetched_binaries
+        
+    - name: Verify JSON file exists
+      run: |
+        echo "Current directory contents:"
+        ls -la
+        echo "Contents of .github directory:"
+        ls -la .github/
+        
+        if [ ! -f ".github/entry_criteria_output.json" ]; then
+          echo "Error: entry_criteria_output.json not found in .github directory"
+          echo "Available files in .github:"
+          find .github -name "*.json" -type f
+          exit 1
+        fi
+        
+    - name: Read and parse entry_criteria_output.json
+      id: parse_json
+      run: |
+        echo "Parsing .github/entry_criteria_output.json..."
+        
+        # Extract paths for each component
+        UCODE_PATH=$(jq -r '.ucode.entry // ""' .github/entry_criteria_output.json)
+        XUCODE_PATH=$(jq -r '.xucode.entry // ""' .github/entry_criteria_output.json)
+        MCHECK_PATH=$(jq -r '.mcheck.entry // ""' .github/entry_criteria_output.json)
+        TCODE_PATH=$(jq -r '.tcode.entry // ""' .github/entry_criteria_output.json)
+        ACODE_PATH=$(jq -r '.acode.entry // ""' .github/entry_criteria_output.json)
+        ICODE_PATH=$(jq -r '.icode.entry // ""' .github/entry_criteria_output.json)
+        OOBMSM_PATH=$(jq -r '.oobmsm.entry // ""' .github/entry_criteria_output.json)
+        PCODE_PATH=$(jq -r '.pcode.entry // ""' .github/entry_criteria_output.json)
+        S3M_PATH=$(jq -r '.s3m.entry // ""' .github/entry_criteria_output.json)
+        
+        # Store paths in environment variables
+        echo "UCODE_PATH=$UCODE_PATH" >> $GITHUB_ENV
+        echo "XUCODE_PATH=$XUCODE_PATH" >> $GITHUB_ENV
+        echo "MCHECK_PATH=$MCHECK_PATH" >> $GITHUB_ENV
+        echo "TCODE_PATH=$TCODE_PATH" >> $GITHUB_ENV
+        echo "ACODE_PATH=$ACODE_PATH" >> $GITHUB_ENV
+        echo "ICODE_PATH=$ICODE_PATH" >> $GITHUB_ENV
+        echo "OOBMSM_PATH=$OOBMSM_PATH" >> $GITHUB_ENV
+        echo "PCODE_PATH=$PCODE_PATH" >> $GITHUB_ENV
+        echo "S3M_PATH=$S3M_PATH" >> $GITHUB_ENV
+        
+        echo "Extracted paths from JSON:"
+        echo "UCODE: $UCODE_PATH"
+        echo "XUCODE: $XUCODE_PATH"
+        echo "MCHECK: $MCHECK_PATH"
+        echo "TCODE: $TCODE_PATH"
+        echo "ACODE: $ACODE_PATH"
+        echo "ICODE: $ICODE_PATH"
+        echo "OOBMSM: $OOBMSM_PATH"
+        echo "PCODE: $PCODE_PATH"
+        echo "S3M: $S3M_PATH"
+        
+    - name: Create paths configuration file
+      run: |
+        cat > fetched_binaries/paths_config.txt << EOF
+        ucode=${{ env.UCODE_PATH }}
+        xucode=${{ env.XUCODE_PATH }}
+        mcheck=${{ env.MCHECK_PATH }}
+        tcode=${{ env.TCODE_PATH }}
+        acode=${{ env.ACODE_PATH }}
+        icode=${{ env.ICODE_PATH }}
+        oobmsm=${{ env.OOBMSM_PATH }}
+        pcode=${{ env.PCODE_PATH }}
+        s3m=${{ env.S3M_PATH }}
+        EOF
+        
+        echo "Created paths_config.txt with content:"
+        cat fetched_binaries/paths_config.txt
+        
+    - name: Setup network access for NFS paths
+      run: |
+        echo "Note: This workflow assumes the runner has access to the NFS paths"
+        echo "If running on GitHub-hosted runners, NFS paths may not be accessible"
+        echo "Consider using self-hosted runners with network access to /nfs/site/disks/"
+        
+    - name: Fetch binary files
+      run: |
+        echo "Starting binary file collection..."
+        
+        # Function to copy files from a directory or file
+        copy_binaries() {
+          local source_path="$1"
+          local component_name="$2"
+          
+          if [ -n "$source_path" ] && [ "$source_path" != "null" ] && [ "$source_path" != "" ]; then
+            echo "Processing $component_name from: $source_path"
+            
+            if [ -d "$source_path" ]; then
+              echo "Source is a directory, searching for binary files..."
+              
+              # Find and copy all .bin files
+              bin_count=0
+              while IFS= read -r -d '' file; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  cp "$file" "fetched_binaries/${component_name}_${filename}" 2>/dev/null || {
+                    echo "Warning: Could not copy $file (permission denied or file not accessible)"
+                    continue
+                  }
+                  echo "Copied: $file -> fetched_binaries/${component_name}_${filename}"
+                  ((bin_count++))
+                fi
+              done < <(find "$source_path" -name "*.bin" -type f -print0 2>/dev/null)
+              
+              # Also copy .inc files for xucode and mcheck
+              if [ "$component_name" = "xucode" ] || [ "$component_name" = "mcheck" ]; then
+                while IFS= read -r -d '' file; do
+                  if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    cp "$file" "fetched_binaries/${component_name}_${filename}" 2>/dev/null || {
+                      echo "Warning: Could not copy $file (permission denied or file not accessible)"
+                      continue
+                    }
+                    echo "Copied: $file -> fetched_binaries/${component_name}_${filename}"
+                    ((bin_count++))
+                  fi
+                done < <(find "$source_path" -name "*.inc" -type f -print0 2>/dev/null)
+              fi
+              
+              echo "Found and copied $bin_count files for $component_name"
+              
+            elif [ -f "$source_path" ]; then
+              echo "Source is a direct file path..."
+              filename=$(basename "$source_path")
+              cp "$source_path" "fetched_binaries/${component_name}_${filename}" 2>/dev/null || {
+                echo "Warning: Could not copy $source_path (permission denied or file not accessible)"
+                return
+              }
+              echo "Copied: $source_path -> fetched_binaries/${component_name}_${filename}"
+              
+            else
+              echo "Warning: Path not accessible or does not exist for $component_name: $source_path"
+              # Create a placeholder file to indicate the path was processed but not accessible
+              echo "Path not accessible: $source_path" > "fetched_binaries/${component_name}_path_not_accessible.txt"
+            fi
+          else
+            echo "Skipping $component_name: No path specified or path is empty"
+            echo "No path specified" > "fetched_binaries/${component_name}_no_path.txt"
+          fi
+        }
+        
+        # Copy binaries for each component
+        copy_binaries "${{ env.UCODE_PATH }}" "ucode"
+        copy_binaries "${{ env.XUCODE_PATH }}" "xucode"
+        copy_binaries "${{ env.MCHECK_PATH }}" "mcheck"
+        copy_binaries "${{ env.TCODE_PATH }}" "tcode"
+        copy_binaries "${{ env.ACODE_PATH }}" "acode"
+        copy_binaries "${{ env.ICODE_PATH }}" "icode"
+        copy_binaries "${{ env.OOBMSM_PATH }}" "oobmsm"
+        copy_binaries "${{ env.PCODE_PATH }}" "pcode"
+        copy_binaries "${{ env.S3M_PATH }}" "s3m"
+        
+        echo "Binary collection process completed!"
+        
+    - name: List collected files
+      run: |
+        echo "Files collected in fetched_binaries directory:"
+        ls -la fetched_binaries/
+        
+        echo ""
+        echo "Summary of collected files:"
+        binary_count=$(find fetched_binaries/ -name "*.bin" | wc -l)
+        inc_count=$(find fetched_binaries/ -name "*.inc" | wc -l)
+        txt_count=$(find fetched_binaries/ -name "*.txt" | wc -l)
+        
+        echo "Binary files (.bin): $binary_count"
+        echo "Include files (.inc): $inc_count"
+        echo "Info files (.txt): $txt_count"
+        echo "Total files: $(ls fetched_binaries/ | wc -l)"
+        
+    - name: Create detailed summary report
+      run: |
+        cat > fetched_binaries/collection_summary.md << EOF
+        # Binary Collection Summary
+        
+        **Collection Details:**
+        - Date: $(date)
+        - Workflow Run: #${{ github.run_number }}
+        - Repository: ${{ github.repository }}
+        - Branch: ${{ github.ref_name }}
+        - Commit: ${{ github.sha }}
+        
+        ## Source Paths Processed
+        
+        | Component | Source Path | Status |
+        |-----------|-------------|---------|
+        EOF
+        
+        # Add status for each component
+        for component in ucode xucode mcheck tcode acode icode oobmsm pcode s3m; do
+          path_var="${component^^}_PATH"
+          path_value=$(printenv "$path_var")
+          
+          if [ -n "$path_value" ] && [ "$path_value" != "" ]; then
+            if ls fetched_binaries/${component}_*.bin >/dev/null 2>&1 || ls fetched_binaries/${component}_*.inc >/dev/null 2>&1; then
+              status="Files collected"
+            elif [ -f "fetched_binaries/${component}_path_not_accessible.txt" ]; then
+              status="Path not accessible"
+            else
+              status="No files found"
+            fi
+          else
+            status="No path specified"
+          fi
+          
+          echo "| $component | \`$path_value\` | $status |" >> fetched_binaries/collection_summary.md
+        done
+        
+        cat >> fetched_binaries/collection_summary.md << EOF
+        
+        ## Files Collected
+        
+        EOF
+        
+        if ls fetched_binaries/*.bin >/dev/null 2>&1 || ls fetched_binaries/*.inc >/dev/null 2>&1; then
+          echo "### Binary and Include Files" >> fetched_binaries/collection_summary.md
+          find fetched_binaries/ \( -name "*.bin" -o -name "*.inc" \) | sort | while read file; do
+            size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "unknown")
+            echo "- \`$(basename "$file")\` (${size} bytes)" >> fetched_binaries/collection_summary.md
+          done
+        else
+          echo "No binary or include files were successfully collected." >> fetched_binaries/collection_summary.md
+        fi
+        
+        echo "" >> fetched_binaries/collection_summary.md
+        echo "---" >> fetched_binaries/collection_summary.md
+        echo "*Generated by GitHub Actions workflow*" >> fetched_binaries/collection_summary.md
+        
+        echo "Summary report created:"
+        cat fetched_binaries/collection_summary.md
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: fetched-binaries-${{ github.run_number }}
+        path: fetched_binaries/
+        retention-days: 30
+        
+    - name: Display final status
+      run: |
+        echo "Workflow completed successfully!"
+        echo ""
+        echo "Artifacts uploaded with name: fetched-binaries-${{ github.run_number }}"
+        echo "Files are available in the 'fetched_binaries' directory"
+        echo "Check collection_summary.md for detailed results"
+        echo "Configuration saved in paths_config.txt"
+        echo ""
+        echo "Note: If running on GitHub-hosted runners, NFS paths may not be accessible."
+        echo "    Consider using self-hosted runners with network access for production use."
