@@ -32,33 +32,78 @@ jobs:
           mkdir -p .github
           cat > "$JSON_FILE" << 'EOF'
         {
-          "ucode": {
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e200102b"
-          },
-          "xucode": {
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc"
-          },
-          "mcheck": {
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Mcheck/main/26ww04/MCHECK_SECTION.inc"
-          },
-          "tcode": {
-            "entry": ""
-          },
-          "acode": {
-            "entry": ""
-          },
-          "icode": {
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_iCode/main/0x24164200/icode_enc_dbug.bin"
-          },
-          "oobmsm": {
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin"
-          },
-          "pcode": {
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
-          },
-          "s3m": {
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww08/26ww08.4_T6104_s3m_fw_SESVN0_SVN1_REVID2.0.0.00171_C0/S3M_1_0_2.0.0.00171_enc_dbug.IP_0100.bin"
-          }
+          "ucode": [
+            {
+              "sr_no": 1,
+              "check_list_item": "ucode Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e200102b"
+            }
+          ],
+          "xucode": [
+            {
+              "sr_no": 1,
+              "check_list_item": "xucode Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc"
+            }
+          ],
+          "mcheck": [
+            {
+              "sr_no": 1,
+              "check_list_item": "mcheck Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Mcheck/main/26ww04/MCHECK_SECTION.inc"
+            }
+          ],
+          "tcode": [
+            {
+              "sr_no": 1,
+              "check_list_item": "tcode Post Binary Staging Area",
+              "selection": "No",
+              "entry": ""
+            }
+          ],
+          "acode": [
+            {
+              "sr_no": 1,
+              "check_list_item": "acode Post Binary Staging Area",
+              "selection": "No",
+              "entry": ""
+            }
+          ],
+          "icode": [
+            {
+              "sr_no": 1,
+              "check_list_item": "icode Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_iCode/main/0x24164200/icode_enc_dbug.bin"
+            }
+          ],
+          "oobmsm": [
+            {
+              "sr_no": 1,
+              "check_list_item": "oobmsm Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin"
+            }
+          ],
+          "pcode": [
+            {
+              "sr_no": 1,
+              "check_list_item": "pcode Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
+            }
+          ],
+          "s3m": [
+            {
+              "sr_no": 1,
+              "check_list_item": "s3m Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww08/26ww08.4_T6104_s3m_fw_SESVN0_SVN1_REVID2.0.0.00171_C0/S3M_1_0_2.0.0.00171_enc_dbug.IP_0100.bin"
+            }
+          ]
         }
         EOF
         fi
@@ -69,15 +114,15 @@ jobs:
       run: |
         JSON_FILE=".github/entry_criteria_output.json"
         echo "Parsing $JSON_FILE..."
-        UCODE_PATH=$(jq -r '.ucode.entry // ""' "$JSON_FILE")
-        XUCODE_PATH=$(jq -r '.xucode.entry // ""' "$JSON_FILE")
-        MCHECK_PATH=$(jq -r '.mcheck.entry // ""' "$JSON_FILE")
-        TCODE_PATH=$(jq -r '.tcode.entry // ""' "$JSON_FILE")
-        ACODE_PATH=$(jq -r '.acode.entry // ""' "$JSON_FILE")
-        ICODE_PATH=$(jq -r '.icode.entry // ""' "$JSON_FILE")
-        OOBMSM_PATH=$(jq -r '.oobmsm.entry // ""' "$JSON_FILE")
-        PCODE_PATH=$(jq -r '.pcode.entry // ""' "$JSON_FILE")
-        S3M_PATH=$(jq -r '.s3m.entry // ""' "$JSON_FILE")
+        UCODE_PATH=$(jq -r '.ucode[0].entry // ""' "$JSON_FILE")
+        XUCODE_PATH=$(jq -r '.xucode[0].entry // ""' "$JSON_FILE")
+        MCHECK_PATH=$(jq -r '.mcheck[0].entry // ""' "$JSON_FILE")
+        TCODE_PATH=$(jq -r '.tcode[0].entry // ""' "$JSON_FILE")
+        ACODE_PATH=$(jq -r '.acode[0].entry // ""' "$JSON_FILE")
+        ICODE_PATH=$(jq -r '.icode[0].entry // ""' "$JSON_FILE")
+        OOBMSM_PATH=$(jq -r '.oobmsm[0].entry // ""' "$JSON_FILE")
+        PCODE_PATH=$(jq -r '.pcode[0].entry // ""' "$JSON_FILE")
+        S3M_PATH=$(jq -r '.s3m[0].entry // ""' "$JSON_FILE")
         echo "UCODE_PATH=$UCODE_PATH" >> $GITHUB_ENV
         echo "XUCODE_PATH=$XUCODE_PATH" >> $GITHUB_ENV
         echo "MCHECK_PATH=$MCHECK_PATH" >> $GITHUB_ENV
