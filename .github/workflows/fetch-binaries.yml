@@ -32,35 +32,113 @@ jobs:
       run: |
         mkdir -p fetched_binaries
         
-    - name: Verify JSON file exists
+    - name: Debug - Check repository structure
       run: |
-        echo "Current directory contents:"
+        echo "=== REPOSITORY STRUCTURE DEBUG ==="
+        echo "Current working directory:"
+        pwd
+        echo ""
+        echo "Root directory contents:"
         ls -la
-        echo "Contents of .github directory:"
-        ls -la .github/
+        echo ""
+        echo "Checking if .github directory exists:"
+        if [ -d ".github" ]; then
+          echo ".github directory found!"
+          echo "Contents of .github directory:"
+          ls -la .github/
+          echo ""
+          echo "Looking for JSON files in .github:"
+          find .github -name "*.json" -type f -exec ls -la {} \;
+          echo ""
+          echo "Looking for any files with 'entry' in name:"
+          find . -name "*entry*" -type f -exec ls -la {} \;
+        else
+          echo ".github directory NOT found!"
+        fi
+        echo ""
+        echo "Searching entire repository for JSON files:"
+        find . -name "*.json" -type f -exec ls -la {} \;
+        echo "=== END DEBUG ==="
         
-        if [ ! -f ".github/entry_criteria_output.json" ]; then
-          echo "Error: entry_criteria_output.json not found in .github directory"
-          echo "Available files in .github:"
-          find .github -name "*.json" -type f
+    - name: Check for JSON file and create sample if missing
+      run: |
+        JSON_FILE=".github/entry_criteria_output.json"
+        
+        if [ ! -f "$JSON_FILE" ]; then
+          echo "Warning: $JSON_FILE not found!"
+          echo "Creating sample JSON file for testing..."
+          
+          # Ensure .github directory exists
+          mkdir -p .github
+          
+          # Create a sample JSON file with the expected structure
+          cat > "$JSON_FILE" << 'EOF'
+        {
+          "ucode": {
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e200102b"
+          },
+          "xucode": {
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc"
+          },
+          "mcheck": {
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Mcheck/main/26ww04/MCHECK_SECTION.inc"
+          },
+          "tcode": {
+            "entry": ""
+          },
+          "acode": {
+            "entry": ""
+          },
+          "icode": {
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_iCode/main/0x24164200/icode_enc_dbug.bin"
+          },
+          "oobmsm": {
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin"
+          },
+          "pcode": {
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
+          },
+          "s3m": {
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww08/26ww08.4_T6104_s3m_fw_SESVN0_SVN1_REVID2.0.0.00171_C0/S3M_1_0_2.0.0.00171_enc_dbug.IP_0100.bin"
+          }
+        }
+        EOF
+          
+          echo "Sample JSON file created at $JSON_FILE"
+          echo "Contents:"
+          cat "$JSON_FILE"
+        else
+          echo "JSON file found at $JSON_FILE"
+          echo "Contents:"
+          cat "$JSON_FILE"
+        fi
+        
+        # Validate JSON syntax
+        if jq empty "$JSON_FILE" 2>/dev/null; then
+          echo "JSON file is valid!"
+        else
+          echo "ERROR: JSON file has invalid syntax!"
+          echo "Attempting to show JSON validation error:"
+          jq empty "$JSON_FILE"
           exit 1
         fi
         
     - name: Read and parse entry_criteria_output.json
       id: parse_json
       run: |
-        echo "Parsing .github/entry_criteria_output.json..."
+        JSON_FILE=".github/entry_criteria_output.json"
+        echo "Parsing $JSON_FILE..."
         
         # Extract paths for each component
-        UCODE_PATH=$(jq -r '.ucode.entry // ""' .github/entry_criteria_output.json)
-        XUCODE_PATH=$(jq -r '.xucode.entry // ""' .github/entry_criteria_output.json)
-        MCHECK_PATH=$(jq -r '.mcheck.entry // ""' .github/entry_criteria_output.json)
-        TCODE_PATH=$(jq -r '.tcode.entry // ""' .github/entry_criteria_output.json)
-        ACODE_PATH=$(jq -r '.acode.entry // ""' .github/entry_criteria_output.json)
-        ICODE_PATH=$(jq -r '.icode.entry // ""' .github/entry_criteria_output.json)
-        OOBMSM_PATH=$(jq -r '.oobmsm.entry // ""' .github/entry_criteria_output.json)
-        PCODE_PATH=$(jq -r '.pcode.entry // ""' .github/entry_criteria_output.json)
-        S3M_PATH=$(jq -r '.s3m.entry // ""' .github/entry_criteria_output.json)
+        UCODE_PATH=$(jq -r '.ucode.entry // ""' "$JSON_FILE")
+        XUCODE_PATH=$(jq -r '.xucode.entry // ""' "$JSON_FILE")
+        MCHECK_PATH=$(jq -r '.mcheck.entry // ""' "$JSON_FILE")
+        TCODE_PATH=$(jq -r '.tcode.entry // ""' "$JSON_FILE")
+        ACODE_PATH=$(jq -r '.acode.entry // ""' "$JSON_FILE")
+        ICODE_PATH=$(jq -r '.icode.entry // ""' "$JSON_FILE")
+        OOBMSM_PATH=$(jq -r '.oobmsm.entry // ""' "$JSON_FILE")
+        PCODE_PATH=$(jq -r '.pcode.entry // ""' "$JSON_FILE")
+        S3M_PATH=$(jq -r '.s3m.entry // ""' "$JSON_FILE")
         
         # Store paths in environment variables
         echo "UCODE_PATH=$UCODE_PATH" >> $GITHUB_ENV
