@@ -80,7 +80,6 @@ jobs:
           echo "📧 Build start notification would be sent here"
           echo "Experimental Version: ${{ steps.generate-version.outputs.exp_version }}"
           echo "Requester: ${{ github.event.inputs.requester }}"
-
   prepare-config:
     needs: validate-inputs
     runs-on: [self-hosted, node16]
@@ -228,7 +227,6 @@ jobs:
           echo "- **Config File**: $CONFIG_FILE" >> $GITHUB_STEP_SUMMARY
           
           echo "✅ Validation step completed - proceeding to build"
-
   build-patch:
     needs: [validate-inputs, prepare-config]
     runs-on: [self-hosted, node16]
@@ -247,11 +245,11 @@ jobs:
           echo "🚀 Proceeding with build using faceless account - these may be resolved during the build process"
           echo "📧 Build notifications will include these warnings"
           echo ""
-
       - name: Execute complete patch build (using faceless account)
         id: build-complete
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
         run: |
           echo "🔨 Starting complete patch build with CSS-debug signing using faceless account..."
           echo "📁 Working directory: ${{ env.BUILD_BASE_PATH }}"
@@ -263,12 +261,13 @@ jobs:
           
           # Run the Intel FXT build tool using faceless account with css-debug signing
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            export FA_PASSWORD='$FA_PASSWORD'
             echo 'Build running as: \$(whoami)'
             echo 'Python version: \$(${{ env.PYTHON_PATH }} --version)'
             cd ${{ env.BUILD_BASE_PATH }}
             
             echo 'Starting FXT build with css-debug signing...'
-            exec 3< <(printf '%s\n' "\$FA_PASSWORD")
+            exec 3< <(printf '%s\n' \"\$FA_PASSWORD\")
             ${{ env.PYTHON_PATH }} ${{ env.TOOLS_PATH }}/fxtMuppt.py --conf ${{ needs.validate-inputs.outputs.config_file }} <&3 > build_output.log 2>&1
             BUILD_EXIT_CODE=\$?
             exec 3<&-
@@ -284,7 +283,6 @@ jobs:
               exit \$BUILD_EXIT_CODE
             fi
           "
-
   validate-output:
     needs: [validate-inputs, prepare-config, build-patch]
     runs-on: [self-hosted, node16]
@@ -393,7 +391,6 @@ jobs:
           else
             echo "Build directory not found, skipping archive creation"
           fi
-
   notify-completion:
     needs: [validate-inputs, prepare-config, validate-output]
     runs-on: [self-hosted, node16]
