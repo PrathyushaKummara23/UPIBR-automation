@@ -85,7 +85,6 @@ jobs:
             echo "Got: $CURRENT_USER"
             exit 1
           fi
-
       - name: Check patch type
         id: check-patch-type
         run: |
@@ -96,7 +95,6 @@ jobs:
             echo "is_f_patch=false" >> $GITHUB_OUTPUT
             echo "Detected regular patch"
           fi
-
       - name: Validate versions
         run: |
           # Remove 0x prefix if present for validation
@@ -117,7 +115,6 @@ jobs:
           echo "Version validation passed"
           echo "  - Baseline: $BASELINE_CLEAN"
           echo "  - New: $NEW_CLEAN"
-
       - name: Validate baseline config exists
         id: validate-baseline
         env:
@@ -249,7 +246,6 @@ jobs:
             echo "ERROR: $FAILED_PATHS out of $PROVIDED_PATHS provided paths failed validation"
             exit 1
           fi
-
       - name: Validate baseline config paths
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -422,6 +418,43 @@ jobs:
           "
           
           echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
+
+      - name: Set config file permissions
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          # Clean version number (remove 0x prefix if present)
+          NEW_CLEAN="${{ github.event.inputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+          
+          echo "Setting permissions (777) for config file as faceless account..."
+          echo "Config file: $NEW_CONFIG"
+          
+          # Check current permissions before changing
+          echo "Current permissions:"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "$NEW_CONFIG"
+          
+          # Set permissions to 777 (read, write, execute for owner, group, and others)
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build chmod 777 "$NEW_CONFIG"
+          
+          # Verify permissions were set correctly
+          echo "Updated permissions:"
+          PERMISSIONS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "$NEW_CONFIG")
+          echo "$PERMISSIONS"
+          
+          # Validate that permissions are actually 777
+          if echo "$PERMISSIONS" | grep -q "^-rwxrwxrwx"; then
+            echo "SUCCESS: Config file permissions set to 777 (rwxrwxrwx)"
+            echo "  - Owner: Read, Write, Execute"
+            echo "  - Group: Read, Write, Execute" 
+            echo "  - Others: Read, Write, Execute"
+          else
+            echo "WARNING: Permissions may not have been set correctly"
+            echo "Expected: -rwxrwxrwx"
+            echo "Actual: $PERMISSIONS"
+          fi
           
       - name: Display config summary
         run: |
@@ -436,6 +469,7 @@ jobs:
           fi
           
           echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **File Permissions**: 777 (rwxrwxrwx - full access for all)" >> $GITHUB_STEP_SUMMARY
           echo "- **Validation**: Paths validated using both faceless and pkummara accounts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -511,4 +545,11 @@ jobs:
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Config file generated successfully with dual account validation!" >> $GITHUB_STEP_SUMMARY
+          echo "### File Permissions Set:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Permission Mode**: 777 (octal)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Owner**: Read, Write, Execute (rwx)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Group**: Read, Write, Execute (rwx)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Others**: Read, Write, Execute (rwx)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Result**: Full access granted to all users" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Config file generated successfully with dual account validation and full permissions!" >> $GITHUB_STEP_SUMMARY
