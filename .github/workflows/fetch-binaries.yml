@@ -1,45 +1,35 @@
 name: Fetch Binary Files from Entry Criteria
-
 on:
   workflow_dispatch:
   push:
     branches: [ master ]
   pull_request:
     branches: [ master ]
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   fetch-binaries:
     runs-on: ubuntu-latest
-    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v5
-      
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.9'
-        
     - name: Install jq for JSON parsing
       run: |
         sudo apt-get update
         sudo apt-get install -y jq
-        
     - name: Create output directory
       run: |
         mkdir -p fetched_binaries
-        
     - name: Check for existing JSON file or create sample
       run: |
         JSON_FILE=".github/entry_criteria_output.json"
-        
         if [ ! -f "$JSON_FILE" ]; then
           echo "Creating sample entry_criteria_output.json file..."
           mkdir -p .github
-          
           cat > "$JSON_FILE" << 'EOF'
         {
           "ucode": {
@@ -72,17 +62,13 @@ jobs:
         }
         EOF
         fi
-        
         echo "Using JSON file:"
         cat "$JSON_FILE"
-        
     - name: Read and parse entry_criteria_output.json
       id: parse_json
       run: |
         JSON_FILE=".github/entry_criteria_output.json"
         echo "Parsing $JSON_FILE..."
-        
-        # Extract paths for each component
         UCODE_PATH=$(jq -r '.ucode.entry // ""' "$JSON_FILE")
         XUCODE_PATH=$(jq -r '.xucode.entry // ""' "$JSON_FILE")
         MCHECK_PATH=$(jq -r '.mcheck.entry // ""' "$JSON_FILE")
@@ -92,8 +78,6 @@ jobs:
         OOBMSM_PATH=$(jq -r '.oobmsm.entry // ""' "$JSON_FILE")
         PCODE_PATH=$(jq -r '.pcode.entry // ""' "$JSON_FILE")
         S3M_PATH=$(jq -r '.s3m.entry // ""' "$JSON_FILE")
-        
-        # Store paths in environment variables
         echo "UCODE_PATH=$UCODE_PATH" >> $GITHUB_ENV
         echo "XUCODE_PATH=$XUCODE_PATH" >> $GITHUB_ENV
         echo "MCHECK_PATH=$MCHECK_PATH" >> $GITHUB_ENV
@@ -103,7 +87,6 @@ jobs:
         echo "OOBMSM_PATH=$OOBMSM_PATH" >> $GITHUB_ENV
         echo "PCODE_PATH=$PCODE_PATH" >> $GITHUB_ENV
         echo "S3M_PATH=$S3M_PATH" >> $GITHUB_ENV
-        
         echo "Extracted paths from JSON:"
         echo "UCODE: $UCODE_PATH"
         echo "XUCODE: $XUCODE_PATH"
@@ -114,7 +97,6 @@ jobs:
         echo "OOBMSM: $OOBMSM_PATH"
         echo "PCODE: $PCODE_PATH"
         echo "S3M: $S3M_PATH"
-        
     - name: Create paths configuration file
       run: |
         cat > fetched_binaries/paths_config.txt << EOF
@@ -128,27 +110,19 @@ jobs:
         pcode=${{ env.PCODE_PATH }}
         s3m=${{ env.S3M_PATH }}
         EOF
-        
         echo "Created paths_config.txt with content:"
         cat fetched_binaries/paths_config.txt
-        
     - name: Create sample binary structure for testing
       run: |
         echo "Creating sample binary files to simulate the collection process..."
         echo "Note: GitHub-hosted runners cannot access NFS paths (/nfs/site/disks/...)"
         echo "This step creates sample files to demonstrate the workflow structure."
-        
-        # Create sample binary files for each component
         components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode" "s3m")
-        
         for component in "${components[@]}"; do
           path_var="${component^^}_PATH"
           path_value=$(printenv "$path_var")
-          
           if [ -n "$path_value" ] && [ "$path_value" != "" ]; then
             echo "Processing $component with path: $path_value"
-            
-            # Create sample binary files
             case $component in
               "ucode")
                 echo -e "\x7fELF\x02\x01\x01\x00UCODE_SAMPLE_BINARY_DATA" > "fetched_binaries/${component}_sample.bin"
@@ -193,24 +167,17 @@ jobs:
             echo "Created no-path indicator for $component"
           fi
         done
-        
     - name: Attempt real binary collection (will likely fail on GitHub runners)
       continue-on-error: true
       run: |
         echo "Attempting to access real NFS paths (this will likely fail on GitHub-hosted runners)..."
-        
-        # Function to copy files from a directory or file
         copy_binaries() {
           local source_path="$1"
           local component_name="$2"
-          
           if [ -n "$source_path" ] && [ "$source_path" != "null" ] && [ "$source_path" != "" ]; then
             echo "Attempting to access $component_name from: $source_path"
-            
             if [ -d "$source_path" ]; then
               echo "Directory found, searching for binary files..."
-              
-              # Find and copy all .bin files
               bin_count=0
               while IFS= read -r -d '' file; do
                 if [ -f "$file" ]; then
@@ -223,8 +190,6 @@ jobs:
                   }
                 fi
               done < <(find "$source_path" -name "*.bin" -type f -print0 2>/dev/null)
-              
-              # Also copy .inc files for xucode and mcheck
               if [ "$component_name" = "xucode" ] || [ "$component_name" = "mcheck" ]; then
                 while IFS= read -r -d '' file; do
                   if [ -f "$file" ]; then
@@ -238,20 +203,16 @@ jobs:
                   fi
                 done < <(find "$source_path" -name "*.inc" -type f -print0 2>/dev/null)
               fi
-              
               if [ $bin_count -gt 0 ]; then
                 echo "Successfully copied $bin_count real files for $component_name"
-                # Remove the sample file if we got real files
                 rm -f "fetched_binaries/${component_name}_sample.bin" 2>/dev/null
                 rm -f "fetched_binaries/${component_name}_path_not_accessible.txt" 2>/dev/null
               fi
-              
             elif [ -f "$source_path" ]; then
               echo "Direct file found, attempting to copy..."
               filename=$(basename "$source_path")
               cp "$source_path" "fetched_binaries/${component_name}_real_${filename}" 2>/dev/null && {
                 echo "SUCCESS: Copied real file: $source_path"
-                # Remove the sample file if we got the real file
                 rm -f "fetched_binaries/${component_name}_sample.bin" 2>/dev/null
                 rm -f "fetched_binaries/${component_name}_path_not_accessible.txt" 2>/dev/null
               } || {
@@ -262,8 +223,6 @@ jobs:
             fi
           fi
         }
-        
-        # Try to copy real binaries for each component
         copy_binaries "${{ env.UCODE_PATH }}" "ucode"
         copy_binaries "${{ env.XUCODE_PATH }}" "xucode"
         copy_binaries "${{ env.MCHECK_PATH }}" "mcheck"
@@ -273,33 +232,27 @@ jobs:
         copy_binaries "${{ env.OOBMSM_PATH }}" "oobmsm"
         copy_binaries "${{ env.PCODE_PATH }}" "pcode"
         copy_binaries "${{ env.S3M_PATH }}" "s3m"
-        
     - name: List all collected files
       run: |
         echo "=== ALL COLLECTED FILES ==="
         echo "Files in fetched_binaries directory:"
         ls -la fetched_binaries/
-        
         echo ""
         echo "=== FILE SUMMARY ==="
         binary_count=$(find fetched_binaries/ -name "*.bin" | wc -l)
         inc_count=$(find fetched_binaries/ -name "*.inc" | wc -l)
         txt_count=$(find fetched_binaries/ -name "*.txt" | wc -l)
-        
         echo "Binary files (.bin): $binary_count"
         echo "Include files (.inc): $inc_count"
         echo "Info files (.txt): $txt_count"
         echo "Total files: $(ls fetched_binaries/ | wc -l)"
-        
         echo ""
         echo "=== DETAILED FILE LIST ==="
         find fetched_binaries/ -type f -exec ls -lh {} \; | sort
-        
     - name: Create comprehensive summary report
       run: |
         cat > fetched_binaries/collection_summary.md << EOF
         # Binary Collection Summary
-        
         **Collection Details:**
         - Date: $(date)
         - Workflow Run: #${{ github.run_number }}
@@ -307,23 +260,17 @@ jobs:
         - Branch: ${{ github.ref_name }}
         - Commit: ${{ github.sha }}
         - Runner Type: GitHub-hosted (ubuntu-latest)
-        
         ## Important Notes
         - GitHub-hosted runners cannot access NFS paths (/nfs/site/disks/...)
         - Sample binary files have been created to demonstrate the workflow
         - For real binary collection, use self-hosted runners with network access
-        
         ## Source Paths Processed
-        
         | Component | Source Path | Status |
         |-----------|-------------|---------|
         EOF
-        
-        # Add status for each component
         for component in ucode xucode mcheck tcode acode icode oobmsm pcode s3m; do
           path_var="${component^^}_PATH"
           path_value=$(printenv "$path_var")
-          
           if [ -n "$path_value" ] && [ "$path_value" != "" ]; then
             if ls fetched_binaries/${component}_real_*.bin >/dev/null 2>&1 || ls fetched_binaries/${component}_real_*.inc >/dev/null 2>&1; then
               status="Real files collected"
@@ -337,16 +284,11 @@ jobs:
           else
             status="No path specified"
           fi
-          
           echo "| $component | \`$path_value\` | $status |" >> fetched_binaries/collection_summary.md
         done
-        
         cat >> fetched_binaries/collection_summary.md << EOF
-        
         ## Files Collected
-        
         EOF
-        
         if ls fetched_binaries/*.bin >/dev/null 2>&1 || ls fetched_binaries/*.inc >/dev/null 2>&1; then
           echo "### Binary and Include Files" >> fetched_binaries/collection_summary.md
           find fetched_binaries/ \( -name "*.bin" -o -name "*.inc" \) | sort | while read file; do
@@ -361,30 +303,23 @@ jobs:
         else
           echo "No binary or include files were collected." >> fetched_binaries/collection_summary.md
         fi
-        
         cat >> fetched_binaries/collection_summary.md << EOF
-        
         ## Next Steps for Real Binary Collection
-        
         1. **Set up self-hosted runners** with access to your NFS storage
         2. **Update runner labels** in the workflow (change \`runs-on: ubuntu-latest\` to your self-hosted runner label)
         3. **Ensure network connectivity** from runners to \`/nfs/site/disks/\` paths
         4. **Test connectivity** before running the full workflow
-        
         ---
         *Generated by GitHub Actions workflow*
         EOF
-        
         echo "=== SUMMARY REPORT ==="
         cat fetched_binaries/collection_summary.md
-        
     - name: Upload artifacts
       uses: actions/upload-artifact@v5
       with:
         name: fetched-binaries-${{ github.run_number }}
         path: fetched_binaries/
         retention-days: 30
-        
     - name: Display final status
       run: |
         echo "=== WORKFLOW COMPLETED ==="
