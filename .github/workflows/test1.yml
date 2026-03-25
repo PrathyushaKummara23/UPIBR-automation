@@ -768,6 +768,21 @@ jobs:
             exit 1
           fi
 
+      - name: Check for expect availability
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Checking for expect availability..."
+          EXPECT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if command -v expect >/dev/null 2>&1; then
+              echo 'AVAILABLE'
+              expect -v 2>&1 || echo 'expect version check failed'
+            else
+              echo 'NOT_AVAILABLE'
+            fi
+          ")
+          echo "Expect status: $EXPECT_CHECK"
+
       - name: Verify build tools and config exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -855,12 +870,12 @@ jobs:
           echo "Build directory contents:"
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "${{ env.BUILD_BASE_PATH }}"
 
-      - name: Execute patch build with CSS password handling
+      - name: Execute patch build with expect script
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
           CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
         run: |
-          echo "Starting patch build process with CSS password handling..."
+          echo "Starting patch build process with expect script..."
           
           # Clean version number for config file name
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
@@ -874,15 +889,74 @@ jobs:
           echo "  - Config File: $CONFIG_FILE"
           echo ""
           
-          # Execute the build command with simple password piping
-          echo "Executing patch build as faceless account..."
+          # Create and execute expect script
+          echo "Creating expect script for password automation..."
           BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
             echo 'Current directory: \$(pwd)'
-            echo 'Starting build execution...'
             
-            # Execute the FXT tool with config, providing CSS password when prompted
-            echo '$CSS_PASSWORD' | timeout 1800 ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE 2>&1
+            # Create expect script
+            cat > build_expect.exp << 'EXPECT_EOF'
+          #!/usr/bin/expect -f
+          set timeout 1800
+          set css_password [lindex \$argv 0]
+          set config_file [lindex \$argv 1]
+          set python_path [lindex \$argv 2]
+          set fxt_path [lindex \$argv 3]
+          
+          log_user 1
+          
+          spawn \$python_path \$fxt_path --conf \$config_file
+          
+          expect {
+              -re \".*[Pp]assword.*:.*\" {
+                  send \"\$css_password\r\"
+                  exp_continue
+              }
+              -re \".*Enter.*password.*:.*\" {
+                  send \"\$css_password\r\"
+                  exp_continue
+              }
+              -re \".*CSS.*password.*:.*\" {
+                  send \"\$css_password\r\"
+                  exp_continue
+              }
+              -re \".*password.*:.*\" {
+                  send \"\$css_password\r\"
+                  exp_continue
+              }
+              eof {
+                  catch wait result
+                  exit [lindex \$result 3]
+              }
+              timeout {
+                  puts \"Build process timed out after 30 minutes\"
+                  exit 124
+              }
+          }
+          EXPECT_EOF
+            
+            chmod +x build_expect.exp
+            echo 'Expect script created successfully'
+            
+            # Check if expect is available
+            if command -v expect >/dev/null 2>&1; then
+              echo 'Running build with expect script...'
+              ./build_expect.exp '$CSS_PASSWORD' '$CONFIG_FILE' '${{ env.PYTHON_PATH }}' '${{ env.FXT_TOOL_PATH }}' 2>&1
+            else
+              echo 'Expect not available, falling back to alternative method...'
+              # Alternative method with multiple password attempts
+              (
+                for i in {1..20}; do
+                  echo '$CSS_PASSWORD'
+                  sleep 3
+                done
+              ) | timeout 1800 ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE 2>&1 &
+              
+              BUILD_PID=\$!
+              wait \$BUILD_PID
+              echo \"Alternative build method completed with exit code: \$?\"
+            fi
           ")
           
           BUILD_EXIT_CODE=$?
@@ -903,6 +977,10 @@ jobs:
           # Check exit code
           if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
             echo "SUCCESS: Build command completed successfully (exit code: 0)"
+          elif [[ $BUILD_EXIT_CODE -eq 124 ]]; then
+            echo "TIMEOUT: Build process timed out after 30 minutes"
+            echo "This may indicate the build is taking longer than expected or is stuck"
+            exit $BUILD_EXIT_CODE
           else
             echo "FAILURE: Build command failed with exit code: $BUILD_EXIT_CODE"
             echo "Please review the build output above for error details"
@@ -957,13 +1035,15 @@ jobs:
           echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Password Handling**: Automated CSS password input via pipe" >> $GITHUB_STEP_SUMMARY
+          echo "- **Password Handling**: Expect script with fallback to multi-password method" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Build Command Executed:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "cd ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
-          echo "echo 'CSS_PASSWORD' | timeout 1800 ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
+          echo "# Primary: expect script with password automation" >> $GITHUB_STEP_SUMMARY
+          echo "# Fallback: multiple password piping with timeout" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -971,9 +1051,10 @@ jobs:
           echo "1. PASS **Tool Verification**: Confirmed Python and FXT tool availability" >> $GITHUB_STEP_SUMMARY
           echo "2. PASS **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
           echo "3. PASS **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
-          echo "4. PASS **Password Automation**: Piped CSS password to build process" >> $GITHUB_STEP_SUMMARY
-          echo "5. PASS **Build Execution**: Executed FXT tool with 30-minute timeout" >> $GITHUB_STEP_SUMMARY
-          echo "6. PASS **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "4. PASS **Expect Check**: Verified expect availability or fallback method" >> $GITHUB_STEP_SUMMARY
+          echo "5. PASS **Password Automation**: Used expect script or multi-password approach" >> $GITHUB_STEP_SUMMARY
+          echo "6. PASS **Build Execution**: Executed FXT tool with 30-minute timeout" >> $GITHUB_STEP_SUMMARY
+          echo "7. PASS **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ needs.prepare-config.outputs.is_f_patch }}" == "true" ]]; then
@@ -984,11 +1065,12 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          echo "### Password Handling:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Method**: Simple pipe with timeout" >> $GITHUB_STEP_SUMMARY
+          echo "### Password Handling Methods:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Primary Method**: Expect script with comprehensive password pattern matching" >> $GITHUB_STEP_SUMMARY
+          echo "- **Fallback Method**: Multiple password piping (20 attempts, 3-second intervals)" >> $GITHUB_STEP_SUMMARY
           echo "- **Security**: CSS_PASSWORD retrieved from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
           echo "- **Timeout**: 30 minutes maximum build time (1800 seconds)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Approach**: Simplified approach without expect script" >> $GITHUB_STEP_SUMMARY
+          echo "- **Patterns Matched**: Various password prompt formats" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
@@ -998,4 +1080,4 @@ jobs:
           echo "- Test the generated patch if build was successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "Patch build process completed with automated password handling!" >> $GITHUB_STEP_SUMMARY
+          echo "Patch build process completed with robust password handling!" >> $GITHUB_STEP_SUMMARY
