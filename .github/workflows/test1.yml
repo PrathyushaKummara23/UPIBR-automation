@@ -872,60 +872,10 @@ jobs:
           echo "Build directory contents:"
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "${{ env.BUILD_BASE_PATH }}"
 
-      - name: Comprehensive input method detection
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "Comprehensive test of input methods..."
-          
-          BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            cd '${{ env.BUILD_BASE_PATH }}'
-            
-            # Function to test input method
-            test_input_method() {
-              local tool_name=\"\$1\"
-              local command=\"\$2\"
-              local test_input=\"\$3\"
-              
-              echo \"=== Testing \$tool_name ===\"
-              
-              # Test 1: Pipe
-              echo \"Test 1 - Pipe:\"
-              timeout 10 bash -c \"echo '\$test_input' | \$command\" 2>&1 && echo \"✅ Pipe works\" || echo \"❌ Pipe failed/timeout\"
-              
-              # Test 2: Redirection
-              echo \"Test 2 - Redirection:\"
-              echo \"\$test_input\" > /tmp/test_input.txt
-              timeout 10 bash -c \"\$command < /tmp/test_input.txt\" 2>&1 && echo \"✅ Redirection works\" || echo \"❌ Redirection failed/timeout\"
-              rm -f /tmp/test_input.txt
-              
-              # Test 3: Here-string
-              echo \"Test 3 - Here-string:\"
-              timeout 10 bash -c \"\$command <<< '\$test_input'\" 2>&1 && echo \"✅ Here-string works\" || echo \"❌ Here-string failed/timeout\"
-              
-              echo \"\"
-            }
-            
-            # Test ktab (we know this works with pipe)
-            test_input_method \"ktab\" \"echo 'test' | ${{ env.KTAB_PATH }} -i\" \"test_password\"
-            
-            # Test FXT tool (create a minimal config for testing)
-            echo 'version = 0xF0000001' > /tmp/test_config.ini
-            test_input_method \"FXT Tool\" \"${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf /tmp/test_config.ini\" \"srffit1build_2023\"
-            rm -f /tmp/test_config.ini
-            
-            echo \"=== Summary ===\"
-            echo \"If ktab works with pipe but FXT tool doesn't:\"
-            echo \"  - ktab reads from STDIN\"
-            echo \"  - FXT tool reads from TTY\"
-            echo \"  - Use expect for FXT tool\"
-          ")
-          
-          echo "$BUILD_RESULT"
-
       - name: Execute patch build with expect for CSS password
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
         run: |
           echo "Starting patch build with expect for CSS password prompt..."
           
@@ -939,7 +889,7 @@ jobs:
           echo "  - FXT Tool Path: ${{ env.FXT_TOOL_PATH }}"
           echo "  - Expect Path: ${{ env.EXPECT_PATH }}"
           echo "  - Config File: $CONFIG_FILE"
-          echo "  - Password Method: expect script for 'Enter your CSS password:' prompt"
+          echo "  - Password Method: expect script with CSS_PASSWORD from secrets"
           echo ""
           
           BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
@@ -951,20 +901,23 @@ jobs:
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
           
+          # Get CSS password from environment
+          set css_password \$env(CSS_PASSWORD)
+          
           # Start the build process
           spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
           
           expect {
               \"Enter your CSS password:\" {
-                  send \"srffit1build_2023\r\"
+                  send \"\$css_password\r\"
                   exp_continue
               }
               \"Enter your CSS password: \" {
-                  send \"srffit1build_2023\r\"
+                  send \"\$css_password\r\"
                   exp_continue
               }
               -re \".*assword.*\" {
-                  send \"srffit1build_2023\r\"
+                  send \"\$css_password\r\"
                   exp_continue
               }
               eof {
@@ -980,6 +933,9 @@ jobs:
             
             chmod +x build_with_expect.exp
             echo 'Starting build with expect script for CSS password prompt...'
+            
+            # Export CSS_PASSWORD for the expect script
+            export CSS_PASSWORD='$CSS_PASSWORD'
             ./build_with_expect.exp 2>&1
             BUILD_EXIT=\$?
             
@@ -1065,7 +1021,7 @@ jobs:
           echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Password Method**: expect script for CSS password prompt" >> $GITHUB_STEP_SUMMARY
+          echo "- **Password Method**: expect script with CSS_PASSWORD from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
           echo "- **Expect Path**: ${{ env.EXPECT_PATH }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -1073,10 +1029,9 @@ jobs:
           echo "1. PASS **Tool Verification**: Confirmed Python, FXT tool, and expect availability" >> $GITHUB_STEP_SUMMARY
           echo "2. PASS **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
           echo "3. PASS **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
-          echo "4. PASS **Input Method Test**: Tested different input methods for tools" >> $GITHUB_STEP_SUMMARY
-          echo "5. PASS **Expect Script**: Created expect script to handle CSS password prompt" >> $GITHUB_STEP_SUMMARY
-          echo "6. PASS **Build Execution**: Executed FXT tool with automated password input" >> $GITHUB_STEP_SUMMARY
-          echo "7. PASS **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "4. PASS **Expect Script**: Created expect script to handle CSS password prompt" >> $GITHUB_STEP_SUMMARY
+          echo "5. PASS **Build Execution**: Executed FXT tool with automated password input from secrets" >> $GITHUB_STEP_SUMMARY
+          echo "6. PASS **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ needs.prepare-config.outputs.is_f_patch }}" == "true" ]]; then
@@ -1087,28 +1042,23 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          echo "### Input Method Test Results:" >> $GITHUB_STEP_SUMMARY
-          echo "- **ktab**: Should work with pipes (STDIN reader)" >> $GITHUB_STEP_SUMMARY
-          echo "- **FXT Tool**: Should require expect (TTY reader)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Test Purpose**: Confirms our expect-based approach is correct" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
           echo "### Password Handling Method:" >> $GITHUB_STEP_SUMMARY
           echo "- **Method**: expect script with pattern matching" >> $GITHUB_STEP_SUMMARY
           echo "- **Patterns Handled**:" >> $GITHUB_STEP_SUMMARY
           echo "  - \`Enter your CSS password:\` (exact match)" >> $GITHUB_STEP_SUMMARY
           echo "  - \`Enter your CSS password: \` (with trailing space)" >> $GITHUB_STEP_SUMMARY
           echo "  - \`.*assword.*\` (regex pattern for any password prompt)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Password**: srffit1build_2023 (hardcoded)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Password Source**: CSS_PASSWORD from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
           echo "- **Timeout**: 30 minutes maximum build time (1800 seconds)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Benefits**: Handles interactive prompts reliably" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security**: Password retrieved securely from secrets, not hardcoded" >> $GITHUB_STEP_SUMMARY
+          echo "- **Benefits**: Handles interactive prompts reliably without exposing credentials" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
-          echo "- Review input method test results to confirm our approach" >> $GITHUB_STEP_SUMMARY
-          echo "- Check build output logs for any errors or warnings" >> $GITHUB_STEP_SUMMARY
-          echo "- Verify patch files are created as expected" >> $GITHUB_STEP_SUMMARY
-          echo "- Remove the input method test step after confirmation" >> $GITHUB_STEP_SUMMARY
+          echo "### Security Improvements:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **No Hardcoded Passwords**: CSS password retrieved from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Environment Variable**: Password passed securely via environment" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Script Cleanup**: Expect script removed after execution" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **No Log Exposure**: Password not visible in build logs" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "Patch build process completed with comprehensive input method testing!" >> $GITHUB_STEP_SUMMARY
+          echo "Patch build process completed with secure password handling!" >> $GITHUB_STEP_SUMMARY
