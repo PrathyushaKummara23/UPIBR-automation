@@ -1,3 +1,10 @@
+UP Base Line Version=0x81321420
+SVN Version=0x08
+SVN_SE Version=7
+Min SVN=0x7
+Min Runtime ID=24511
+Rollback ID=22110
+New UP Version=0x81321421
 ucode=/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e200102b
 xucode=/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc
 mcheck=/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Mcheck/main/26ww04/MCHECK_SECTION.inc
