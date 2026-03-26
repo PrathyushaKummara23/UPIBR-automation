@@ -114,125 +114,53 @@ jobs:
         fi
         echo "Using JSON file: $(realpath "$JSON_FILE")"
         echo "=== END JSON FILE HANDLING ==="
-    - name: Extract paths from JSON and create individual output files
+    - name: Extract paths from JSON and create configuration file
       run: |
         JSON_FILE=".github/entry_criteria_output.json"
         echo "=== EXTRACTING PATHS FROM JSON ==="
         echo "Processing JSON file: $(realpath "$JSON_FILE")"
+        config_file="output_paths/all_paths_config.txt"
+        echo "Creating configuration file: $(realpath "$config_file")"
         components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode" "s3m")
         for component in "${components[@]}"; do
           echo "Processing component: $component"
           path=$(jq -r ".${component}[0].entry // \"\"" "$JSON_FILE")
-          output_file="output_paths/${component}_path.txt"
           if [ -n "$path" ] && [ "$path" != "" ] && [ "$path" != "null" ]; then
-            echo "${component}=${path}" > "$output_file"
-            echo "Created ${component} path file: $(realpath "$output_file")"
-            echo "Content: ${component}=${path}"
+            echo "${component}=${path}" >> "$config_file"
+            echo "Added: ${component}=${path}"
           else
-            echo "${component}=" > "$output_file"
-            echo "Created ${component} path file (empty path): $(realpath "$output_file")"
-            echo "Content: ${component}="
+            echo "${component}=" >> "$config_file"
+            echo "Added: ${component}= (empty path)"
           fi
         done
+        echo "Configuration file created at: $(realpath "$config_file")"
         echo "=== END PATH EXTRACTION ==="
-    - name: Create consolidated paths configuration file
+    - name: Display created configuration file
       run: |
-        JSON_FILE=".github/entry_criteria_output.json"
-        echo "=== CREATING CONSOLIDATED CONFIGURATION ==="
-        consolidated_file="output_paths/all_paths_config.txt"
-        echo "Creating consolidated configuration file: $(realpath "$consolidated_file")"
-        components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode" "s3m")
-        for component in "${components[@]}"; do
-          path=$(jq -r ".${component}[0].entry // \"\"" "$JSON_FILE")
-          if [ -n "$path" ] && [ "$path" != "" ] && [ "$path" != "null" ]; then
-            echo "${component}=${path}" >> "$consolidated_file"
-          else
-            echo "${component}=" >> "$consolidated_file"
-          fi
-        done
-        echo "Consolidated configuration file created at: $(realpath "$consolidated_file")"
-        echo "Contents:"
-        cat "$consolidated_file"
-        echo "=== END CONSOLIDATED CONFIGURATION ==="
-    - name: Display all created files
-      run: |
-        echo "=== ALL CREATED OUTPUT FILES ==="
-        echo "Output directory: $(realpath output_paths)"
-        echo "Files created:"
-        ls -la output_paths/
+        config_file="output_paths/all_paths_config.txt"
+        echo "=== CONFIGURATION FILE CONTENTS ==="
+        echo "File location: $(realpath "$config_file")"
+        echo "File contents:"
+        cat "$config_file"
         echo ""
-        echo "Individual component files:"
-        for file in output_paths/*_path.txt; do
-          if [ -f "$file" ]; then
-            echo "File: $(realpath "$file")"
-            echo "Content: $(cat "$file")"
-            echo ""
-          fi
-        done
-        echo "Consolidated file:"
-        echo "File: $(realpath output_paths/all_paths_config.txt)"
-        echo "Content:"
-        cat output_paths/all_paths_config.txt
+        echo "File size: $(stat -c%s "$config_file") bytes"
         echo "=== END FILE DISPLAY ==="
-    - name: Create summary report
-      run: |
-        JSON_FILE=".github/entry_criteria_output.json"
-        echo "=== CREATING SUMMARY REPORT ==="
-        summary_file="output_paths/extraction_summary.md"
-        cat > "$summary_file" << EOF
-        # Path Extraction Summary
-        **Extraction Details:**
-        - Date: $(date)
-        - Workflow Run: #${{ github.run_number }}
-        - Repository: ${{ github.repository }}
-        - Branch: ${{ github.ref_name }}
-        - Commit: ${{ github.sha }}
-        - Source JSON: $(realpath "$JSON_FILE")
-        - Output Directory: $(realpath output_paths)
-        ## Extracted Paths
-        | Component | Path | Status |
-        |-----------|------|--------|
-        EOF
-        components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode" "s3m")
-        for component in "${components[@]}"; do
-          path=$(jq -r ".${component}[0].entry // \"\"" "$JSON_FILE")
-          if [ -n "$path" ] && [ "$path" != "" ] && [ "$path" != "null" ]; then
-            status="Path extracted"
-          else
-            status="No path specified"
-          fi
-          echo "| $component | \`$path\` | $status |" >> "$summary_file"
-        done
-        cat >> "$summary_file" << EOF
-        ## Output Files Created
-        EOF
-        find output_paths/ -name "*.txt" | sort | while read file; do
-          echo "- \`$(basename "$file")\` - Full path: \`$(realpath "$file")\`" >> "$summary_file"
-        done
-        cat >> "$summary_file" << EOF
-        ---
-        *Generated by GitHub Actions workflow - Path extraction only*
-        EOF
-        echo "Summary report created at: $(realpath "$summary_file")"
-        echo "Summary contents:"
-        cat "$summary_file"
-        echo "=== END SUMMARY REPORT ==="
-    - name: Upload output files as artifacts
+    - name: Upload configuration file as artifact
       uses: actions/upload-artifact@v5
       with:
-        name: extracted-paths-${{ github.run_number }}
-        path: output_paths/
+        name: paths-config-${{ github.run_number }}
+        path: output_paths/all_paths_config.txt
         retention-days: 30
-    - name: Commit output files to repository
+    - name: Commit configuration file to repository
       run: |
-        echo "=== COMMITTING FILES TO REPOSITORY ==="
+        echo "=== COMMITTING FILE TO REPOSITORY ==="
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add output_paths/
+        git add output_paths/all_paths_config.txt
         if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "Add extracted paths from entry criteria - Run ${{ github.run_number }}"
+          git commit -m "Add paths configuration from entry criteria - Run ${{ github.run_number }}"
           git push
-          echo "Files committed and pushed to repository"
+          echo "Configuration file committed and pushed to repository"
         else
           echo "No changes to commit"
         fi
@@ -244,13 +172,14 @@ jobs:
         echo "Output directory: $(realpath output_paths)"
         echo ""
         echo "Path extraction: Completed"
-        echo "Individual files: Created"
-        echo "Consolidated file: Created"
-        echo "Summary report: Created"
+        echo "Configuration file: Created"
         echo ""
-        echo "Files created:"
-        find output_paths/ -type f -exec echo "  - {}" \; -exec realpath {} \;
+        echo "Created file:"
+        echo "  - all_paths_config.txt: $(realpath output_paths/all_paths_config.txt)"
         echo ""
-        echo "Artifacts uploaded: extracted-paths-${{ github.run_number }}"
-        echo "Files committed to repository: Yes"
+        echo "File contents:"
+        cat output_paths/all_paths_config.txt
+        echo ""
+        echo "Artifact uploaded: paths-config-${{ github.run_number }}"
+        echo "File committed to repository: Yes"
         echo "=== END FINAL STATUS ==="
