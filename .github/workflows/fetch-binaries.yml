@@ -37,6 +37,43 @@ jobs:
           mkdir -p .github
           cat > "$JSON_FILE" << 'EOF'
         {
+          "section_1": [
+            {
+              "sr_no": 1,
+              "check_list_item": "UP Base Line Version",
+              "entry": "0x81321420"
+            },
+            {
+              "sr_no": 2,
+              "check_list_item": "SVN Version",
+              "entry": "0x08"
+            },
+            {
+              "sr_no": 3,
+              "check_list_item": "SVN_SE Version",
+              "entry": "7"
+            },
+            {
+              "sr_no": 4,
+              "check_list_item": "Min SVN",
+              "entry": "0x7"
+            },
+            {
+              "sr_no": 5,
+              "check_list_item": "Min Runtime ID",
+              "entry": "24511"
+            },
+            {
+              "sr_no": 6,
+              "check_list_item": "Rollback ID",
+              "entry": "22110"
+            },
+            {
+              "sr_no": 7,
+              "check_list_item": "New UP Version",
+              "entry": "0x81321421"
+            }
+          ],
           "ucode": [
             {
               "sr_no": 1,
@@ -114,10 +151,10 @@ jobs:
         fi
         echo "Using JSON file: $(realpath "$JSON_FILE")"
         echo "=== END JSON FILE HANDLING ==="
-    - name: Extract paths from JSON and create configuration file
+    - name: Extract all data from JSON and create configuration file
       run: |
         JSON_FILE=".github/entry_criteria_output.json"
-        echo "=== EXTRACTING PATHS FROM JSON ==="
+        echo "=== EXTRACTING ALL DATA FROM JSON ==="
         echo "Processing JSON file: $(realpath "$JSON_FILE")"
         config_file="output_paths/all_paths_config.txt"
         echo "Creating configuration file: $(realpath "$config_file")"
@@ -125,7 +162,18 @@ jobs:
         # Remove existing file if it exists to prevent appending
         rm -f "$config_file"
         
-        # Extract all paths and create the file in one go
+        # Extract section_1 data
+        echo "Extracting section_1 data..."
+        UP_BASE_LINE=$(jq -r '.section_1[] | select(.check_list_item == "UP Base Line Version") | .entry // ""' "$JSON_FILE")
+        SVN_VERSION=$(jq -r '.section_1[] | select(.check_list_item == "SVN Version") | .entry // ""' "$JSON_FILE")
+        SVN_SE_VERSION=$(jq -r '.section_1[] | select(.check_list_item == "SVN_SE Version") | .entry // ""' "$JSON_FILE")
+        MIN_SVN=$(jq -r '.section_1[] | select(.check_list_item == "Min SVN") | .entry // ""' "$JSON_FILE")
+        MIN_RUNTIME_ID=$(jq -r '.section_1[] | select(.check_list_item == "Min Runtime ID") | .entry // ""' "$JSON_FILE")
+        ROLLBACK_ID=$(jq -r '.section_1[] | select(.check_list_item == "Rollback ID") | .entry // ""' "$JSON_FILE")
+        NEW_UP_VERSION=$(jq -r '.section_1[] | select(.check_list_item == "New UP Version") | .entry // ""' "$JSON_FILE")
+        
+        # Extract component paths
+        echo "Extracting component paths..."
         UCODE_PATH=$(jq -r '.ucode[0].entry // ""' "$JSON_FILE")
         XUCODE_PATH=$(jq -r '.xucode[0].entry // ""' "$JSON_FILE")
         MCHECK_PATH=$(jq -r '.mcheck[0].entry // ""' "$JSON_FILE")
@@ -136,8 +184,15 @@ jobs:
         PCODE_PATH=$(jq -r '.pcode[0].entry // ""' "$JSON_FILE")
         S3M_PATH=$(jq -r '.s3m[0].entry // ""' "$JSON_FILE")
         
-        # Create the configuration file with all paths at once
+        # Create the configuration file with all data
         cat > "$config_file" << EOF
+        UP Base Line Version=$UP_BASE_LINE
+        SVN Version=$SVN_VERSION
+        SVN_SE Version=$SVN_SE_VERSION
+        Min SVN=$MIN_SVN
+        Min Runtime ID=$MIN_RUNTIME_ID
+        Rollback ID=$ROLLBACK_ID
+        New UP Version=$NEW_UP_VERSION
         ucode=$UCODE_PATH
         xucode=$XUCODE_PATH
         mcheck=$MCHECK_PATH
@@ -150,7 +205,7 @@ jobs:
         EOF
         
         echo "Configuration file created successfully at: $(realpath "$config_file")"
-        echo "=== END PATH EXTRACTION ==="
+        echo "=== END DATA EXTRACTION ==="
     - name: Display created configuration file
       run: |
         config_file="output_paths/all_paths_config.txt"
@@ -175,7 +230,7 @@ jobs:
         git config --local user.name "GitHub Action"
         git add output_paths/all_paths_config.txt
         if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "Add paths configuration from entry criteria - Run ${{ github.run_number }}"
+          git commit -m "Add complete configuration from entry criteria - Run ${{ github.run_number }}"
           git push
           echo "Configuration file committed and pushed to repository"
         else
@@ -188,7 +243,8 @@ jobs:
         echo "Current working directory: $(pwd)"
         echo "Output directory: $(realpath output_paths)"
         echo ""
-        echo "Path extraction: Completed"
+        echo "Section_1 extraction: Completed"
+        echo "Component paths extraction: Completed"
         echo "Configuration file: Created"
         echo ""
         echo "Created file:"
