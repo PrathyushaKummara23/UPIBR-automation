@@ -2,36 +2,41 @@
     "section_1": [
         {
             "sr_no": 1,
+            "check_list_item": "Milestone",
+            "entry": "UPLR0"
+        },
+        {
+            "sr_no": 2,
             "check_list_item": "UP Base Line Version",
             "entry": "0x81321420"
         },
         {
-            "sr_no": 2,
+            "sr_no": 3,
             "check_list_item": "SVN Version",
             "entry": "0x08"
         },
         {
-            "sr_no": 3,
+            "sr_no": 4,
             "check_list_item": "SVN_SE Version",
             "entry": "7"
         },
         {
-            "sr_no": 4,
+            "sr_no": 5,
             "check_list_item": "Min SVN",
             "entry": "0x7"
         },
         {
-            "sr_no": 5,
+            "sr_no": 6,
             "check_list_item": "Min Runtime ID",
             "entry": "24511"
         },
         {
-            "sr_no": 6,
+            "sr_no": 7,
             "check_list_item": "Rollback ID",
             "entry": "22110"
         },
         {
-            "sr_no": 7,
+            "sr_no": 8,
             "check_list_item": "New UP Version",
             "entry": "0x81321421"
         }
