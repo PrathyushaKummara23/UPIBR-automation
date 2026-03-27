@@ -1,4 +1,4 @@
-name: test1
+name: SRF Exp UP build
 
 on:
   workflow_dispatch:
@@ -846,11 +846,11 @@ jobs:
           
           echo "All build prerequisites verified successfully"
 
-      - name: Change to build directory
+      - name: Verify build directory access
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
-          echo "Changing to build directory: ${{ env.BUILD_BASE_PATH }}"
+          echo "Verifying build directory access: ${{ env.BUILD_BASE_PATH }}"
           
           # Verify directory exists and is accessible
           DIR_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
@@ -862,15 +862,11 @@ jobs:
           ")
           
           if [[ "$DIR_CHECK" == "EXISTS" ]]; then
-            echo "PASS: Build directory exists: ${{ env.BUILD_BASE_PATH }}"
+            echo "PASS: Build directory exists and is accessible: ${{ env.BUILD_BASE_PATH }}"
           else
-            echo "FAIL: Build directory not found: ${{ env.BUILD_BASE_PATH }}"
+            echo "FAIL: Build directory not found or not accessible: ${{ env.BUILD_BASE_PATH }}"
             exit 1
           fi
-          
-          # Show current directory contents
-          echo "Build directory contents:"
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "${{ env.BUILD_BASE_PATH }}"
 
       - name: Execute patch build with expect for CSS password
         env:
@@ -986,11 +982,7 @@ jobs:
           # Check for common build output files/directories
           VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
-            echo 'Build directory contents after execution:'
-            ls -la
-            
-            echo ''
-            echo 'Looking for build artifacts...'
+            echo 'Checking for build artifacts...'
             
             # Look for common build output patterns
             find . -name '*${NEW_CLEAN}*' -type f 2>/dev/null | head -10 || echo 'No version-specific files found'
@@ -998,10 +990,6 @@ jobs:
             echo ''
             echo 'Recent files (last 30 minutes):'
             find . -type f -mmin -30 2>/dev/null | head -20 || echo 'No recent files found'
-            
-            echo ''
-            echo 'Directory sizes:'
-            du -sh */ 2>/dev/null || echo 'No subdirectories found'
             
             echo ''
             echo 'Looking for patch files:'
@@ -1028,7 +1016,7 @@ jobs:
           echo "### Build Process:" >> $GITHUB_STEP_SUMMARY
           echo "1. PASS **Tool Verification**: Confirmed Python, FXT tool, and expect availability" >> $GITHUB_STEP_SUMMARY
           echo "2. PASS **Config Verification**: Confirmed config file exists and is accessible" >> $GITHUB_STEP_SUMMARY
-          echo "3. PASS **Directory Setup**: Changed to build directory" >> $GITHUB_STEP_SUMMARY
+          echo "3. PASS **Directory Setup**: Verified build directory access" >> $GITHUB_STEP_SUMMARY
           echo "4. PASS **Expect Script**: Created expect script to handle CSS password prompt" >> $GITHUB_STEP_SUMMARY
           echo "5. PASS **Build Execution**: Executed FXT tool with automated password input from secrets" >> $GITHUB_STEP_SUMMARY
           echo "6. PASS **Result Verification**: Checked for build artifacts" >> $GITHUB_STEP_SUMMARY
@@ -1055,10 +1043,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### Security Improvements:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **No Hardcoded Passwords**: CSS password retrieved from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Environment Variable**: Password passed securely via environment" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Script Cleanup**: Expect script removed after execution" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **No Log Exposure**: Password not visible in build logs" >> $GITHUB_STEP_SUMMARY
+          echo "- **No Hardcoded Passwords**: CSS password retrieved from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment Variable**: Password passed securely via environment" >> $GITHUB_STEP_SUMMARY
+          echo "- **Script Cleanup**: Expect script removed after execution" >> $GITHUB_STEP_SUMMARY
+          echo "- **No Log Exposure**: Password not visible in build logs" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "Patch build process completed with secure password handling!" >> $GITHUB_STEP_SUMMARY
