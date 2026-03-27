@@ -1,0 +1,122 @@
+name: Select and Read Configuration File
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Choose action'
+        required: true
+        type: choice
+        options:
+          - 'List available files'
+          - 'Read specific file'
+      filename:
+        description: 'If reading file: enter filename (shown after listing files)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  process-config-files:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      
+    - name: Validate output_paths directory
+      run: |
+        if [ ! -d "output_paths" ]; then
+          echo "❌ ERROR: output_paths directory does not exist"
+          echo ""
+          echo "🔧 Solution: Run the 'Fetch Binary Files from Entry Criteria' workflow first"
+          echo "   This will create the output_paths directory and generate configuration files"
+          exit 1
+        fi
+        
+        TXT_COUNT=$(find output_paths -name "*.txt" -type f | wc -l)
+        if [ "$TXT_COUNT" -eq 0 ]; then
+          echo "❌ ERROR: No .txt files found in output_paths directory"
+          echo ""
+          echo "🔧 Solution: Run the 'Fetch Binary Files from Entry Criteria' workflow first"
+          echo "   This will generate configuration files like Milestone_UPLR0.txt"
+          exit 1
+        fi
+        
+        echo "✅ Found $TXT_COUNT configuration file(s) in output_paths"
+
+    - name: List available files
+      if: github.event.inputs.action == 'List available files'
+      run: |
+        echo "=== AVAILABLE CONFIGURATION FILES ==="
+        echo ""
+        echo "📁 Directory: output_paths/"
+        echo "🔍 Found the following .txt files:"
+        echo ""
+        
+        counter=1
+        find output_paths -name "*.txt" -type f -exec basename {} \; | sort | while read file; do
+          filepath="output_paths/$file"
+          size=$(stat -c%s "$filepath")
+          modified=$(stat -c%y "$filepath" | cut -d' ' -f1)
+          echo "   $counter. 📄 $file"
+          echo "      └── Size: ${size} bytes, Modified: $modified"
+          counter=$((counter + 1))
+        done
+        
+        echo ""
+        echo "💡 To read any of these files:"
+        echo "   1. Run this workflow again"
+        echo "   2. Select 'Read specific file'"
+        echo "   3. Enter the exact filename from the list above"
+        echo ""
+        echo "=== END FILE LISTING ==="
+
+    - name: Read specific file
+      if: github.event.inputs.action == 'Read specific file'
+      run: |
+        echo "=== READING SPECIFIC FILE ==="
+        
+        FILENAME="${{ github.event.inputs.filename }}"
+        
+        if [ -z "$FILENAME" ]; then
+          echo "❌ ERROR: No filename provided"
+          echo ""
+          echo "Available files:"
+          find output_paths -name "*.txt" -type f -exec basename {} \; | sort | sed 's/^/   - /'
+          exit 1
+        fi
+        
+        # Add .txt extension if not provided
+        if [[ "$FILENAME" != *.txt ]]; then
+          FILENAME="${FILENAME}.txt"
+        fi
+        
+        FILEPATH="output_paths/$FILENAME"
+        
+        if [ ! -f "$FILEPATH" ]; then
+          echo "❌ ERROR: File '$FILENAME' not found"
+          echo ""
+          echo "Available files:"
+          find output_paths -name "*.txt" -type f -exec basename {} \; | sort | sed 's/^/   ✓ /'
+          echo ""
+          echo "💡 Make sure to enter the exact filename as shown in the list"
+          exit 1
+        fi
+        
+        echo "✅ Reading file: $FILENAME"
+        echo "📍 Location: $(realpath "$FILEPATH")"
+        echo "📊 Size: $(stat -c%s "$FILEPATH") bytes"
+        echo "🕒 Modified: $(stat -c%y "$FILEPATH")"
+        echo ""
+        echo "=== FILE CONTENTS ==="
+        cat "$FILEPATH"
+        echo "=== END CONTENTS ==="
+        
+        echo ""
+        echo "📈 File Statistics:"
+        echo "   - Lines: $(wc -l < "$FILEPATH")"
+        echo "   - Words: $(wc -w < "$FILEPATH")"
+        echo "   - Characters: $(wc -c < "$FILEPATH")"
+        echo "=== END FILE READING ==="
