@@ -1,16 +1,9 @@
-name: Select and Read Configuration File
+name: Browse and Read Configuration Files
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: 'Choose action'
-        required: true
-        type: choice
-        options:
-          - 'List available files'
-          - 'Read specific file'
       filename:
-        description: 'If reading file: enter filename (shown after listing files)'
+        description: 'Enter filename OR leave empty to browse available files'
         required: false
         type: string
         default: ''
@@ -19,104 +12,173 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  process-config-files:
-    runs-on: ubuntu-latest
+  browse-and-read-config:
+    runs-on: [self-hosted, node16]
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@v3
       
-    - name: Validate output_paths directory
+    - name: Switch to faceless account and verify
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       run: |
-        if [ ! -d "output_paths" ]; then
-          echo "❌ ERROR: output_paths directory does not exist"
-          echo ""
-          echo "🔧 Solution: Run the 'Fetch Binary Files from Entry Criteria' workflow first"
-          echo "   This will create the output_paths directory and generate configuration files"
+        echo "Switching to faceless account..."
+        CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+        
+        echo "Expected user: grp_srf_fit1_build"
+        echo "Actual user: $CURRENT_USER"
+        
+        if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+          echo "SUCCESS: User switch to faceless account successful"
+          echo "Running as: $CURRENT_USER"
+        else
+          echo "FAILURE: User switch failed"
+          echo "Expected: grp_srf_fit1_build"
+          echo "Got: $CURRENT_USER"
           exit 1
         fi
-        
-        TXT_COUNT=$(find output_paths -name "*.txt" -type f | wc -l)
-        if [ "$TXT_COUNT" -eq 0 ]; then
-          echo "❌ ERROR: No .txt files found in output_paths directory"
-          echo ""
-          echo "🔧 Solution: Run the 'Fetch Binary Files from Entry Criteria' workflow first"
-          echo "   This will generate configuration files like Milestone_UPLR0.txt"
-          exit 1
-        fi
-        
-        echo "✅ Found $TXT_COUNT configuration file(s) in output_paths"
 
-    - name: List available files
-      if: github.event.inputs.action == 'List available files'
+    - name: Browse Available Files or Read Specific File
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       run: |
-        echo "=== AVAILABLE CONFIGURATION FILES ==="
-        echo ""
-        echo "📁 Directory: output_paths/"
-        echo "🔍 Found the following .txt files:"
-        echo ""
-        
-        counter=1
-        find output_paths -name "*.txt" -type f -exec basename {} \; | sort | while read file; do
-          filepath="output_paths/$file"
-          size=$(stat -c%s "$filepath")
-          modified=$(stat -c%y "$filepath" | cut -d' ' -f1)
-          echo "   $counter. 📄 $file"
-          echo "      └── Size: ${size} bytes, Modified: $modified"
-          counter=$((counter + 1))
-        done
-        
-        echo ""
-        echo "💡 To read any of these files:"
-        echo "   1. Run this workflow again"
-        echo "   2. Select 'Read specific file'"
-        echo "   3. Enter the exact filename from the list above"
-        echo ""
-        echo "=== END FILE LISTING ==="
-
-    - name: Read specific file
-      if: github.event.inputs.action == 'Read specific file'
-      run: |
-        echo "=== READING SPECIFIC FILE ==="
-        
         FILENAME="${{ github.event.inputs.filename }}"
         
+        # Execute under faceless account
+        RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c '
+          echo "=== 📁 CONFIGURATION FILE BROWSER ==="
+          
+          # Check if output_paths directory exists
+          if [ ! -d "output_paths" ]; then
+            echo "❌ ERROR: output_paths directory does not exist"
+            echo "🔧 Please run \"Fetch Binary Files from Entry Criteria\" workflow first"
+            exit 1
+          fi
+          
+          # Get all .txt files
+          TXT_FILES=($(find output_paths -name "*.txt" -type f -exec basename {} \; | sort))
+          
+          if [ ${#TXT_FILES[@]} -eq 0 ]; then
+            echo "❌ No .txt files found in output_paths"
+            echo "🔧 Please run \"Fetch Binary Files from Entry Criteria\" workflow first"
+            exit 1
+          fi
+          
+          # If no filename provided, show browser
+          if [ -z "'"$FILENAME"'" ]; then
+            echo "✅ Found ${#TXT_FILES[@]} configuration file(s):"
+            echo ""
+            echo "📋 AVAILABLE FILES (copy any filename and run workflow again):"
+            echo "┌─────────────────────────────────────────────────────────────┐"
+            
+            for file in "${TXT_FILES[@]}"; do
+              filepath="output_paths/$file"
+              size=$(stat -c%s "$filepath")
+              modified=$(stat -c%y "$filepath" | cut -d\" \" -f1)
+              echo "│ 📄 $file"
+              echo "│    └── ${size} bytes, modified: $modified"
+            done
+            
+            echo "└─────────────────────────────────────────────────────────────┘"
+            echo ""
+            echo "🔄 TO READ A FILE:"
+            echo "1. Copy any filename from above (e.g., Milestone_UPLR0.txt)"
+            echo "2. Run this workflow again"
+            echo "3. Paste the filename in the input field"
+            echo ""
+            echo "=== END FILE BROWSER ==="
+            exit 0
+          fi
+          
+          # Filename provided, read the file
+          echo "📖 READING CONFIGURATION FILE"
+          echo ""
+          
+          # Add .txt extension if not provided
+          TARGET_FILE="'"$FILENAME"'"
+          if [[ "$TARGET_FILE" != *.txt ]]; then
+            TARGET_FILE="${TARGET_FILE}.txt"
+          fi
+          
+          FILEPATH="output_paths/$TARGET_FILE"
+          
+          if [ ! -f "$FILEPATH" ]; then
+            echo "❌ ERROR: File \"$TARGET_FILE\" not found"
+            echo ""
+            echo "Available files:"
+            for file in "${TXT_FILES[@]}"; do
+              echo "   ✅ $file"
+            done
+            echo ""
+            echo "💡 Make sure to copy the exact filename from the browser"
+            exit 1
+          fi
+          
+          echo "✅ Reading file: $TARGET_FILE"
+          echo "📍 Location: $(realpath "$FILEPATH")"
+          echo "📊 Size: $(stat -c%s "$FILEPATH") bytes"
+          echo "🕒 Modified: $(stat -c%y "$FILEPATH")"
+          echo ""
+          echo "=== 📄 FILE CONTENTS ==="
+          cat "$FILEPATH"
+          echo "=== END CONTENTS ==="
+          
+          echo ""
+          echo "📈 File Statistics:"
+          echo "   - Lines: $(wc -l < "$FILEPATH")"
+          echo "   - Words: $(wc -w < "$FILEPATH")"
+          echo "   - Characters: $(wc -c < "$FILEPATH")"
+          
+          echo ""
+          echo "=== 🔍 PARSED CONFIGURATION ==="
+          while IFS="=" read -r key value; do
+            if [ -n "$key" ] && [ -n "$value" ]; then
+              key=$(echo "$key" | xargs)
+              value=$(echo "$value" | xargs)
+              echo "   📋 $key: $value"
+            fi
+          done < "$FILEPATH"
+          echo "=== END PARSING ==="
+        ')
+        
+        echo "$RESULT"
+
+    - name: Display workflow summary
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        FILENAME="${{ github.event.inputs.filename }}"
+        
+        echo "## Configuration File Browser Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Directory**: output_paths/" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
         if [ -z "$FILENAME" ]; then
-          echo "❌ ERROR: No filename provided"
-          echo ""
-          echo "Available files:"
-          find output_paths -name "*.txt" -type f -exec basename {} \; | sort | sed 's/^/   - /'
-          exit 1
+          echo "### 📁 Browser Mode" >> $GITHUB_STEP_SUMMARY
+          echo "- Displayed all available .txt files in output_paths directory" >> $GITHUB_STEP_SUMMARY
+          echo "- Copy any filename and run workflow again to read that file" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "### 📖 File Reading Mode" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target File**: $FILENAME" >> $GITHUB_STEP_SUMMARY
+          echo "- File contents and configuration parsed successfully" >> $GITHUB_STEP_SUMMARY
         fi
         
-        # Add .txt extension if not provided
-        if [[ "$FILENAME" != *.txt ]]; then
-          FILENAME="${FILENAME}.txt"
-        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Usage:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Browse Files**: Leave filename input empty" >> $GITHUB_STEP_SUMMARY
+        echo "- **Read File**: Enter exact filename from browser results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         
-        FILEPATH="output_paths/$FILENAME"
+        # Count available files under faceless account
+        FILE_COUNT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c '
+          if [ -d "output_paths" ]; then
+            find output_paths -name "*.txt" -type f | wc -l
+          else
+            echo "0"
+          fi
+        ')
         
-        if [ ! -f "$FILEPATH" ]; then
-          echo "❌ ERROR: File '$FILENAME' not found"
-          echo ""
-          echo "Available files:"
-          find output_paths -name "*.txt" -type f -exec basename {} \; | sort | sed 's/^/   ✓ /'
-          echo ""
-          echo "💡 Make sure to enter the exact filename as shown in the list"
-          exit 1
-        fi
-        
-        echo "✅ Reading file: $FILENAME"
-        echo "📍 Location: $(realpath "$FILEPATH")"
-        echo "📊 Size: $(stat -c%s "$FILEPATH") bytes"
-        echo "🕒 Modified: $(stat -c%y "$FILEPATH")"
-        echo ""
-        echo "=== FILE CONTENTS ==="
-        cat "$FILEPATH"
-        echo "=== END CONTENTS ==="
-        
-        echo ""
-        echo "📈 File Statistics:"
-        echo "   - Lines: $(wc -l < "$FILEPATH")"
-        echo "   - Words: $(wc -w < "$FILEPATH")"
-        echo "   - Characters: $(wc -c < "$FILEPATH")"
-        echo "=== END FILE READING ==="
+        echo "- **Available Files**: $FILE_COUNT configuration files found" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Configuration file browser completed successfully! 🎉" >> $GITHUB_STEP_SUMMARY
