@@ -1,0 +1,450 @@
+name: Generate Config from Milestone File
+on:
+  workflow_dispatch:
+    inputs:
+      filename:
+        description: 'Enter the milestone filename to read (without .txt extension) or leave empty to list all files'
+        required: false
+        type: string
+        default: ''
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
+  PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+
+jobs:
+  read-and-generate-config:
+    runs-on: [self-hosted, node16]
+    outputs:
+      config_file: ${{ steps.generate-config.outputs.config_file }}
+      milestone: ${{ steps.parse-milestone.outputs.milestone }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      
+    - name: List available files and validate input
+      run: |
+        echo "=== AVAILABLE MILESTONE FILES ==="
+        if [ ! -d "output_paths" ]; then
+          echo "❌ ERROR: output_paths directory does not exist"
+          echo "Please run the 'Fetch Binary Files from Entry Criteria' workflow first to create milestone files."
+          exit 1
+        fi
+        
+        # Find all .txt files
+        TXT_FILES=($(find output_paths -name "*.txt" -type f -exec basename {} \; | sort))
+        
+        if [ ${#TXT_FILES[@]} -eq 0 ]; then
+          echo "❌ ERROR: No .txt files found in output_paths directory"
+          echo "Please run the 'Fetch Binary Files from Entry Criteria' workflow first to create milestone files."
+          exit 1
+        fi
+        
+        echo "📁 Available milestone files:"
+        for i in "${!TXT_FILES[@]}"; do
+          echo "   $((i+1)). ${TXT_FILES[$i]}"
+        done
+        echo ""
+        
+        # Store available files for later use
+        printf '%s\n' "${TXT_FILES[@]}" > available_files.txt
+        echo "TOTAL_FILES=${#TXT_FILES[@]}" >> $GITHUB_ENV
+        
+        # Process user input
+        USER_INPUT="${{ github.event.inputs.filename }}"
+        
+        if [ -z "$USER_INPUT" ]; then
+          echo "ℹ️  No filename provided. Listing files only."
+          echo "TARGET_FILE=" >> $GITHUB_ENV
+          echo "LIST_ONLY=true" >> $GITHUB_ENV
+        else
+          # Add .txt extension if not provided
+          if [[ "$USER_INPUT" != *.txt ]]; then
+            TARGET_FILE="${USER_INPUT}.txt"
+          else
+            TARGET_FILE="$USER_INPUT"
+          fi
+          
+          # Check if file exists
+          if [ -f "output_paths/$TARGET_FILE" ]; then
+            echo "✅ Found milestone file: $TARGET_FILE"
+            echo "TARGET_FILE=$TARGET_FILE" >> $GITHUB_ENV
+            echo "LIST_ONLY=false" >> $GITHUB_ENV
+          else
+            echo "❌ ERROR: File '$TARGET_FILE' not found"
+            echo ""
+            echo "Available files are:"
+            for file in "${TXT_FILES[@]}"; do
+              echo "   - $file"
+            done
+            echo ""
+            echo "💡 Tip: Enter just the milestone name (e.g., 'UPLR1' for 'Milestone_UPLR1.txt')"
+            exit 1
+          fi
+        fi
+        echo "=== END FILE VALIDATION ==="
+
+    - name: Parse milestone file and extract values
+      if: env.LIST_ONLY == 'false'
+      id: parse-milestone
+      run: |
+        echo "=== PARSING MILESTONE FILE ==="
+        TARGET_FILE="${{ env.TARGET_FILE }}"
+        FILE_PATH="output_paths/$TARGET_FILE"
+        
+        echo "📖 Reading milestone file: $TARGET_FILE"
+        echo "📍 Full path: $(realpath "$FILE_PATH")"
+        echo ""
+        echo "=== MILESTONE FILE CONTENTS ==="
+        cat "$FILE_PATH"
+        echo "=== END CONTENTS ==="
+        echo ""
+        
+        # Extract values from milestone file
+        echo "🔍 Extracting milestone values:"
+        
+        MILESTONE=$(grep '^Milestone=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        UP_BASELINE=$(grep '^UP Base Line Version=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        NEW_UP_VERSION=$(grep '^New UP Version=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        SVN_VERSION=$(grep '^SVN Version=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        SVN_SE_VERSION=$(grep '^SVN_SE Version=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        MIN_SVN=$(grep '^Min SVN=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        MIN_RUNTIME_ID=$(grep '^Min Runtime ID=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        ROLLBACK_ID=$(grep '^Rollback ID=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
+        
+        # Extract binary paths (handle empty values)
+        UCODE_PATH=$(grep '^ucode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        XUCODE_PATH=$(grep '^xucode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        MCHECK_PATH=$(grep '^mcheck=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        TCODE_PATH=$(grep '^tcode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        ACODE_PATH=$(grep '^acode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        ICODE_PATH=$(grep '^icode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        OOBMSM_PATH=$(grep '^oobmsm=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        PCODE_PATH=$(grep '^pcode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        S3M_PATH=$(grep '^s3m=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        
+        # Display extracted values
+        echo "   📋 Milestone: $MILESTONE"
+        echo "   📋 UP Baseline Version: $UP_BASELINE"
+        echo "   📋 New UP Version: $NEW_UP_VERSION"
+        echo "   📋 SVN Version: $SVN_VERSION"
+        echo "   📋 SVN_SE Version: $SVN_SE_VERSION"
+        echo "   📋 Min SVN: $MIN_SVN"
+        echo "   📋 Min Runtime ID: $MIN_RUNTIME_ID"
+        echo "   📋 Rollback ID: $ROLLBACK_ID"
+        echo ""
+        echo "   📋 Binary Paths:"
+        echo "      - UCODE: ${UCODE_PATH:-'(empty)'}"
+        echo "      - XUCODE: ${XUCODE_PATH:-'(empty)'}"
+        echo "      - MCHECK: ${MCHECK_PATH:-'(empty)'}"
+        echo "      - TCODE: ${TCODE_PATH:-'(empty)'}"
+        echo "      - ACODE: ${ACODE_PATH:-'(empty)'}"
+        echo "      - ICODE: ${ICODE_PATH:-'(empty)'}"
+        echo "      - OOBMSM: ${OOBMSM_PATH:-'(empty)'}"
+        echo "      - PCODE: ${PCODE_PATH:-'(empty)'}"
+        echo "      - S3M: ${S3M_PATH:-'(empty)'}"
+        
+        # Store values in environment for next steps
+        echo "MILESTONE=$MILESTONE" >> $GITHUB_ENV
+        echo "UP_BASELINE=$UP_BASELINE" >> $GITHUB_ENV
+        echo "NEW_UP_VERSION=$NEW_UP_VERSION" >> $GITHUB_ENV
+        echo "SVN_VERSION=$SVN_VERSION" >> $GITHUB_ENV
+        echo "SVN_SE_VERSION=$SVN_SE_VERSION" >> $GITHUB_ENV
+        echo "MIN_SVN=$MIN_SVN" >> $GITHUB_ENV
+        echo "MIN_RUNTIME_ID=$MIN_RUNTIME_ID" >> $GITHUB_ENV
+        echo "ROLLBACK_ID=$ROLLBACK_ID" >> $GITHUB_ENV
+        echo "UCODE_PATH=$UCODE_PATH" >> $GITHUB_ENV
+        echo "XUCODE_PATH=$XUCODE_PATH" >> $GITHUB_ENV
+        echo "MCHECK_PATH=$MCHECK_PATH" >> $GITHUB_ENV
+        echo "TCODE_PATH=$TCODE_PATH" >> $GITHUB_ENV
+        echo "ACODE_PATH=$ACODE_PATH" >> $GITHUB_ENV
+        echo "ICODE_PATH=$ICODE_PATH" >> $GITHUB_ENV
+        echo "OOBMSM_PATH=$OOBMSM_PATH" >> $GITHUB_ENV
+        echo "PCODE_PATH=$PCODE_PATH" >> $GITHUB_ENV
+        echo "S3M_PATH=$S3M_PATH" >> $GITHUB_ENV
+        
+        # Store outputs
+        echo "milestone=$MILESTONE" >> $GITHUB_OUTPUT
+        
+        echo "=== END MILESTONE PARSING ==="
+
+    - name: Switch to faceless account and verify
+      if: env.LIST_ONLY == 'false'
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "Switching to faceless account for config generation..."
+        CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+        echo "Expected user: grp_srf_fit1_build"
+        echo "Actual user: $CURRENT_USER"
+        
+        if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+          echo "SUCCESS: User switch to faceless account successful"
+          echo "Running as: $CURRENT_USER"
+        else
+          echo "FAILURE: User switch failed"
+          echo "Expected: grp_srf_fit1_build"
+          echo "Got: $CURRENT_USER"
+          exit 1
+        fi
+
+    - name: Validate baseline config exists
+      if: env.LIST_ONLY == 'false'
+      id: validate-baseline
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        # Clean baseline version (remove 0x prefix)
+        BASELINE_CLEAN="${{ env.UP_BASELINE }}"
+        BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+        
+        SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${BASELINE_CLEAN}/release/config_${BASELINE_CLEAN}.ini"
+        
+        echo "Checking baseline config as faceless account..."
+        echo "Baseline version: ${{ env.UP_BASELINE }} (cleaned: $BASELINE_CLEAN)"
+        echo "Config path: $SOURCE_CONFIG"
+        
+        CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          if [[ -f '$SOURCE_CONFIG' ]]; then
+            echo 'EXISTS'
+          else
+            echo 'NOT_FOUND'
+          fi
+        ")
+        
+        if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
+          echo "✅ Baseline config found: $SOURCE_CONFIG"
+          echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+        else
+          echo "Config not found as faceless account, checking as pkummara..."
+          # Check as pkummara
+          if [[ -f "$SOURCE_CONFIG" ]]; then
+            echo "✅ Baseline config found as pkummara: $SOURCE_CONFIG"
+            echo "Note: Config accessible to pkummara but not faceless account"
+            echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+          else
+            echo "❌ ERROR: Baseline config not found by either account: $SOURCE_CONFIG"
+            echo "Please ensure the baseline version ${{ env.UP_BASELINE }} exists in the build directory"
+            exit 1
+          fi
+        fi
+
+    - name: Validate milestone binary paths
+      if: env.LIST_ONLY == 'false'
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "=== VALIDATING MILESTONE BINARY PATHS ==="
+        
+        # Function to check path with both accounts
+        check_path_both_accounts() {
+          local name="$1"
+          local path="$2"
+          
+          if [[ -z "$path" ]]; then
+            echo "SKIP $name: (empty path)"
+            return 0
+          fi
+          
+          echo "Checking $name: $path"
+          
+          # First try with faceless account
+          PATH_CHECK_FACELESS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '$path' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
+            echo "✅ PASS $name: $path (exists - faceless account)"
+            return 0
+          else
+            echo "$name not found as faceless account, checking as pkummara..."
+            # Check as pkummara
+            if [[ -f "$path" ]]; then
+              echo "✅ PASS $name: $path (exists - pkummara account)"
+              echo "Note: $name accessible to pkummara but not faceless account"
+              return 0
+            else
+              echo "❌ WARNING: $name path does not exist for either account: $path"
+              echo "Note: Will continue with config generation, but this may cause build issues"
+              return 1
+            fi
+          fi
+        }
+        
+        # Check all milestone binary paths
+        WARNINGS=0
+        check_path_both_accounts "UCODE" "${{ env.UCODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "XUCODE" "${{ env.XUCODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "MCHECK" "${{ env.MCHECK_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "TCODE" "${{ env.TCODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "ACODE" "${{ env.ACODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "ICODE" "${{ env.ICODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "OOBMSM" "${{ env.OOBMSM_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "PCODE" "${{ env.PCODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "S3M" "${{ env.S3M_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        
+        if [[ $WARNINGS -eq 0 ]]; then
+          echo "✅ All milestone binary paths validated successfully"
+        else
+          echo "⚠️  Milestone binary path validation completed with $WARNINGS warnings"
+          echo "Note: Warnings do not prevent config generation, but may cause build issues"
+        fi
+        echo "=== END PATH VALIDATION ==="
+
+    - name: Generate config file from milestone
+      if: env.LIST_ONLY == 'false'
+      id: generate-config
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "=== GENERATING CONFIG FILE FROM MILESTONE ==="
+        
+        # Clean version numbers (remove 0x prefix if present)
+        BASELINE_CLEAN="${{ env.UP_BASELINE }}"
+        NEW_CLEAN="${{ env.NEW_UP_VERSION }}"
+        BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+        NEW_CLEAN="${NEW_CLEAN#0x}"
+        
+        SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
+        NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+        
+        echo "Generating config file as faceless account..."
+        echo "Source: $SOURCE_CONFIG"
+        echo "Target: $NEW_CONFIG"
+        echo "Milestone: ${{ env.MILESTONE }}"
+        echo "Baseline: $BASELINE_CLEAN"
+        echo "New Version: $NEW_CLEAN"
+        
+        (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          # Create target directory
+          mkdir -p '${{ env.BUILD_BASE_PATH }}'
+          
+          # Copy baseline config
+          cp '$SOURCE_CONFIG' '$NEW_CONFIG'
+          
+          # Update version in config file
+          sed -i 's/version = 0x${BASELINE_CLEAN}/version = 0x${NEW_CLEAN}/g' '$NEW_CONFIG'
+          
+          # Update prev_version to baseline version
+          sed -i 's/prev_version = .*/prev_version = 0x${BASELINE_CLEAN}/g' '$NEW_CONFIG'
+          
+          # Update patch description with milestone
+          sed -i 's/patch_description = .*/patch_description = SRF Debug patch build_${{ env.MILESTONE }}/' '$NEW_CONFIG'
+          
+          # Update build_path
+          sed -i 's|build_path = .*|build_path = ${{ env.BUILD_BASE_PATH }}|' '$NEW_CONFIG'
+          
+          # Update SVN values from milestone (only if they exist in milestone file)
+          if [[ -n '${{ env.SVN_VERSION }}' ]]; then
+            SVN_CLEAN='${{ env.SVN_VERSION }}'
+            SVN_CLEAN=\${SVN_CLEAN#0x}
+            sed -i \"s/svn = .*/svn = 0x\${SVN_CLEAN}/\" '$NEW_CONFIG'
+          fi
+          
+          if [[ -n '${{ env.SVN_SE_VERSION }}' ]]; then
+            sed -i 's/se_svn = .*/se_svn = 0x${{ env.SVN_SE_VERSION }}/' '$NEW_CONFIG'
+          fi
+          
+          if [[ -n '${{ env.MIN_SVN }}' ]]; then
+            MIN_SVN_CLEAN='${{ env.MIN_SVN }}'
+            MIN_SVN_CLEAN=\${MIN_SVN_CLEAN#0x}
+            sed -i \"s/min_svn = .*/min_svn = \${MIN_SVN_CLEAN}/\" '$NEW_CONFIG'
+          fi
+          
+          # Change soc_sign from manual to css-debug if it's manual
+          if grep -q '^soc_sign = manual' '$NEW_CONFIG'; then
+            echo 'Changing soc_sign from manual to css-debug'
+            sed -i 's/^soc_sign = manual/soc_sign = css-debug/' '$NEW_CONFIG'
+          else
+            echo 'soc_sign is already css-debug or not manual, no change needed'
+          fi
+          
+          # Update binary paths from milestone (only if they are not empty)
+          [[ -n '${{ env.UCODE_PATH }}' ]] && sed -i 's|^ucode = .*|ucode = ${{ env.UCODE_PATH }}|' '$NEW_CONFIG'
+          [[ -n '${{ env.XUCODE_PATH }}' ]] && sed -i 's|^xucode = .*|xucode = ${{ env.XUCODE_PATH }}|' '$NEW_CONFIG'
+          [[ -n '${{ env.MCHECK_PATH }}' ]] && sed -i 's|^mcheck = .*|mcheck = ${{ env.MCHECK_PATH }}|' '$NEW_CONFIG'
+          [[ -n '${{ env.ICODE_PATH }}' ]] && sed -i 's|^icode = .*|icode = ${{ env.ICODE_PATH }}|' '$NEW_CONFIG'
+          [[ -n '${{ env.OOBMSM_PATH }}' ]] && sed -i 's|^oobmsm = .*|oobmsm = ${{ env.OOBMSM_PATH }}|' '$NEW_CONFIG'
+          [[ -n '${{ env.S3M_PATH }}' ]] && sed -i 's|^s3m = .*|s3m = ${{ env.S3M_PATH }}|' '$NEW_CONFIG'
+          
+          # Handle pcode specially (milestone has 'pcode' but config has 'pcode-c')
+          [[ -n '${{ env.PCODE_PATH }}' ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ env.PCODE_PATH }}|' '$NEW_CONFIG'
+          
+          # Handle empty tcode and acode (set to 'none' if empty in milestone)
+          if [[ -z '${{ env.TCODE_PATH }}' ]]; then
+            sed -i 's|^tcode = .*|tcode = none|' '$NEW_CONFIG'
+          else
+            sed -i 's|^tcode = .*|tcode = ${{ env.TCODE_PATH }}|' '$NEW_CONFIG'
+          fi
+          
+          if [[ -z '${{ env.ACODE_PATH }}' ]]; then
+            sed -i 's|^acode = .*|acode = none|' '$NEW_CONFIG'
+          else
+            sed -i 's|^acode = .*|acode = ${{ env.ACODE_PATH }}|' '$NEW_CONFIG'
+          fi
+          
+          echo 'Config file generated successfully'
+          echo ''
+          echo '=== GENERATED CONFIG FILE CONTENTS ==='
+          cat '$NEW_CONFIG'
+          echo '=== END CONFIG FILE CONTENTS ==='
+        "
+        
+        echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
+        echo "=== END CONFIG GENERATION ==="
+
+    - name: Display summary
+      run: |
+        echo "=== WORKFLOW SUMMARY ==="
+        echo "🎯 User input: '${{ github.event.inputs.filename }}'"
+        echo "📁 Total available files: ${{ env.TOTAL_FILES }}"
+        
+        if [ "${{ env.LIST_ONLY }}" == "true" ]; then
+          echo "📋 Mode: List files only"
+          echo ""
+          echo "Available milestone files:"
+          cat available_files.txt | sed 's/^/   ✓ /'
+          echo ""
+          echo "💡 To generate config from a milestone file, run this workflow again and enter the filename"
+          echo "   Example inputs:"
+          echo "   - 'UPLR1' (will read Milestone_UPLR1.txt)"
+          echo "   - 'Milestone_UPLR1.txt' (full filename)"
+        else
+          echo "📖 Mode: Config generation from milestone"
+          echo "✅ Successfully processed milestone: ${{ env.MILESTONE }}"
+          echo "✅ Generated config file: ${{ steps.generate-config.outputs.config_file }}"
+          echo ""
+          echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Milestone**: ${{ env.MILESTONE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Version**: ${{ env.UP_BASELINE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Version**: ${{ env.NEW_UP_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Patch Description**: SRF Debug patch build_${{ env.MILESTONE }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Milestone Values Applied:" >> $GITHUB_STEP_SUMMARY
+          echo "- **SVN Version**: ${{ env.SVN_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SVN_SE Version**: ${{ env.SVN_SE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Min SVN**: ${{ env.MIN_SVN }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Min Runtime ID**: ${{ env.MIN_RUNTIME_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Rollback ID**: ${{ env.ROLLBACK_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SOC Sign**: Changed to css-debug (if was manual)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Binary Paths Updated:" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.UCODE_PATH }}" ]] && echo "- **UCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.XUCODE_PATH }}" ]] && echo "- **XUCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.MCHECK_PATH }}" ]] && echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.ICODE_PATH }}" ]] && echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.OOBMSM_PATH }}" ]] && echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.PCODE_PATH }}" ]] && echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.S3M_PATH }}" ]] && echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -z "${{ env.TCODE_PATH }}" ]] && echo "- **TCODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -z "${{ env.ACODE_PATH }}" ]] && echo "- **ACODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Config file generated successfully from milestone data!" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "=== END SUMMARY ==="
