@@ -1,4 +1,4 @@
-name: Fetch Binary Files from Entry Criteria
+name: Fetch Bin/patchlets from Entry Criteria
 on:
   workflow_dispatch:
   push:
