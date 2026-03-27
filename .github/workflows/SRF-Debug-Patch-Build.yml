@@ -1,0 +1,661 @@
+name: SRF Debug Patch Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_artifact_name:
+        description: 'Configuration artifact name (e.g., paths-config-41)'
+        required: true
+        type: string
+      config_run_id:
+        description: 'Run ID from Fetch Binaries workflow (optional - uses latest if not provided)'
+        required: false
+        type: string
+
+env:
+  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0/build
+  PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+  KTAB_PATH: /usr/intel/bin/ktab
+  KCRON_PATH: /usr/intel/bin/kcron
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
+  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxtMuppt.py
+  EXPECT_PATH: /usr/intel/bin/expect
+
+jobs:
+  prepare-debug-config:
+    runs-on: [self-hosted, node16]
+    outputs:
+      config_file: ${{ steps.generate-config.outputs.config_file }}
+      baseline_version: ${{ steps.parse-config.outputs.baseline_version }}
+      new_version: ${{ steps.parse-config.outputs.new_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Download configuration artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ github.event.inputs.config_artifact_name }}
+          path: ./config_input
+        continue-on-error: true
+
+      - name: Check if artifact download failed and try alternative method
+        run: |
+          if [ ! -f "./config_input/all_paths_config.txt" ]; then
+            echo "Artifact download failed or file not found. Checking for local config file..."
+            
+            # Check if config file exists in output_paths directory
+            if [ -f "./output_paths/all_paths_config.txt" ]; then
+              echo "Found local config file, copying to config_input directory"
+              mkdir -p ./config_input
+              cp ./output_paths/all_paths_config.txt ./config_input/
+            else
+              echo "ERROR: Configuration file not found in artifact or local directory"
+              echo "Please ensure the Fetch Binaries workflow has run successfully"
+              echo "and the artifact name '${{ github.event.inputs.config_artifact_name }}' is correct"
+              exit 1
+            fi
+          else
+            echo "Configuration file successfully downloaded from artifact"
+          fi
+
+      - name: Display downloaded configuration
+        run: |
+          echo "=== CONFIGURATION FILE CONTENTS ==="
+          echo "File location: $(realpath ./config_input/all_paths_config.txt)"
+          echo "File contents:"
+          cat ./config_input/all_paths_config.txt
+          echo ""
+          echo "File size: $(stat -c%s ./config_input/all_paths_config.txt) bytes"
+          echo "Line count: $(wc -l < ./config_input/all_paths_config.txt)"
+          echo "=== END CONFIGURATION DISPLAY ==="
+
+      - name: Parse configuration file
+        id: parse-config
+        run: |
+          CONFIG_FILE="./config_input/all_paths_config.txt"
+          
+          echo "Parsing configuration file..."
+          
+          # Extract baseline and new versions
+          BASELINE_VERSION=$(grep "^UP Base Line Version=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          NEW_VERSION=$(grep "^New UP Version=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          
+          # Extract component paths (only non-empty ones)
+          UCODE_PATH=$(grep "^ucode=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          XUCODE_PATH=$(grep "^xucode=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          MCHECK_PATH=$(grep "^mcheck=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          TCODE_PATH=$(grep "^tcode=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          ACODE_PATH=$(grep "^acode=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          ICODE_PATH=$(grep "^icode=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          OOBMSM_PATH=$(grep "^oobmsm=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          PCODE_PATH=$(grep "^pcode=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          S3M_PATH=$(grep "^s3m=" "$CONFIG_FILE" | cut -d'=' -f2 | xargs)
+          
+          # Validate required fields
+          if [[ -z "$BASELINE_VERSION" || -z "$NEW_VERSION" ]]; then
+            echo "ERROR: Missing required version information"
+            echo "Baseline Version: '$BASELINE_VERSION'"
+            echo "New Version: '$NEW_VERSION'"
+            exit 1
+          fi
+          
+          # Clean version numbers (remove 0x prefix if present)
+          BASELINE_CLEAN="${BASELINE_VERSION#0x}"
+          NEW_CLEAN="${NEW_VERSION#0x}"
+          
+          echo "Parsed configuration:"
+          echo "  Baseline Version: $BASELINE_VERSION (clean: $BASELINE_CLEAN)"
+          echo "  New Version: $NEW_VERSION (clean: $NEW_CLEAN)"
+          echo "  UCODE: $UCODE_PATH"
+          echo "  XUCODE: $XUCODE_PATH"
+          echo "  MCHECK: $MCHECK_PATH"
+          echo "  TCODE: $TCODE_PATH"
+          echo "  ACODE: $ACODE_PATH"
+          echo "  ICODE: $ICODE_PATH"
+          echo "  OOBMSM: $OOBMSM_PATH"
+          echo "  PCODE: $PCODE_PATH"
+          echo "  S3M: $S3M_PATH"
+          
+          # Set outputs
+          echo "baseline_version=$BASELINE_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "baseline_clean=$BASELINE_CLEAN" >> $GITHUB_OUTPUT
+          echo "new_clean=$NEW_CLEAN" >> $GITHUB_OUTPUT
+          echo "ucode_path=$UCODE_PATH" >> $GITHUB_OUTPUT
+          echo "xucode_path=$XUCODE_PATH" >> $GITHUB_OUTPUT
+          echo "mcheck_path=$MCHECK_PATH" >> $GITHUB_OUTPUT
+          echo "tcode_path=$TCODE_PATH" >> $GITHUB_OUTPUT
+          echo "acode_path=$ACODE_PATH" >> $GITHUB_OUTPUT
+          echo "icode_path=$ICODE_PATH" >> $GITHUB_OUTPUT
+          echo "oobmsm_path=$OOBMSM_PATH" >> $GITHUB_OUTPUT
+          echo "pcode_path=$PCODE_PATH" >> $GITHUB_OUTPUT
+          echo "s3m_path=$S3M_PATH" >> $GITHUB_OUTPUT
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account for debug patch build..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            exit 1
+          fi
+
+      - name: Validate baseline config exists
+        id: validate-baseline
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          BASELINE_CLEAN="${{ steps.parse-config.outputs.baseline_clean }}"
+          
+          SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${BASELINE_CLEAN}/release/config_${BASELINE_CLEAN}.ini"
+          
+          echo "Checking baseline config as faceless account..."
+          echo "Config path: $SOURCE_CONFIG"
+          
+          CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '$SOURCE_CONFIG' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
+            echo "Baseline config found: $SOURCE_CONFIG"
+            echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+          else
+            echo "Config not found as faceless account, checking as pkummara..."
+            
+            # Check as pkummara
+            if [[ -f "$SOURCE_CONFIG" ]]; then
+              echo "Baseline config found as pkummara: $SOURCE_CONFIG"
+              echo "Note: Config accessible to pkummara but not faceless account"
+              echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+            else
+              echo "Error: Baseline config not found by either account: $SOURCE_CONFIG"
+              exit 1
+            fi
+          fi
+
+      - name: Validate component paths exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Validating component paths from configuration file..."
+          
+          # Function to check path with both accounts
+          check_path_both_accounts() {
+            local name="$1"
+            local path="$2"
+            
+            if [[ -z "$path" ]]; then
+              echo "SKIP $name: (empty path)"
+              return 0
+            fi
+            
+            echo "Checking $name: $path"
+            
+            # First try with faceless account
+            PATH_CHECK_FACELESS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+              if [[ -f '$path' ]]; then
+                echo 'EXISTS'
+              else
+                echo 'NOT_FOUND'
+              fi
+            ")
+            
+            if [[ "$PATH_CHECK_FACELESS" == "EXISTS" ]]; then
+              echo "PASS $name: $path (exists - faceless account)"
+              return 0
+            else
+              echo "$name not found as faceless account, checking as pkummara..."
+              
+              # Check as pkummara
+              if [[ -f "$path" ]]; then
+                echo "PASS $name: $path (exists - pkummara account)"
+                echo "Note: $name accessible to pkummara but not faceless account"
+                return 0
+              else
+                echo "WARNING: $name path does not exist for either account: $path"
+                echo "Note: Will continue with build, but this may cause issues"
+                return 0  # Continue anyway for debug builds
+              fi
+            fi
+          }
+          
+          # Check all component paths
+          FAILED_PATHS=0
+          TOTAL_PATHS=0
+          
+          if [[ -n "${{ steps.parse-config.outputs.ucode_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "UCODE" "${{ steps.parse-config.outputs.ucode_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.xucode_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "XUCODE" "${{ steps.parse-config.outputs.xucode_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.mcheck_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "MCHECK" "${{ steps.parse-config.outputs.mcheck_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.tcode_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "TCODE" "${{ steps.parse-config.outputs.tcode_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.acode_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "ACODE" "${{ steps.parse-config.outputs.acode_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.icode_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "ICODE" "${{ steps.parse-config.outputs.icode_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.oobmsm_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "OOBMSM" "${{ steps.parse-config.outputs.oobmsm_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.pcode_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "PCODE" "${{ steps.parse-config.outputs.pcode_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          if [[ -n "${{ steps.parse-config.outputs.s3m_path }}" ]]; then
+            TOTAL_PATHS=$((TOTAL_PATHS + 1))
+            check_path_both_accounts "S3M" "${{ steps.parse-config.outputs.s3m_path }}" || FAILED_PATHS=$((FAILED_PATHS + 1))
+          fi
+          
+          echo "Path validation completed: $TOTAL_PATHS paths checked"
+          if [[ $FAILED_PATHS -eq 0 ]]; then
+            echo "All component paths validated successfully"
+          else
+            echo "WARNING: $FAILED_PATHS paths had issues, but continuing with debug build"
+          fi
+
+      - name: Generate debug patch config
+        id: generate-config
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          BASELINE_CLEAN="${{ steps.parse-config.outputs.baseline_clean }}"
+          NEW_CLEAN="${{ steps.parse-config.outputs.new_clean }}"
+          
+          SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
+          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+          
+          echo "Generating debug patch config file as faceless account..."
+          echo "Source: $SOURCE_CONFIG"
+          echo "Target: $NEW_CONFIG"
+          
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            mkdir -p '${{ env.BUILD_BASE_PATH }}'
+            cp '$SOURCE_CONFIG' '$NEW_CONFIG'
+            
+            # Update version in config file
+            sed -i 's/version = 0x${BASELINE_CLEAN}/version = 0x${NEW_CLEAN}/g' '$NEW_CONFIG'
+            
+            # Update prev_version to baseline version
+            sed -i 's/prev_version = .*/prev_version = 0x${BASELINE_CLEAN}/g' '$NEW_CONFIG'
+            
+            # Debug patch specific changes
+            echo 'Applying debug patch specific changes...'
+            
+            # Update build_path for debug patches
+            sed -i 's|build_path = .*|build_path = ${{ env.BUILD_BASE_PATH }}|' '$NEW_CONFIG'
+            
+            # Change patch description for debug patches
+            sed -i 's/patch_description = .*/patch_description = SRF debug patch/' '$NEW_CONFIG'
+            
+            # Debug patch settings - keep fiv_register as yes for debug patches
+            sed -i 's/^release = yes/release = no/' '$NEW_CONFIG'
+            sed -i 's/^release = no/release = no/' '$NEW_CONFIG'  # Ensure it's no
+            sed -i 's/^fiv_register = no/fiv_register = yes/' '$NEW_CONFIG'  # Set to yes for debug
+            sed -i 's/^fiv_register = yes/fiv_register = yes/' '$NEW_CONFIG'  # Ensure it stays yes
+            sed -i 's/^release_notes = yes/release_notes = no/' '$NEW_CONFIG'
+            sed -i 's/^fiv_crawler = yes/fiv_crawler = no/' '$NEW_CONFIG'
+            
+            # Update component paths from configuration file
+            [[ -n '${{ steps.parse-config.outputs.ucode_path }}' ]] && sed -i 's|^ucode = .*|ucode = ${{ steps.parse-config.outputs.ucode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.xucode_path }}' ]] && sed -i 's|^xucode = .*|xucode = ${{ steps.parse-config.outputs.xucode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.mcheck_path }}' ]] && sed -i 's|^mcheck = .*|mcheck = ${{ steps.parse-config.outputs.mcheck_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.tcode_path }}' ]] && sed -i 's|^tcode = .*|tcode = ${{ steps.parse-config.outputs.tcode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.acode_path }}' ]] && sed -i 's|^acode = .*|acode = ${{ steps.parse-config.outputs.acode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.icode_path }}' ]] && sed -i 's|^icode = .*|icode = ${{ steps.parse-config.outputs.icode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.oobmsm_path }}' ]] && sed -i 's|^oobmsm = .*|oobmsm = ${{ steps.parse-config.outputs.oobmsm_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.pcode_path }}' ]] && sed -i 's|^pcode = .*|pcode = ${{ steps.parse-config.outputs.pcode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.pcode_path }}' ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ steps.parse-config.outputs.pcode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.pcode_path }}' ]] && sed -i 's|^pcode-io = .*|pcode-io = ${{ steps.parse-config.outputs.pcode_path }}|' '$NEW_CONFIG'
+            [[ -n '${{ steps.parse-config.outputs.s3m_path }}' ]] && sed -i 's|^s3m = .*|s3m = ${{ steps.parse-config.outputs.s3m_path }}|' '$NEW_CONFIG'
+            
+            echo 'Debug patch config file generated successfully'
+            echo 'Generated config file contents:'
+            cat '$NEW_CONFIG'
+          "
+          
+          echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
+
+      - name: Set config file permissions
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          NEW_CLEAN="${{ steps.parse-config.outputs.new_clean }}"
+          NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+          
+          echo "Setting permissions (777) for debug config file as faceless account..."
+          echo "Config file: $NEW_CONFIG"
+          
+          # Set permissions to 777
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build chmod 777 "$NEW_CONFIG"
+          
+          # Verify permissions
+          PERMISSIONS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build ls -la "$NEW_CONFIG")
+          echo "Updated permissions: $PERMISSIONS"
+
+      - name: Display debug config summary
+        run: |
+          echo "## Debug Patch Config Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Version**: ${{ steps.parse-config.outputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Version**: ${{ steps.parse-config.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Patch Type**: Debug Patch" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Path**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Debug Patch Settings Applied:" >> $GITHUB_STEP_SUMMARY
+          echo "- **build_path**: Set to ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **patch_description**: Set to 'SRF debug patch'" >> $GITHUB_STEP_SUMMARY
+          echo "- **release**: Set to 'no'" >> $GITHUB_STEP_SUMMARY
+          echo "- **fiv_register**: Set to 'yes' (enabled for debug)" >> $GITHUB_STEP_SUMMARY
+          echo "- **fiv_crawler**: Set to 'no'" >> $GITHUB_STEP_SUMMARY
+          echo "- **release_notes**: Set to 'no'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Component Paths Updated:" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.ucode_path }}" ]] && echo "- **UCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.xucode_path }}" ]] && echo "- **XUCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.mcheck_path }}" ]] && echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.tcode_path }}" ]] && echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.acode_path }}" ]] && echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.icode_path }}" ]] && echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.oobmsm_path }}" ]] && echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.pcode_path }}" ]] && echo "- **PCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ steps.parse-config.outputs.s3m_path }}" ]] && echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Debug patch configuration generated successfully!" >> $GITHUB_STEP_SUMMARY
+
+  kerberos-setup:
+    runs-on: [self-hosted, node16]
+    needs: prepare-debug-config
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+          else
+            echo "FAILURE: User switch failed"
+            exit 1
+          fi
+
+      - name: Initialize Kerberos Ticket (ktab)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+        run: |
+          echo "Initializing Kerberos Ticket with ktab..."
+          
+          KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
+          ")
+          
+          echo "ktab output: $KTAB_RESULT"
+          
+          if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: ktab initialization failed"
+            exit 1
+          else
+            echo "SUCCESS: ktab initialization completed"
+          fi
+
+      - name: Initialize Kerberos Cron (kcron)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Initializing Kerberos Cron with kcron..."
+          
+          KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
+          ")
+          
+          echo "kcron output: $KCRON_RESULT"
+          
+          if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: kcron initialization failed"
+            exit 1
+          else
+            echo "SUCCESS: kcron initialization completed"
+          fi
+
+  build-debug-patch:
+    runs-on: [self-hosted, node16]
+    needs: [prepare-debug-config, kerberos-setup]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account for debug patch build..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to faceless account successful"
+          else
+            echo "FAILURE: User switch failed"
+            exit 1
+          fi
+
+      - name: Verify build tools exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying build tools..."
+          
+          # Check all required tools
+          TOOLS_OK=true
+          
+          for tool in "${{ env.PYTHON_PATH }}" "${{ env.FXT_TOOL_PATH }}" "${{ env.EXPECT_PATH }}"; do
+            TOOL_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+              if [[ -f '$tool' ]]; then
+                echo 'EXISTS'
+              else
+                echo 'NOT_FOUND'
+              fi
+            ")
+            
+            if [[ "$TOOL_CHECK" == "EXISTS" ]]; then
+              echo "PASS: $tool found"
+            else
+              echo "FAIL: $tool not found"
+              TOOLS_OK=false
+            fi
+          done
+          
+          if [[ "$TOOLS_OK" == "false" ]]; then
+            echo "ERROR: Some required tools are missing"
+            exit 1
+          fi
+          
+          echo "All build tools verified successfully"
+
+      - name: Execute debug patch build
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
+        run: |
+          echo "Starting debug patch build..."
+          
+          NEW_CLEAN="${{ needs.prepare-debug-config.outputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          CONFIG_FILE="config_${NEW_CLEAN}.ini"
+          
+          echo "Build configuration:"
+          echo "  - Working Directory: ${{ env.BUILD_BASE_PATH }}"
+          echo "  - Config File: $CONFIG_FILE"
+          echo "  - Patch Type: Debug Patch"
+          echo ""
+          
+          BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '${{ env.BUILD_BASE_PATH }}'
+            echo 'Current directory: \$(pwd)'
+            
+            # Create expect script for CSS password
+            cat > build_debug_expect.exp << 'EOF'
+          #!${{ env.EXPECT_PATH }} -f
+          set timeout 1800
+          
+          set css_password \$env(CSS_PASSWORD)
+          
+          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
+          
+          expect {
+              \"Enter your CSS password:\" {
+                  send \"\$css_password\r\"
+                  exp_continue
+              }
+              \"Enter your CSS password: \" {
+                  send \"\$css_password\r\"
+                  exp_continue
+              }
+              -re \".*assword.*\" {
+                  send \"\$css_password\r\"
+                  exp_continue
+              }
+              eof {
+                  catch wait result
+                  exit [lindex \$result 3]
+              }
+              timeout {
+                  puts \"Debug build timed out after 30 minutes\"
+                  exit 124
+              }
+          }
+          EOF
+            
+            chmod +x build_debug_expect.exp
+            echo 'Starting debug patch build with expect script...'
+            
+            export CSS_PASSWORD='$CSS_PASSWORD'
+            ./build_debug_expect.exp 2>&1
+            BUILD_EXIT=\$?
+            
+            rm -f build_debug_expect.exp
+            
+            echo \"Debug build process completed with exit code: \$BUILD_EXIT\"
+            exit \$BUILD_EXIT
+          ")
+          
+          BUILD_EXIT_CODE=$?
+          
+          echo "Debug build execution output:"
+          echo "$BUILD_RESULT"
+          echo ""
+          echo "Debug build process exit code: $BUILD_EXIT_CODE"
+          
+          if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
+            echo "SUCCESS: Debug patch build completed successfully"
+          elif [[ $BUILD_EXIT_CODE -eq 124 ]]; then
+            echo "TIMEOUT: Debug build timed out"
+            exit $BUILD_EXIT_CODE
+          else
+            echo "FAILURE: Debug patch build failed with exit code: $BUILD_EXIT_CODE"
+            exit $BUILD_EXIT_CODE
+          fi
+
+      - name: Verify debug build results
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying debug build results..."
+          
+          NEW_CLEAN="${{ needs.prepare-debug-config.outputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '${{ env.BUILD_BASE_PATH }}'
+            echo 'Checking for debug build artifacts...'
+            
+            # Look for version-specific files
+            find . -name '*${NEW_CLEAN}*' -type f 2>/dev/null | head -10 || echo 'No version-specific files found'
+            
+            echo ''
+            echo 'Recent files (last 30 minutes):'
+            find . -type f -mmin -30 2>/dev/null | head -20 || echo 'No recent files found'
+            
+            echo ''
+            echo 'Looking for debug patch files:'
+            find . -name '*.patch' -o -name '*.bin' -o -name '*.ucode' 2>/dev/null | head -10 || echo 'No patch files found'
+          ")
+          
+          echo "$VERIFICATION_RESULT"
+
+      - name: Display debug build summary
+        run: |
+          NEW_CLEAN="${{ needs.prepare-debug-config.outputs.new_version }}"
+          NEW_CLEAN="${NEW_CLEAN#0x}"
+          
+          echo "## Debug Patch Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Version**: ${{ needs.prepare-debug-config.outputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Version**: ${{ needs.prepare-debug-config.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Patch Type**: SRF Debug Patch" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Debug Build Process:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ **Configuration**: Parsed from Fetch Binaries artifact" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ **Baseline Config**: Located and validated" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ **Component Paths**: Validated and updated" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✅ **Debug Settings**: Applied debug-specific configurations" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✅ **Kerberos Setup**: Initialized authentication" >> $GITHUB_STEP_SUMMARY
+          echo "6. ✅ **Build Execution**: Completed debug patch build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Debug Patch Characteristics:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Mode**: Disabled (release = no)" >> $GITHUB_STEP_SUMMARY
+          echo "- **FIV Register**: Enabled (fiv_register = yes)" >> $GITHUB_STEP_SUMMARY
+          echo "- **FIV Crawler**: Disabled (fiv_crawler = no)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Notes**: Disabled (release_notes = no)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Path**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "SRF Debug Patch build completed successfully!" >> $GITHUB_STEP_SUMMARY
