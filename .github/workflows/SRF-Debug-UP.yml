@@ -20,7 +20,7 @@ jobs:
       milestone: ${{ steps.parse-milestone.outputs.milestone }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
       
     - name: List available files and validate input
       run: |
