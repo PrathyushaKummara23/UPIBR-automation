@@ -9,7 +9,6 @@ on:
         default: ''
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
 
@@ -21,7 +20,7 @@ jobs:
       milestone: ${{ steps.parse-milestone.outputs.milestone }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@v4
       
     - name: List available files and validate input
       run: |
