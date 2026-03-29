@@ -1,1 +1,0 @@
-s3m=/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww08/26ww08.4_T6104_s3m_fw_SESVN0_SVN1_REVID2.0.0.00171_C0/S3M_1_0_2.0.0.00171_enc_dbug.IP_0100.bin
