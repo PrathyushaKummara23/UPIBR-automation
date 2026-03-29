@@ -14,7 +14,7 @@ env:
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
   PYTHON_PATH: /usr/intel/bin/python3.7.4
-  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0/fxt_tool.py
+  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxtMuppt.py
   EXPECT_PATH: /usr/bin/expect
 
 jobs:
