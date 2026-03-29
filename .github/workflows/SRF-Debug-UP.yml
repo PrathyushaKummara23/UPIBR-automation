@@ -1,4 +1,4 @@
-name: Generate Config from Milestone File
+name: SRF Debug UP Build
 on:
   workflow_dispatch:
     inputs:
@@ -11,20 +11,23 @@ on:
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
+  KTAB_PATH: /usr/intel/bin/ktab
+  KCRON_PATH: /usr/intel/bin/kcron
 
 jobs:
-  read-and-generate-config:
+  prepare-config:
     runs-on: [self-hosted, node16]
     outputs:
       config_file: ${{ steps.generate-config.outputs.config_file }}
       milestone: ${{ steps.parse-milestone.outputs.milestone }}
+      list_only: ${{ steps.set-outputs.outputs.list_only }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
       
-    - name: List available files and validate input
+    - name: List available milestone files and validate input
       run: |
-        echo "=== AVAILABLE MILESTONE FILES ==="
+        echo "=== AVAILABLE MILESTONE FILES FOR SRF DEBUG UP BUILD ==="
         if [ ! -d "output_paths" ]; then
           echo "❌ ERROR: output_paths directory does not exist"
           echo "Please run the 'Fetch Binary Files from Entry Criteria' workflow first to create milestone files."
@@ -40,7 +43,7 @@ jobs:
           exit 1
         fi
         
-        echo "📁 Available milestone files:"
+        echo "📁 Available milestone files for SRF Debug UP build:"
         for i in "${!TXT_FILES[@]}"; do
           echo "   $((i+1)). ${TXT_FILES[$i]}"
         done
@@ -67,7 +70,7 @@ jobs:
           
           # Check if file exists
           if [ -f "output_paths/$TARGET_FILE" ]; then
-            echo "✅ Found milestone file: $TARGET_FILE"
+            echo "✅ Found milestone file for SRF Debug UP build: $TARGET_FILE"
             echo "TARGET_FILE=$TARGET_FILE" >> $GITHUB_ENV
             echo "LIST_ONLY=false" >> $GITHUB_ENV
           else
@@ -84,11 +87,11 @@ jobs:
         fi
         echo "=== END FILE VALIDATION ==="
 
-    - name: Parse milestone file and extract values
+    - name: Parse milestone file and extract build values
       if: ${{ env.LIST_ONLY == 'false' }}
       id: parse-milestone
       run: |
-        echo "=== PARSING MILESTONE FILE ==="
+        echo "=== PARSING MILESTONE FILE FOR SRF DEBUG UP BUILD ==="
         TARGET_FILE="${{ env.TARGET_FILE }}"
         FILE_PATH="output_paths/$TARGET_FILE"
         
@@ -101,7 +104,7 @@ jobs:
         echo ""
         
         # Extract values from milestone file
-        echo "🔍 Extracting milestone values:"
+        echo "🔍 Extracting milestone values for SRF Debug UP build:"
         
         MILESTONE=$(grep '^Milestone=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
         UP_BASELINE=$(grep '^UP Base Line Version=' "$FILE_PATH" | cut -d'=' -f2 | xargs)
@@ -134,7 +137,7 @@ jobs:
         echo "   📋 Min Runtime ID: $MIN_RUNTIME_ID"
         echo "   📋 Rollback ID: $ROLLBACK_ID"
         echo ""
-        echo "   📋 Binary Paths:"
+        echo "   📋 Binary Paths for SRF Debug UP build:"
         echo "      - UCODE: ${UCODE_PATH:-'(empty)'}"
         echo "      - XUCODE: ${XUCODE_PATH:-'(empty)'}"
         echo "      - MCHECK: ${MCHECK_PATH:-'(empty)'}"
@@ -232,12 +235,12 @@ jobs:
           fi
         fi
 
-    - name: Validate milestone binary paths
+    - name: Validate milestone binary paths for SRF Debug UP build
       if: ${{ env.LIST_ONLY == 'false' }}
       env:
         BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       run: |
-        echo "=== VALIDATING MILESTONE BINARY PATHS ==="
+        echo "=== VALIDATING MILESTONE BINARY PATHS FOR SRF DEBUG UP BUILD ==="
         
         # Function to check path with both accounts
         check_path_both_accounts() {
@@ -292,7 +295,7 @@ jobs:
         check_path_both_accounts "S3M" "${{ env.S3M_PATH }}" || WARNINGS=$((WARNINGS + 1))
         
         if [[ $WARNINGS -eq 0 ]]; then
-          echo "✅ All milestone binary paths validated successfully"
+          echo "✅ All milestone binary paths validated successfully for SRF Debug UP build"
         else
           echo "⚠️  Milestone binary path validation completed with $WARNINGS warnings"
           echo "Note: Warnings do not prevent config generation, but may cause build issues"
@@ -337,7 +340,7 @@ jobs:
           sed -i 's/prev_version = .*/prev_version = 0x${BASELINE_CLEAN}/g' '$NEW_CONFIG'
           
           # Update patch description with milestone
-          sed -i 's/patch_description = .*/patch_description = SRF Debug patch build_${{ env.MILESTONE }}/' '$NEW_CONFIG'
+          sed -i 's/patch_description = .*/patch_description = SRF Debug UP build_${{ env.MILESTONE }}/' '$NEW_CONFIG'
           
           # Update build_path
           sed -i 's|build_path = .*|build_path = ${{ env.BUILD_BASE_PATH }}|' '$NEW_CONFIG'
@@ -361,7 +364,7 @@ jobs:
           
           # Change soc_sign from manual to css-debug if it's manual
           if grep -q '^soc_sign = manual' '$NEW_CONFIG'; then
-            echo 'Changing soc_sign from manual to css-debug'
+            echo 'Changing soc_sign from manual to css-debug for SRF Debug UP build'
             sed -i 's/^soc_sign = manual/soc_sign = css-debug/' '$NEW_CONFIG'
           else
             echo 'soc_sign is already css-debug or not manual, no change needed'
@@ -392,77 +395,83 @@ jobs:
             sed -i 's|^acode = .*|acode = ${{ env.ACODE_PATH }}|' '$NEW_CONFIG'
           fi
           
-          echo 'Config file generated successfully'
+          echo 'SRF Debug UP config file generated successfully'
           echo ''
-          echo '=== GENERATED CONFIG FILE CONTENTS ==='
+          echo '=== GENERATED SRF DEBUG UP CONFIG FILE CONTENTS ==='
           cat '$NEW_CONFIG'
           echo '=== END CONFIG FILE CONTENTS ==='
         "
         
         echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
-        echo "=== END CONFIG GENERATION ==="
+        echo "=== END SRF DEBUG UP CONFIG GENERATION ==="
 
-    - name: Set config file permissions
+    - name: Set SRF Debug UP config file permissions
       if: ${{ env.LIST_ONLY == 'false' }}
       env:
         BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       run: |
-        echo "=== SETTING CONFIG FILE PERMISSIONS ==="
+        echo "=== SETTING SRF DEBUG UP CONFIG FILE PERMISSIONS ==="
         
         # Clean version number for config file name
         NEW_CLEAN="${{ env.NEW_UP_VERSION }}"
         NEW_CLEAN="${NEW_CLEAN#0x}"
         NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
         
-        echo "Setting permissions for config file: $NEW_CONFIG"
+        echo "Setting permissions for SRF Debug UP config file: $NEW_CONFIG"
         
         # Set permissions as faceless account
         (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
           if [[ -f '$NEW_CONFIG' ]]; then
-            echo 'Setting chmod 777 permissions on config file...'
+            echo 'Setting chmod 777 permissions on SRF Debug UP config file...'
             chmod 777 '$NEW_CONFIG'
             
             echo 'Verifying permissions:'
             ls -la '$NEW_CONFIG'
             
-            echo 'Config file permissions set successfully'
+            echo 'SRF Debug UP config file permissions set successfully'
           else
-            echo 'ERROR: Config file not found: $NEW_CONFIG'
+            echo 'ERROR: SRF Debug UP config file not found: $NEW_CONFIG'
             exit 1
           fi
         "
         
         echo "=== END PERMISSIONS SETTING ==="
 
-    - name: Display summary
+    - name: Set job outputs
+      id: set-outputs
       run: |
-        echo "=== WORKFLOW SUMMARY ==="
+        echo "list_only=${{ env.LIST_ONLY }}" >> $GITHUB_OUTPUT
+
+    - name: Display SRF Debug UP build summary
+      run: |
+        echo "=== SRF DEBUG UP BUILD SUMMARY ==="
         echo "🎯 User input: '${{ github.event.inputs.filename }}'"
         echo "📁 Total available files: ${{ env.TOTAL_FILES }}"
         
         if [ "${{ env.LIST_ONLY }}" == "true" ]; then
-          echo "📋 Mode: List files only"
+          echo "📋 Mode: List milestone files only"
           echo ""
-          echo "Available milestone files:"
+          echo "Available milestone files for SRF Debug UP build:"
           cat available_files.txt | sed 's/^/   ✓ /'
           echo ""
-          echo "💡 To generate config from a milestone file, run this workflow again and enter the filename"
+          echo "💡 To start SRF Debug UP build from a milestone file, run this workflow again and enter the filename"
           echo "   Example inputs:"
           echo "   - 'UPLR1' (will read Milestone_UPLR1.txt)"
           echo "   - 'Milestone_UPLR1.txt' (full filename)"
         else
-          echo "📖 Mode: Config generation from milestone"
+          echo "📖 Mode: SRF Debug UP build from milestone"
           echo "✅ Successfully processed milestone: ${{ env.MILESTONE }}"
-          echo "✅ Generated config file: ${{ steps.generate-config.outputs.config_file }}"
+          echo "✅ Generated SRF Debug UP config file: ${{ steps.generate-config.outputs.config_file }}"
           echo "✅ Set permissions (chmod 777) on config file"
           echo ""
-          echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## SRF Debug UP Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Milestone**: ${{ env.MILESTONE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Type**: SRF Debug UP" >> $GITHUB_STEP_SUMMARY
           echo "- **Baseline Version**: ${{ env.UP_BASELINE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **New Version**: ${{ env.NEW_UP_VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Permissions**: Set to 777 (read/write/execute for all)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Patch Description**: SRF Debug patch build_${{ env.MILESTONE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Patch Description**: SRF Debug UP build_${{ env.MILESTONE }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Milestone Values Applied:" >> $GITHUB_STEP_SUMMARY
           echo "- **SVN Version**: ${{ env.SVN_VERSION }}" >> $GITHUB_STEP_SUMMARY
@@ -484,6 +493,187 @@ jobs:
           [[ -z "${{ env.TCODE_PATH }}" ]] && echo "- **TCODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
           [[ -z "${{ env.ACODE_PATH }}" ]] && echo "- **ACODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Config file generated successfully from milestone data with proper permissions!" >> $GITHUB_STEP_SUMMARY
+          echo "SRF Debug UP config file generated successfully from milestone data with proper permissions!" >> $GITHUB_STEP_SUMMARY
         fi
-        echo "=== END SUMMARY ==="
+        echo "=== END SRF DEBUG UP BUILD SUMMARY ==="
+
+  kerberos-setup:
+    runs-on: [self-hosted, node16]
+    needs: prepare-config
+    if: ${{ needs.prepare-config.outputs.list_only == 'false' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to build account for Kerberos setup
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to build account for Kerberos setup..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
+          
+          echo "Expected user: grp_srf_fit1_build"
+          echo "Actual user: $CURRENT_USER"
+          
+          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
+            echo "SUCCESS: User switch to build account successful"
+            echo "Running as: $CURRENT_USER"
+          else
+            echo "FAILURE: User switch failed"
+            echo "Expected: grp_srf_fit1_build"
+            echo "Got: $CURRENT_USER"
+            exit 1
+          fi
+
+      - name: Verify Kerberos tools exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying Kerberos tools availability for SRF Debug UP build..."
+          
+          # Check ktab
+          KTAB_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.KTAB_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$KTAB_CHECK" == "EXISTS" ]]; then
+            echo "PASS: ktab found at: ${{ env.KTAB_PATH }}"
+          else
+            echo "FAIL: ktab not found at: ${{ env.KTAB_PATH }}"
+            exit 1
+          fi
+          
+          # Check kcron
+          KCRON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.KCRON_PATH }}' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          ")
+          
+          if [[ "$KCRON_CHECK" == "EXISTS" ]]; then
+            echo "PASS: kcron found at: ${{ env.KCRON_PATH }}"
+          else
+            echo "FAIL: kcron not found at: ${{ env.KCRON_PATH }}"
+            exit 1
+          fi
+          
+          echo "All Kerberos tools verified successfully for SRF Debug UP build"
+
+      - name: Initialize Kerberos Ticket (ktab)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+        run: |
+          echo "Step 1: Initializing Kerberos Ticket with ktab for SRF Debug UP build..."
+          echo "Running: ${{ env.KTAB_PATH }} -i"
+          
+          # Initialize ktab with FA password
+          KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Executing ktab -i...'
+            echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
+          ")
+          
+          echo "ktab output:"
+          echo "$KTAB_RESULT"
+          
+          # Check if ktab was successful
+          if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: ktab initialization appears to have failed"
+            echo "Output: $KTAB_RESULT"
+            exit 1
+          else
+            echo "SUCCESS: ktab initialization completed for SRF Debug UP build"
+          fi
+
+      - name: Initialize Kerberos Cron (kcron)
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Step 2: Initializing Kerberos Cron with kcron for SRF Debug UP build..."
+          echo "Running: ${{ env.KCRON_PATH }} -i"
+          echo "Will automatically respond 'y' to overwrite prompt"
+          
+          # Initialize kcron and respond 'y' to overwrite prompt
+          KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Executing kcron -i...'
+            echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
+          ")
+          
+          echo "kcron output:"
+          echo "$KCRON_RESULT"
+          
+          # Check if kcron was successful
+          if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
+            echo "ERROR: kcron initialization appears to have failed"
+            echo "Output: $KCRON_RESULT"
+            exit 1
+          else
+            echo "SUCCESS: kcron initialization completed for SRF Debug UP build"
+          fi
+
+      - name: Verify Kerberos Setup
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Verifying Kerberos setup for SRF Debug UP build..."
+          
+          # Check if we have valid Kerberos tickets
+          KLIST_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if command -v klist >/dev/null 2>&1; then
+              echo 'Running klist to check tickets...'
+              klist 2>&1 || echo 'No tickets found or klist failed'
+            else
+              echo 'klist command not available'
+            fi
+          ")
+          
+          echo "Kerberos ticket status:"
+          echo "$KLIST_RESULT"
+          
+          # Check if ktab and kcron processes/files were created
+          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'Checking for Kerberos-related files in home directory...'
+            ls -la ~/ | grep -i krb || echo 'No obvious Kerberos files found'
+            
+            echo 'Checking for cron entries...'
+            crontab -l 2>/dev/null | grep -i krb || echo 'No Kerberos cron entries found'
+          ")
+          
+          echo "Verification results:"
+          echo "$VERIFICATION_RESULT"
+
+      - name: Display Kerberos setup summary
+        run: |
+          echo "## Kerberos Setup Summary for SRF Debug UP Build" >> $GITHUB_STEP_SUMMARY
+          echo "- **Account**: grp_srf_fit1_build (faceless account)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Type**: SRF Debug UP" >> $GITHUB_STEP_SUMMARY
+          echo "- **ktab Path**: ${{ env.KTAB_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **kcron Path**: ${{ env.KCRON_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Steps Completed:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ **Build Account Login**: Successfully switched to grp_srf_fit1_build" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ **Tool Verification**: Confirmed ktab and kcron tools exist" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ **Kerberos Ticket Init**: Executed \`ktab -i\` with FA password" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✅ **Kerberos Cron Init**: Executed \`kcron -i\` with auto-confirm (y)" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✅ **Verification**: Checked Kerberos setup status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Commands Executed:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.KTAB_PATH }} -i\` (with FA_PASSWORD)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.KCRON_PATH }} -i\` (with 'y' response to overwrite)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Security Notes:" >> $GITHUB_STEP_SUMMARY
+          echo "- FA_PASSWORD retrieved securely from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- All operations performed under build account" >> $GITHUB_STEP_SUMMARY
+          echo "- Passwords not exposed in logs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Kerberos setup completed successfully for SRF Debug UP build!" >> $GITHUB_STEP_SUMMARY
