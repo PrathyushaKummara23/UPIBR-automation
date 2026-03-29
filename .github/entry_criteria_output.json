@@ -433,58 +433,114 @@
             "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/24ww55/CTE_pre_si_val/"
         }
     ],
-    "pcode": [
+    "pcode-io": [
         {
             "sr_no": 1,
-            "check_list_item": "pcode Post Binary Staging Area",
+            "check_list_item": "pcode-io Post Binary Staging Area",
             "selection": "Yes",
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_io_c0/pcode-io_enc_dbug.bin"
         },
         {
             "sr_no": 2,
-            "check_list_item": "pcode SGX",
+            "check_list_item": "pcode-io SGX",
             "selection": "Yes",
             "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
         },
         {
             "sr_no": 3,
-            "check_list_item": "pcode TDX",
+            "check_list_item": "pcode-io TDX",
             "selection": "Yes",
             "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
         },
         {
             "sr_no": 4,
-            "check_list_item": "pcode SVN",
+            "check_list_item": "pcode-io SVN",
             "selection": "Yes",
             "entry": "0x95"
         },
         {
             "sr_no": 5,
-            "check_list_item": "pcode SE_SVN",
+            "check_list_item": "pcode-io SE_SVN",
             "selection": "Yes",
             "entry": "16"
         },
         {
             "sr_no": 6,
-            "check_list_item": "pcode Unit Test Checking",
+            "check_list_item": "pcode-io Unit Test Checking",
             "selection": "Yes",
             "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/25ww55/"
         },
         {
             "sr_no": 7,
-            "check_list_item": "pcode Sanity Test",
+            "check_list_item": "pcode-io Sanity Test",
             "selection": "Yes",
             "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/"
         },
         {
             "sr_no": 8,
-            "check_list_item": "pcode SDLE process",
+            "check_list_item": "pcode-io SDLE process",
             "selection": "Yes",
             "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/SDLE/"
         },
         {
             "sr_no": 9,
-            "check_list_item": "pcode CTE PRE Si Val",
+            "check_list_item": "pcode-io CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/CTE_pre_si_val/"
+        }
+    ],
+    "pcode-c": [
+        {
+            "sr_no": 1,
+            "check_list_item": "pcode-c Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "pcode-c SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "pcode-c TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "pcode-c SVN",
+            "selection": "Yes",
+            "entry": "0x95"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "pcode-c SE_SVN",
+            "selection": "Yes",
+            "entry": "16"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "pcode-c Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/25ww55/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "pcode-c Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "pcode-c SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "pcode-c CTE PRE Si Val",
             "selection": "Yes",
             "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/CTE_pre_si_val/"
         }
