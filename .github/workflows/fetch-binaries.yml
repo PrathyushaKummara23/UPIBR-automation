@@ -135,12 +135,20 @@ jobs:
               "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin"
             }
           ],
-          "pcode": [
+          "pcode-c": [
             {
               "sr_no": 1,
-              "check_list_item": "pcode Post Binary Staging Area",
+              "check_list_item": "pcode-c Post Binary Staging Area",
               "selection": "Yes",
               "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
+            }
+          ],
+          "pcode-io": [
+            {
+              "sr_no": 1,
+              "check_list_item": "pcode-io Post Binary Staging Area",
+              "selection": "Yes",
+              "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_io_c0/pcode-io_enc_dbug.bin"
             }
           ],
           "s3m": [
@@ -208,7 +216,8 @@ jobs:
         ACODE_PATH=$(jq -r '.acode[] | select(.check_list_item == "acode Post Binary Staging Area") | .entry // ""' "$JSON_FILE")
         ICODE_PATH=$(jq -r '.icode[] | select(.check_list_item == "icode Post Binary Staging Area") | .entry // ""' "$JSON_FILE")
         OOBMSM_PATH=$(jq -r '.oobmsm[] | select(.check_list_item == "oobmsm Post Binary Staging Area") | .entry // ""' "$JSON_FILE")
-        PCODE_PATH=$(jq -r '.pcode[] | select(.check_list_item == "pcode Post Binary Staging Area") | .entry // ""' "$JSON_FILE")
+        PCODE_C_PATH=$(jq -r '.["pcode-c"][] | select(.check_list_item == "pcode-c Post Binary Staging Area") | .entry // ""' "$JSON_FILE")
+        PCODE_IO_PATH=$(jq -r '.["pcode-io"][] | select(.check_list_item == "pcode-io Post Binary Staging Area") | .entry // ""' "$JSON_FILE")
         S3M_PATH=$(jq -r '.s3m[] | select(.check_list_item == "s3m Post Binary Staging Area") | .entry // ""' "$JSON_FILE")
         
         # Create the configuration file with all data
@@ -228,7 +237,8 @@ jobs:
         acode=$ACODE_PATH
         icode=$ICODE_PATH
         oobmsm=$OOBMSM_PATH
-        pcode=$PCODE_PATH
+        pcode-c=$PCODE_C_PATH
+        pcode-io=$PCODE_IO_PATH
         s3m=$S3M_PATH
         EOF
         
