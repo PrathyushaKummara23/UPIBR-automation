@@ -85,7 +85,7 @@ jobs:
         echo "=== END FILE VALIDATION ==="
 
     - name: Parse milestone file and extract values
-      if: env.LIST_ONLY == 'false'
+      if: ${{ env.LIST_ONLY == 'false' }}
       id: parse-milestone
       run: |
         echo "=== PARSING MILESTONE FILE ==="
@@ -120,7 +120,8 @@ jobs:
         ACODE_PATH=$(grep '^acode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
         ICODE_PATH=$(grep '^icode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
         OOBMSM_PATH=$(grep '^oobmsm=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
-        PCODE_PATH=$(grep '^pcode=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        PCODE_C_PATH=$(grep '^pcode-c=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
+        PCODE_IO_PATH=$(grep '^pcode-io=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
         S3M_PATH=$(grep '^s3m=' "$FILE_PATH" | cut -d'=' -f2- | xargs)
         
         # Display extracted values
@@ -141,7 +142,8 @@ jobs:
         echo "      - ACODE: ${ACODE_PATH:-'(empty)'}"
         echo "      - ICODE: ${ICODE_PATH:-'(empty)'}"
         echo "      - OOBMSM: ${OOBMSM_PATH:-'(empty)'}"
-        echo "      - PCODE: ${PCODE_PATH:-'(empty)'}"
+        echo "      - PCODE-C: ${PCODE_C_PATH:-'(empty)'}"
+        echo "      - PCODE-IO: ${PCODE_IO_PATH:-'(empty)'}"
         echo "      - S3M: ${S3M_PATH:-'(empty)'}"
         
         # Store values in environment for next steps
@@ -160,7 +162,8 @@ jobs:
         echo "ACODE_PATH=$ACODE_PATH" >> $GITHUB_ENV
         echo "ICODE_PATH=$ICODE_PATH" >> $GITHUB_ENV
         echo "OOBMSM_PATH=$OOBMSM_PATH" >> $GITHUB_ENV
-        echo "PCODE_PATH=$PCODE_PATH" >> $GITHUB_ENV
+        echo "PCODE_C_PATH=$PCODE_C_PATH" >> $GITHUB_ENV
+        echo "PCODE_IO_PATH=$PCODE_IO_PATH" >> $GITHUB_ENV
         echo "S3M_PATH=$S3M_PATH" >> $GITHUB_ENV
         
         # Store outputs
@@ -169,7 +172,7 @@ jobs:
         echo "=== END MILESTONE PARSING ==="
 
     - name: Switch to faceless account and verify
-      if: env.LIST_ONLY == 'false'
+      if: ${{ env.LIST_ONLY == 'false' }}
       env:
         BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       run: |
@@ -189,7 +192,7 @@ jobs:
         fi
 
     - name: Validate baseline config exists
-      if: env.LIST_ONLY == 'false'
+      if: ${{ env.LIST_ONLY == 'false' }}
       id: validate-baseline
       env:
         BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -230,7 +233,7 @@ jobs:
         fi
 
     - name: Validate milestone binary paths
-      if: env.LIST_ONLY == 'false'
+      if: ${{ env.LIST_ONLY == 'false' }}
       env:
         BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       run: |
@@ -284,7 +287,8 @@ jobs:
         check_path_both_accounts "ACODE" "${{ env.ACODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
         check_path_both_accounts "ICODE" "${{ env.ICODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
         check_path_both_accounts "OOBMSM" "${{ env.OOBMSM_PATH }}" || WARNINGS=$((WARNINGS + 1))
-        check_path_both_accounts "PCODE" "${{ env.PCODE_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "PCODE-C" "${{ env.PCODE_C_PATH }}" || WARNINGS=$((WARNINGS + 1))
+        check_path_both_accounts "PCODE-IO" "${{ env.PCODE_IO_PATH }}" || WARNINGS=$((WARNINGS + 1))
         check_path_both_accounts "S3M" "${{ env.S3M_PATH }}" || WARNINGS=$((WARNINGS + 1))
         
         if [[ $WARNINGS -eq 0 ]]; then
@@ -296,7 +300,7 @@ jobs:
         echo "=== END PATH VALIDATION ==="
 
     - name: Generate config file from milestone
-      if: env.LIST_ONLY == 'false'
+      if: ${{ env.LIST_ONLY == 'false' }}
       id: generate-config
       env:
         BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -371,8 +375,9 @@ jobs:
           [[ -n '${{ env.OOBMSM_PATH }}' ]] && sed -i 's|^oobmsm = .*|oobmsm = ${{ env.OOBMSM_PATH }}|' '$NEW_CONFIG'
           [[ -n '${{ env.S3M_PATH }}' ]] && sed -i 's|^s3m = .*|s3m = ${{ env.S3M_PATH }}|' '$NEW_CONFIG'
           
-          # Handle pcode specially (milestone has 'pcode' but config has 'pcode-c')
-          [[ -n '${{ env.PCODE_PATH }}' ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ env.PCODE_PATH }}|' '$NEW_CONFIG'
+          # Handle pcode-c and pcode-io separately (these are the key fixes)
+          [[ -n '${{ env.PCODE_C_PATH }}' ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ env.PCODE_C_PATH }}|' '$NEW_CONFIG'
+          [[ -n '${{ env.PCODE_IO_PATH }}' ]] && sed -i 's|^pcode-io = .*|pcode-io = ${{ env.PCODE_IO_PATH }}|' '$NEW_CONFIG'
           
           # Handle empty tcode and acode (set to 'none' if empty in milestone)
           if [[ -z '${{ env.TCODE_PATH }}' ]]; then
@@ -398,7 +403,7 @@ jobs:
         echo "=== END CONFIG GENERATION ==="
 
     - name: Set config file permissions
-      if: env.LIST_ONLY == 'false'
+      if: ${{ env.LIST_ONLY == 'false' }}
       env:
         BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       run: |
@@ -473,7 +478,8 @@ jobs:
           [[ -n "${{ env.MCHECK_PATH }}" ]] && echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
           [[ -n "${{ env.ICODE_PATH }}" ]] && echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
           [[ -n "${{ env.OOBMSM_PATH }}" ]] && echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
-          [[ -n "${{ env.PCODE_PATH }}" ]] && echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.PCODE_C_PATH }}" ]] && echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
+          [[ -n "${{ env.PCODE_IO_PATH }}" ]] && echo "- **PCODE-IO**: Updated" >> $GITHUB_STEP_SUMMARY
           [[ -n "${{ env.S3M_PATH }}" ]] && echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
           [[ -z "${{ env.TCODE_PATH }}" ]] && echo "- **TCODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
           [[ -z "${{ env.ACODE_PATH }}" ]] && echo "- **ACODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
