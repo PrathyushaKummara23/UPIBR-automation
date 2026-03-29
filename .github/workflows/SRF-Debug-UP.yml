@@ -397,6 +397,38 @@ jobs:
         echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
         echo "=== END CONFIG GENERATION ==="
 
+    - name: Set config file permissions
+      if: env.LIST_ONLY == 'false'
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "=== SETTING CONFIG FILE PERMISSIONS ==="
+        
+        # Clean version number for config file name
+        NEW_CLEAN="${{ env.NEW_UP_VERSION }}"
+        NEW_CLEAN="${NEW_CLEAN#0x}"
+        NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
+        
+        echo "Setting permissions for config file: $NEW_CONFIG"
+        
+        # Set permissions as faceless account
+        (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          if [[ -f '$NEW_CONFIG' ]]; then
+            echo 'Setting chmod 777 permissions on config file...'
+            chmod 777 '$NEW_CONFIG'
+            
+            echo 'Verifying permissions:'
+            ls -la '$NEW_CONFIG'
+            
+            echo 'Config file permissions set successfully'
+          else
+            echo 'ERROR: Config file not found: $NEW_CONFIG'
+            exit 1
+          fi
+        "
+        
+        echo "=== END PERMISSIONS SETTING ==="
+
     - name: Display summary
       run: |
         echo "=== WORKFLOW SUMMARY ==="
@@ -417,12 +449,14 @@ jobs:
           echo "📖 Mode: Config generation from milestone"
           echo "✅ Successfully processed milestone: ${{ env.MILESTONE }}"
           echo "✅ Generated config file: ${{ steps.generate-config.outputs.config_file }}"
+          echo "✅ Set permissions (chmod 777) on config file"
           echo ""
           echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Milestone**: ${{ env.MILESTONE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Baseline Version**: ${{ env.UP_BASELINE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **New Version**: ${{ env.NEW_UP_VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Permissions**: Set to 777 (read/write/execute for all)" >> $GITHUB_STEP_SUMMARY
           echo "- **Patch Description**: SRF Debug patch build_${{ env.MILESTONE }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Milestone Values Applied:" >> $GITHUB_STEP_SUMMARY
@@ -444,6 +478,6 @@ jobs:
           [[ -z "${{ env.TCODE_PATH }}" ]] && echo "- **TCODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
           [[ -z "${{ env.ACODE_PATH }}" ]] && echo "- **ACODE**: Set to 'none'" >> $GITHUB_STEP_SUMMARY || echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Config file generated successfully from milestone data!" >> $GITHUB_STEP_SUMMARY
+          echo "Config file generated successfully from milestone data with proper permissions!" >> $GITHUB_STEP_SUMMARY
         fi
         echo "=== END SUMMARY ==="
