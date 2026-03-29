@@ -13,7 +13,7 @@ env:
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
-  PYTHON_PATH: /usr/intel/pkgs/python3/3.9.7/bin/python3
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
   FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0/fxt_tool.py
   EXPECT_PATH: /usr/bin/expect
 
