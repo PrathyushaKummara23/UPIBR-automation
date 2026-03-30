@@ -1,0 +1,124 @@
+name: JSON Entry Criteria Reader
+
+on:
+  workflow_dispatch:
+    inputs:
+      json_filename:
+        description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
+        required: true
+        type: string
+
+jobs:
+  read-json:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Validate JSON file exists
+      id: validate
+      run: |
+        JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
+        
+        if [ ! -f "$JSON_FILE" ]; then
+          echo "❌ Error: JSON file '${{ github.event.inputs.json_filename }}' not found!"
+          echo ""
+          echo "📁 Available JSON files in .github/json_files/:"
+          if [ -d ".github/json_files" ]; then
+            ls -la .github/json_files/ | grep '\.json$' | awk '{print "  - " $9}' || echo "  No JSON files found"
+          else
+            echo "  Directory .github/json_files/ does not exist"
+          fi
+          exit 1
+        fi
+        
+        echo "✅ JSON file found: $JSON_FILE"
+        echo "json_path=$JSON_FILE" >> $GITHUB_OUTPUT
+
+    - name: Extract and Display Values
+      run: |
+        JSON_FILE="${{ steps.validate.outputs.json_path }}"
+        
+        echo "🔍 Reading JSON file: $JSON_FILE"
+        echo "=================================================="
+        echo ""
+        
+        # Function to extract value from section_1
+        extract_section1_value() {
+          local item="$1"
+          jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
+        }
+        
+        # Function to extract Post Binary Staging Area from each section
+        extract_staging_area() {
+          local section="$1"
+          jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
+        }
+        
+        echo "📋 SECTION 1 VALUES:"
+        echo "==================="
+        echo "Milestone: $(extract_section1_value "Milestone")"
+        echo "Patch Description: $(extract_section1_value "patch_description")"
+        echo "Version: $(extract_section1_value "version")"
+        echo "SVN: $(extract_section1_value "svn")"
+        echo "SE_SVN: $(extract_section1_value "se_svn")"
+        echo "Min SVN: $(extract_section1_value "min_svn")"
+        echo "Min Runtime ID: $(extract_section1_value "min_runtime_id")"
+        echo "Patch Rollback Flags: $(extract_section1_value "patch_rollback_flags")"
+        echo "Previous Version: $(extract_section1_value "prev_version")"
+        echo ""
+        
+        echo "📦 POST BINARY STAGING AREAS:"
+        echo "============================="
+        
+        # Extract staging areas for each component
+        components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode-io" "pcode-c" "s3m")
+        
+        for component in "${components[@]}"; do
+          staging_area=$(extract_staging_area "$component")
+          if [ -n "$staging_area" ] && [ "$staging_area" != "null" ] && [ "$staging_area" != "" ]; then
+            echo "$component Post Binary Staging Area: $staging_area"
+          else
+            echo "$component Post Binary Staging Area: [NOT AVAILABLE]"
+          fi
+        done
+        
+        echo ""
+        echo "✅ JSON parsing completed successfully!"
+
+    - name: Create Summary
+      run: |
+        JSON_FILE="${{ steps.validate.outputs.json_path }}"
+        
+        # Create a summary for the GitHub Actions summary page
+        {
+          echo "# 📊 JSON Entry Criteria Summary"
+          echo ""
+          echo "**File:** \`${{ github.event.inputs.json_filename }}\`"
+          echo ""
+          echo "## 📋 Section 1 Values"
+          echo "| Field | Value |"
+          echo "|-------|-------|"
+          
+          # Extract and format section_1 values
+          jq -r '.section_1[] | "| \(.check_list_item) | \(.entry) |"' "$JSON_FILE"
+          
+          echo ""
+          echo "## 📦 Post Binary Staging Areas"
+          echo "| Component | Path |"
+          echo "|-----------|------|"
+          
+          # Extract staging areas
+          components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode-io" "pcode-c" "s3m")
+          
+          for component in "${components[@]}"; do
+            staging_area=$(jq -r --arg comp "$component" '.[$comp][0].entry // ""' "$JSON_FILE")
+            if [ -n "$staging_area" ] && [ "$staging_area" != "null" ] && [ "$staging_area" != "" ]; then
+              echo "| $component | \`$staging_area\` |"
+            else
+              echo "| $component | *Not Available* |"
+            fi
+          done
+          
+        } >> $GITHUB_STEP_SUMMARY
