@@ -10,10 +10,7 @@ on:
 
 jobs:
   read-json:
-    runs-on: ubuntu-latest
-    outputs:
-      json_path: ${{ steps.validate.outputs.json_path }}
-      previous_version: ${{ steps.extract_version.outputs.previous_version }}
+    runs-on: [self-hosted, node16]  # Changed from ubuntu-latest
     
     steps:
     - name: Checkout repository
@@ -40,7 +37,6 @@ jobs:
         echo "json_path=$JSON_FILE" >> $GITHUB_OUTPUT
 
     - name: Extract and Display Values
-      id: extract_version
       run: |
         JSON_FILE="${{ steps.validate.outputs.json_path }}"
         
@@ -62,31 +58,16 @@ jobs:
         
         echo "📋 SECTION 1 VALUES:"
         echo "==================="
-        milestone=$(extract_section1_value "Milestone")
-        patch_desc=$(extract_section1_value "patch_description")
-        version=$(extract_section1_value "version")
-        svn=$(extract_section1_value "svn")
-        se_svn=$(extract_section1_value "se_svn")
-        min_svn=$(extract_section1_value "min_svn")
-        min_runtime_id=$(extract_section1_value "min_runtime_id")
-        patch_rollback_flags=$(extract_section1_value "patch_rollback_flags")
-        prev_version=$(extract_section1_value "prev_version")
-        
-        echo "Milestone: $milestone"
-        echo "Patch Description: $patch_desc"
-        echo "Version: $version"
-        echo "SVN: $svn"
-        echo "SE_SVN: $se_svn"
-        echo "Min SVN: $min_svn"
-        echo "Min Runtime ID: $min_runtime_id"
-        echo "Patch Rollback Flags: $patch_rollback_flags"
-        echo "Previous Version: $prev_version"
+        echo "Milestone: $(extract_section1_value "Milestone")"
+        echo "Patch Description: $(extract_section1_value "patch_description")"
+        echo "Version: $(extract_section1_value "version")"
+        echo "SVN: $(extract_section1_value "svn")"
+        echo "SE_SVN: $(extract_section1_value "se_svn")"
+        echo "Min SVN: $(extract_section1_value "min_svn")"
+        echo "Min Runtime ID: $(extract_section1_value "min_runtime_id")"
+        echo "Patch Rollback Flags: $(extract_section1_value "patch_rollback_flags")"
+        echo "Previous Version: $(extract_section1_value "prev_version")"
         echo ""
-        
-        # Extract version number without 0x prefix for directory search
-        clean_prev_version=$(echo "$prev_version" | sed 's/0x//')
-        echo "previous_version=$clean_prev_version" >> $GITHUB_OUTPUT
-        echo "🔍 Extracted Previous Version for directory search: $clean_prev_version"
         
         echo "📦 POST BINARY STAGING AREAS:"
         echo "============================="
@@ -106,51 +87,18 @@ jobs:
         echo ""
         echo "✅ JSON parsing completed successfully!"
 
-    - name: Create Summary
+    - name: Copy Config File
       run: |
         JSON_FILE="${{ steps.validate.outputs.json_path }}"
         
-        # Create a summary for the GitHub Actions summary page
-        {
-          echo "# 📊 JSON Entry Criteria Summary"
-          echo ""
-          echo "**File:** \`${{ github.event.inputs.json_filename }}\`"
-          echo ""
-          echo "## 📋 Section 1 Values"
-          echo "| Field | Value |"
-          echo "|-------|-------|"
-          
-          # Extract and format section_1 values
-          jq -r '.section_1[] | "| \(.check_list_item) | \(.entry) |"' "$JSON_FILE"
-          
-          echo ""
-          echo "## 📦 Post Binary Staging Areas"
-          echo "| Component | Path |"
-          echo "|-----------|------|"
-          
-          # Extract staging areas
-          components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode-io" "pcode-c" "s3m")
-          
-          for component in "${components[@]}"; do
-            staging_area=$(jq -r --arg comp "$component" '.[$comp][0].entry // ""' "$JSON_FILE")
-            if [ -n "$staging_area" ] && [ "$staging_area" != "null" ] && [ "$staging_area" != "" ]; then
-              echo "| $component | \`$staging_area\` |"
-            else
-              echo "| $component | *Not Available* |"
-            fi
-          done
-          
-        } >> $GITHUB_STEP_SUMMARY
-
-  copy-config:
-    runs-on: ubuntu-latest
-    needs: read-json
-    if: ${{ needs.read-json.outputs.previous_version != '' }}
-    
-    steps:
-    - name: Copy Config File and Set Permissions
-      run: |
-        PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
+        # Extract previous version from JSON
+        PREV_VERSION=$(jq -r '.section_1[] | select(.check_list_item == "prev_version") | .entry' "$JSON_FILE")
+        
+        if [ -z "$PREV_VERSION" ] || [ "$PREV_VERSION" = "null" ]; then
+          echo "❌ Error: Previous version not found in JSON file"
+          exit 1
+        fi
+        
         BUILD_PATH="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build"
         VERSION_PATH="$BUILD_PATH/$PREV_VERSION"
         RELEASE_PATH="$VERSION_PATH/release"
@@ -208,7 +156,7 @@ jobs:
         echo "✅ Config file found: $SOURCE_CONFIG"
         
         # Get source file info
-        SOURCE_SIZE=$(stat -f%z "$SOURCE_CONFIG" 2>/dev/null || stat -c%s "$SOURCE_CONFIG" 2>/dev/null || echo "unknown")
+        SOURCE_SIZE=$(stat -c%s "$SOURCE_CONFIG" 2>/dev/null || echo "unknown")
         SOURCE_PERMS=$(ls -la "$SOURCE_CONFIG" | awk '{print $1}')
         echo "📊 Source file size: $SOURCE_SIZE bytes"
         echo "🔐 Source file permissions: $SOURCE_PERMS"
@@ -239,7 +187,7 @@ jobs:
           
           # Verify the copy
           if [ -f "$DEST_CONFIG" ]; then
-            DEST_SIZE=$(stat -f%z "$DEST_CONFIG" 2>/dev/null || stat -c%s "$DEST_CONFIG" 2>/dev/null || echo "unknown")
+            DEST_SIZE=$(stat -c%s "$DEST_CONFIG" 2>/dev/null || echo "unknown")
             echo "📊 Destination file size: $DEST_SIZE bytes"
             
             # Verify file integrity
@@ -295,31 +243,52 @@ jobs:
         echo "✅ Permissions: 777 (rwxrwxrwx)"
         echo "✅ Operation Status: SUCCESS"
 
-    - name: Update Summary with Copy Results
+    - name: Create Summary
       run: |
-        PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
-        CONFIG_FILE="config_${PREV_VERSION}.ini"
-        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
-        DEST_CONFIG="$DEST_PATH/$CONFIG_FILE"
+        JSON_FILE="${{ steps.validate.outputs.json_path }}"
         
+        # Create a summary for the GitHub Actions summary page
         {
+          echo "# 📊 JSON Entry Criteria Summary"
           echo ""
-          echo "## 📋 Config File Copy Results"
+          echo "**File:** \`${{ github.event.inputs.json_filename }}\`"
+          echo ""
+          echo "## 📋 Section 1 Values"
           echo "| Field | Value |"
           echo "|-------|-------|"
-          echo "| Previous Version | $PREV_VERSION |"
-          echo "| Config File | $CONFIG_FILE |"
-          echo "| Source Path | \`/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/$PREV_VERSION/release/$CONFIG_FILE\` |"
-          echo "| Destination Path | \`$DEST_CONFIG\` |"
           
-          if [ -f "$DEST_CONFIG" ]; then
-            file_size=$(stat -f%z "$DEST_CONFIG" 2>/dev/null || stat -c%s "$DEST_CONFIG" 2>/dev/null || echo "unknown")
-            file_perms=$(ls -la "$DEST_CONFIG" | awk '{print $1}')
-            echo "| File Size | $file_size bytes |"
-            echo "| Permissions | $file_perms |"
-            echo "| Status | ✅ SUCCESS |"
-          else
-            echo "| Status | ❌ FAILED |"
+          # Extract and format section_1 values
+          jq -r '.section_1[] | "| \(.check_list_item) | \(.entry) |"' "$JSON_FILE"
+          
+          echo ""
+          echo "## 📦 Post Binary Staging Areas"
+          echo "| Component | Path |"
+          echo "|-----------|------|"
+          
+          # Extract staging areas
+          components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode-io" "pcode-c" "s3m")
+          
+          for component in "${components[@]}"; do
+            staging_area=$(jq -r --arg comp "$component" '.[$comp][0].entry // ""' "$JSON_FILE")
+            if [ -n "$staging_area" ] && [ "$staging_area" != "null" ] && [ "$staging_area" != "" ]; then
+              echo "| $component | \`$staging_area\` |"
+            else
+              echo "| $component | *Not Available* |"
+            fi
+          done
+          
+          echo ""
+          echo "## 📁 Config File Operation"
+          
+          # Extract previous version for config file info
+          PREV_VERSION=$(jq -r '.section_1[] | select(.check_list_item == "prev_version") | .entry' "$JSON_FILE")
+          if [ -n "$PREV_VERSION" ] && [ "$PREV_VERSION" != "null" ]; then
+            echo "| Operation | Details |"
+            echo "|-----------|---------|"
+            echo "| Previous Version | \`$PREV_VERSION\` |"
+            echo "| Config File | \`config_${PREV_VERSION}.ini\` |"
+            echo "| Destination | \`/nfs/site/disks/dcsg_0729/users/pkummara/config_${PREV_VERSION}.ini\` |"
+            echo "| Permissions | \`777 (rwxrwxrwx)\` |"
           fi
           
         } >> $GITHUB_STEP_SUMMARY
