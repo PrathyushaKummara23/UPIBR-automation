@@ -154,7 +154,7 @@ jobs:
     if: ${{ needs.read-json.outputs.previous_version != '' }}
     
     steps:
-    - name: Copy Config File and Set Permissions
+    - name:  Copy Config File,Set Permissions and rename config file with current version
       run: |
         PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
         CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
