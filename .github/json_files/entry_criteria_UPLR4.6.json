@@ -9,7 +9,7 @@
             "sr_no": 2,
             "check_list_item": "patch_description",
             "entry": " "
-        }
+        },
         {
             "sr_no": 3,
             "check_list_item": "version",
@@ -39,7 +39,7 @@
             "sr_no": 8,
             "check_list_item": "patch_rollback_flags",
             "entry": " "    
-        }
+        },
         {
             "sr_no": 9,
             "check_list_item": "prev_version",
