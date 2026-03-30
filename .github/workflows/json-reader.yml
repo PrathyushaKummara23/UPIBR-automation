@@ -154,7 +154,7 @@ jobs:
     if: ${{ needs.read-json.outputs.previous_version != '' }}
     
     steps:
-    - name:  Copy Config File,Set Permissions and rename config file with current version
+    - name: Copy Config File, Set Permissions and rename config file with current version
       run: |
         PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
         CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
@@ -366,6 +366,218 @@ jobs:
             echo "| Status | ✅ SUCCESS |"
           else
             echo "| Status | ❌ FAILED |"
+          fi
+          
+        } >> $GITHUB_STEP_SUMMARY
+
+  prepare-config:
+    runs-on: [self-hosted, node16]
+    needs: [read-json, copy-config]
+    if: ${{ needs.read-json.outputs.current_version != '' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Update Config File with JSON Values
+      run: |
+        JSON_FILE="${{ needs.read-json.outputs.json_path }}"
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+        
+        echo "🔧 Preparing Config File"
+        echo "=================================================="
+        echo "📋 Current Version: $CURRENT_VERSION"
+        echo "📄 Config File: $CONFIG_FILE"
+        echo "📥 JSON Source: $JSON_FILE"
+        echo "=================================================="
+        
+        # Check if config file exists
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Error: Config file '$CONFIG_FILE' not found!"
+          exit 1
+        fi
+        
+        echo "✅ Config file found: $CONFIG_FILE"
+        
+        # Create backup of original config
+        BACKUP_CONFIG="${CONFIG_FILE}.backup"
+        cp "$CONFIG_FILE" "$BACKUP_CONFIG"
+        echo "📋 Backup created: $BACKUP_CONFIG"
+        
+        # Extract values from JSON
+        extract_section1_value() {
+          local item="$1"
+          jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
+        }
+        
+        extract_staging_area() {
+          local section="$1"
+          jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
+        }
+        
+        # Get values from JSON
+        milestone=$(extract_section1_value "Milestone")
+        patch_desc=$(extract_section1_value "patch_description")
+        version=$(extract_section1_value "version")
+        svn=$(extract_section1_value "svn")
+        se_svn=$(extract_section1_value "se_svn")
+        min_svn=$(extract_section1_value "min_svn")
+        prev_version=$(extract_section1_value "prev_version")
+        
+        # Get staging areas
+        ucode_path=$(extract_staging_area "ucode")
+        xucode_path=$(extract_staging_area "xucode")
+        mcheck_path=$(extract_staging_area "mcheck")
+        tcode_path=$(extract_staging_area "tcode")
+        acode_path=$(extract_staging_area "acode")
+        icode_path=$(extract_staging_area "icode")
+        oobmsm_path=$(extract_staging_area "oobmsm")
+        pcode_io_path=$(extract_staging_area "pcode-io")
+        pcode_c_path=$(extract_staging_area "pcode-c")
+        s3m_path=$(extract_staging_area "s3m")
+        
+        echo "🔍 Extracted JSON Values:"
+        echo "Milestone: $milestone"
+        echo "Version: $version"
+        echo "SVN: $svn"
+        echo "SE_SVN: $se_svn"
+        echo "Min SVN: $min_svn"
+        echo "Previous Version: $prev_version"
+        echo ""
+        
+        # Update patch description if empty
+        if [ -z "$patch_desc" ] || [ "$patch_desc" = "null" ] || [ "$patch_desc" = " " ]; then
+          patch_desc="SRF Debug patch $milestone"
+          echo "🔄 Generated patch description: $patch_desc"
+        else
+          echo "✅ Using existing patch description: $patch_desc"
+        fi
+        
+        # Update config file values
+        echo ""
+        echo "🔧 Updating config file values..."
+        
+        # Update [default] section
+        sed -i "s/^version = .*/version = $version/" "$CONFIG_FILE"
+        sed -i "s/^patch_description = .*/patch_description = $patch_desc/" "$CONFIG_FILE"
+        sed -i "s/^svn = .*/svn = $svn/" "$CONFIG_FILE"
+        sed -i "s/^se_svn = .*/se_svn = $se_svn/" "$CONFIG_FILE"
+        sed -i "s/^min_svn = .*/min_svn = $min_svn/" "$CONFIG_FILE"
+        sed -i "s/^prev_version = .*/prev_version = $prev_version/" "$CONFIG_FILE"
+        
+        # Update [SOC] section paths
+        if [ -n "$icode_path" ] && [ "$icode_path" != "null" ] && [ "$icode_path" != "" ]; then
+          sed -i "s|^icode = .*|icode = $icode_path|" "$CONFIG_FILE"
+          echo "✅ Updated icode path"
+        fi
+        
+        if [ -n "$oobmsm_path" ] && [ "$oobmsm_path" != "null" ] && [ "$oobmsm_path" != "" ]; then
+          sed -i "s|^oobmsm = .*|oobmsm = $oobmsm_path|" "$CONFIG_FILE"
+          echo "✅ Updated oobmsm path"
+        fi
+        
+        if [ -n "$s3m_path" ] && [ "$s3m_path" != "null" ] && [ "$s3m_path" != "" ]; then
+          sed -i "s|^s3m = .*|s3m = $s3m_path|" "$CONFIG_FILE"
+          echo "✅ Updated s3m path"
+        fi
+        
+        if [ -n "$pcode_io_path" ] && [ "$pcode_io_path" != "null" ] && [ "$pcode_io_path" != "" ]; then
+          sed -i "s|^pcode-io = .*|pcode-io = $pcode_io_path|" "$CONFIG_FILE"
+          echo "✅ Updated pcode-io path"
+        fi
+        
+        if [ -n "$pcode_c_path" ] && [ "$pcode_c_path" != "null" ] && [ "$pcode_c_path" != "" ]; then
+          sed -i "s|^pcode-c = .*|pcode-c = $pcode_c_path|" "$CONFIG_FILE"
+          echo "✅ Updated pcode-c path"
+        fi
+        
+        # Update [FIT1] section paths
+        if [ -n "$ucode_path" ] && [ "$ucode_path" != "null" ] && [ "$ucode_path" != "" ]; then
+          sed -i "s|^ucode = .*|ucode = $ucode_path|" "$CONFIG_FILE"
+          echo "✅ Updated ucode path"
+        fi
+        
+        if [ -n "$xucode_path" ] && [ "$xucode_path" != "null" ] && [ "$xucode_path" != "" ]; then
+          sed -i "s|^xucode = .*|xucode = $xucode_path|" "$CONFIG_FILE"
+          echo "✅ Updated xucode path"
+        fi
+        
+        if [ -n "$mcheck_path" ] && [ "$mcheck_path" != "null" ] && [ "$mcheck_path" != "" ]; then
+          sed -i "s|^mcheck = .*|mcheck = $mcheck_path|" "$CONFIG_FILE"
+          echo "✅ Updated mcheck path"
+        fi
+        
+        # Handle tcode and acode (set to none if not available)
+        if [ -z "$tcode_path" ] || [ "$tcode_path" = "null" ] || [ "$tcode_path" = "" ]; then
+          sed -i "s|^tcode = .*|tcode = none|" "$CONFIG_FILE"
+          echo "✅ Set tcode to none (not available)"
+        else
+          sed -i "s|^tcode = .*|tcode = $tcode_path|" "$CONFIG_FILE"
+          echo "✅ Updated tcode path"
+        fi
+        
+        if [ -z "$acode_path" ] || [ "$acode_path" = "null" ] || [ "$acode_path" = "" ]; then
+          sed -i "s|^acode = .*|acode = none|" "$CONFIG_FILE"
+          echo "✅ Set acode to none (not available)"
+        else
+          sed -i "s|^acode = .*|acode = $acode_path|" "$CONFIG_FILE"
+          echo "✅ Updated acode path"
+        fi
+        
+        # Ensure sign types are css-debug
+        sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
+        sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
+        echo "✅ Updated sign types to css-debug"
+        
+        echo ""
+        echo "✅ Config file update completed successfully!"
+        
+        # Show differences
+        echo ""
+        echo "📋 CHANGES MADE:"
+        echo "================"
+        echo "🔍 Comparing with backup..."
+        if command -v diff >/dev/null 2>&1; then
+          diff "$BACKUP_CONFIG" "$CONFIG_FILE" || true
+        else
+          echo "diff command not available, showing updated config file:"
+          cat "$CONFIG_FILE"
+        fi
+        
+        echo ""
+        echo "📋 OPERATION SUMMARY:"
+        echo "===================="
+        echo "✅ Config file: $CONFIG_FILE"
+        echo "✅ Backup file: $BACKUP_CONFIG"
+        echo "✅ Updated version: $version"
+        echo "✅ Updated patch description: $patch_desc"
+        echo "✅ Updated SVN values and paths"
+        echo "✅ Ensured css-debug signing"
+        echo "✅ Operation Status: SUCCESS"
+
+    - name: Update Summary with Config Preparation Results
+      run: |
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+        
+        {
+          echo ""
+          echo "## 🔧 Config File Preparation Results"
+          echo "| Field | Status |"
+          echo "|-------|--------|"
+          
+          if [ -f "$CONFIG_FILE" ]; then
+            echo "| Config File | ✅ Updated Successfully |"
+            echo "| File Path | \`$CONFIG_FILE\` |"
+            echo "| Backup Created | ✅ Yes |"
+            echo "| Version Updated | ✅ Yes |"
+            echo "| Paths Updated | ✅ Yes |"
+            echo "| Sign Types | ✅ Set to css-debug |"
+          else
+            echo "| Config File | ❌ Update Failed |"
           fi
           
         } >> $GITHUB_STEP_SUMMARY
