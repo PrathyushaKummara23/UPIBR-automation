@@ -581,3 +581,165 @@ jobs:
           fi
           
         } >> $GITHUB_STEP_SUMMARY
+
+  upload-config:
+    runs-on: [self-hosted, node16]
+    needs: [read-json, copy-config, prepare-config]
+    if: ${{ needs.read-json.outputs.current_version != '' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Upload Config File to Repository
+      run: |
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+        REPO_OUTPUT_DIR="output_paths"
+        REPO_CONFIG_FILE="$REPO_OUTPUT_DIR/config_${CURRENT_VERSION}.ini"
+        
+        echo "📤 Uploading Config File to Repository"
+        echo "=================================================="
+        echo "📋 Current Version: $CURRENT_VERSION"
+        echo "📄 Source Config File: $CONFIG_FILE"
+        echo "📁 Repository Output Directory: $REPO_OUTPUT_DIR"
+        echo "📄 Repository Config File: $REPO_CONFIG_FILE"
+        echo "=================================================="
+        
+        # Check if config file exists
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Error: Config file '$CONFIG_FILE' not found!"
+          exit 1
+        fi
+        
+        echo "✅ Config file found: $CONFIG_FILE"
+        
+        # Create output_paths directory if it doesn't exist
+        if [ ! -d "$REPO_OUTPUT_DIR" ]; then
+          echo "📁 Creating output_paths directory..."
+          mkdir -p "$REPO_OUTPUT_DIR"
+          echo "✅ Directory created: $REPO_OUTPUT_DIR"
+        else
+          echo "✅ Directory exists: $REPO_OUTPUT_DIR"
+        fi
+        
+        # Copy config file to repository
+        echo ""
+        echo "📋 Copying config file to repository..."
+        echo "📄 cp '$CONFIG_FILE' '$REPO_CONFIG_FILE'"
+        
+        cp "$CONFIG_FILE" "$REPO_CONFIG_FILE"
+        
+        if [ $? -eq 0 ]; then
+          echo "✅ Config file copied to repository successfully!"
+          
+          # Verify the copy
+          if [ -f "$REPO_CONFIG_FILE" ]; then
+            REPO_SIZE=$(stat -f%z "$REPO_CONFIG_FILE" 2>/dev/null || stat -c%s "$REPO_CONFIG_FILE" 2>/dev/null || echo "unknown")
+            SOURCE_SIZE=$(stat -f%z "$CONFIG_FILE" 2>/dev/null || stat -c%s "$CONFIG_FILE" 2>/dev/null || echo "unknown")
+            echo "📊 Repository file size: $REPO_SIZE bytes"
+            
+            # Verify file integrity
+            if [ "$SOURCE_SIZE" = "$REPO_SIZE" ]; then
+              echo "✅ File integrity verified (sizes match)"
+            else
+              echo "⚠️  Warning: File sizes don't match (Source: $SOURCE_SIZE, Repo: $REPO_SIZE)"
+            fi
+          else
+            echo "❌ Error: Repository file not found after copy"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to copy config file to repository"
+          exit 1
+        fi
+        
+        # Configure git
+        echo ""
+        echo "🔧 Configuring git..."
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Add and commit the file
+        echo ""
+        echo "📋 Adding and committing config file..."
+        git add "$REPO_CONFIG_FILE"
+        
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "ℹ️  No changes to commit (file might already exist with same content)"
+        else
+          echo "📝 Committing changes..."
+          git commit -m "Add prepared config file: config_${CURRENT_VERSION}.ini
+          
+          - Generated from JSON: ${{ github.event.inputs.json_filename }}
+          - Version: 0x${CURRENT_VERSION}
+          - Automated by GitHub Actions workflow
+          - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          
+          echo "✅ Config file committed successfully!"
+          
+          # Push changes
+          echo ""
+          echo "📤 Pushing changes to repository..."
+          git push
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Changes pushed to repository successfully!"
+          else
+            echo "❌ Failed to push changes to repository"
+            exit 1
+          fi
+        fi
+        
+        echo ""
+        echo "✅ Config file upload operation completed successfully!"
+        
+        # Final summary
+        echo ""
+        echo "📋 UPLOAD SUMMARY:"
+        echo "=================="
+        echo "✅ Source: $CONFIG_FILE"
+        echo "✅ Repository Path: $REPO_CONFIG_FILE"
+        echo "✅ File Size: $REPO_SIZE bytes"
+        echo "✅ Git Status: Committed and Pushed"
+        echo "✅ GitHub URL: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/$REPO_CONFIG_FILE"
+        echo "✅ Operation Status: SUCCESS"
+
+    - name: Update Summary with Upload Results
+      run: |
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+        REPO_CONFIG_FILE="output_paths/config_${CURRENT_VERSION}.ini"
+        
+        {
+          echo ""
+          echo "## 📤 Config File Upload Results"
+          echo "| Field | Value |"
+          echo "|-------|-------|"
+          echo "| Config File | \`config_${CURRENT_VERSION}.ini\` |"
+          echo "| Repository Path | \`$REPO_CONFIG_FILE\` |"
+          echo "| GitHub URL | [View File](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/$REPO_CONFIG_FILE) |"
+          
+          if [ -f "$REPO_CONFIG_FILE" ]; then
+            file_size=$(stat -f%z "$REPO_CONFIG_FILE" 2>/dev/null || stat -c%s "$REPO_CONFIG_FILE" 2>/dev/null || echo "unknown")
+            echo "| File Size | $file_size bytes |"
+            echo "| Status | ✅ SUCCESS |"
+            echo "| Git Status | ✅ Committed & Pushed |"
+          else
+            echo "| Status | ❌ FAILED |"
+          fi
+          
+          echo ""
+          echo "### 📁 Repository Structure"
+          echo "\`\`\`"
+          echo "output_paths/"
+          echo "├── config_${CURRENT_VERSION}.ini  ← New file added"
+          if [ -d "output_paths" ]; then
+            echo "├── $(ls output_paths/ | grep -v "config_${CURRENT_VERSION}.ini" | head -3 | tr '\n' ' ' | sed 's/ $//' | sed 's/ /\n├── /g')"
+          fi
+          echo "\`\`\`"
+          
+        } >> $GITHUB_STEP_SUMMARY
