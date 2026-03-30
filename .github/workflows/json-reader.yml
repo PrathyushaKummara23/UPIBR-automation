@@ -14,6 +14,7 @@ jobs:
     outputs:
       json_path: ${{ steps.validate.outputs.json_path }}
       previous_version: ${{ steps.extract_version.outputs.previous_version }}
+      current_version: ${{ steps.extract_version.outputs.current_version }}
     
     steps:
     - name: Checkout repository
@@ -83,10 +84,15 @@ jobs:
         echo "Previous Version: $prev_version"
         echo ""
         
-        # Extract version number without 0x prefix for directory search
+        # Extract version numbers without 0x prefix
         clean_prev_version=$(echo "$prev_version" | sed 's/0x//')
+        clean_current_version=$(echo "$version" | sed 's/0x//')
+        
         echo "previous_version=$clean_prev_version" >> $GITHUB_OUTPUT
+        echo "current_version=$clean_current_version" >> $GITHUB_OUTPUT
+        
         echo "🔍 Extracted Previous Version for directory search: $clean_prev_version"
+        echo "🔍 Extracted Current Version for renaming: $clean_current_version"
         
         echo "📦 POST BINARY STAGING AREAS:"
         echo "============================="
@@ -151,6 +157,7 @@ jobs:
     - name: Copy Config File and Set Permissions
       run: |
         PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
         BUILD_PATH="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build"
         VERSION_PATH="$BUILD_PATH/$PREV_VERSION"
         RELEASE_PATH="$VERSION_PATH/release"
@@ -158,16 +165,19 @@ jobs:
         SOURCE_CONFIG="$RELEASE_PATH/$CONFIG_FILE"
         DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
         DEST_CONFIG="$DEST_PATH/$CONFIG_FILE"
+        FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
         
         echo "🔍 Config File Copy Operation"
         echo "=================================================="
         echo "📋 Previous Version: $PREV_VERSION"
+        echo "📋 Current Version: $CURRENT_VERSION"
         echo "📁 Build Path: $BUILD_PATH"
         echo "📂 Version Path: $VERSION_PATH"
         echo "📋 Release Path: $RELEASE_PATH"
         echo "📄 Config File: $CONFIG_FILE"
         echo "📥 Source: $SOURCE_CONFIG"
         echo "📤 Destination: $DEST_CONFIG"
+        echo "🔄 Final Renamed File: $FINAL_CONFIG"
         echo "=================================================="
         
         # Check if version directory exists
@@ -282,25 +292,59 @@ jobs:
           exit 1
         fi
         
+        # Rename the file to use current version (keeping .ini extension)
         echo ""
-        echo "✅ Config file copy and permission operation completed successfully!"
+        echo "🔄 Renaming config file..."
+        echo "📝 mv '$DEST_CONFIG' '$FINAL_CONFIG'"
+        
+        mv "$DEST_CONFIG" "$FINAL_CONFIG"
+        
+        if [ $? -eq 0 ]; then
+          echo "✅ Config file renamed successfully!"
+          
+          # Verify the renamed file exists
+          if [ -f "$FINAL_CONFIG" ]; then
+            FINAL_SIZE=$(stat -f%z "$FINAL_CONFIG" 2>/dev/null || stat -c%s "$FINAL_CONFIG" 2>/dev/null || echo "unknown")
+            FINAL_PERMS=$(ls -la "$FINAL_CONFIG" | awk '{print $1}')
+            echo "📊 Final file size: $FINAL_SIZE bytes"
+            echo "🔐 Final file permissions: $FINAL_PERMS"
+            
+            # Verify file integrity after rename
+            if [ "$SOURCE_SIZE" = "$FINAL_SIZE" ]; then
+              echo "✅ File integrity verified after rename (sizes match)"
+            else
+              echo "⚠️  Warning: File sizes don't match after rename (Source: $SOURCE_SIZE, Final: $FINAL_SIZE)"
+            fi
+          else
+            echo "❌ Error: Final renamed file not found"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to rename config file"
+          exit 1
+        fi
+        
+        echo ""
+        echo "✅ Config file copy, permission, and rename operation completed successfully!"
         
         # Final summary
         echo ""
         echo "📋 OPERATION SUMMARY:"
         echo "===================="
         echo "✅ Source: $SOURCE_CONFIG"
-        echo "✅ Destination: $DEST_CONFIG"
-        echo "✅ File Size: $DEST_SIZE bytes"
+        echo "✅ Final Destination: $FINAL_CONFIG"
+        echo "✅ File Size: $FINAL_SIZE bytes"
         echo "✅ Permissions: 777 (rwxrwxrwx)"
+        echo "✅ Previous Version: $PREV_VERSION"
+        echo "✅ Current Version: $CURRENT_VERSION"
         echo "✅ Operation Status: SUCCESS"
 
     - name: Update Summary with Copy Results
       run: |
         PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
-        CONFIG_FILE="config_${PREV_VERSION}.ini"
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
         DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
-        DEST_CONFIG="$DEST_PATH/$CONFIG_FILE"
+        FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
         
         {
           echo ""
@@ -308,13 +352,15 @@ jobs:
           echo "| Field | Value |"
           echo "|-------|-------|"
           echo "| Previous Version | $PREV_VERSION |"
-          echo "| Config File | $CONFIG_FILE |"
-          echo "| Source Path | \`/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/$PREV_VERSION/release/$CONFIG_FILE\` |"
-          echo "| Destination Path | \`$DEST_CONFIG\` |"
+          echo "| Current Version | $CURRENT_VERSION |"
+          echo "| Source File | \`config_${PREV_VERSION}.ini\` |"
+          echo "| Final File | \`config_${CURRENT_VERSION}.ini\` |"
+          echo "| Source Path | \`/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/$PREV_VERSION/release/config_${PREV_VERSION}.ini\` |"
+          echo "| Final Path | \`$FINAL_CONFIG\` |"
           
-          if [ -f "$DEST_CONFIG" ]; then
-            file_size=$(stat -f%z "$DEST_CONFIG" 2>/dev/null || stat -c%s "$DEST_CONFIG" 2>/dev/null || echo "unknown")
-            file_perms=$(ls -la "$DEST_CONFIG" | awk '{print $1}')
+          if [ -f "$FINAL_CONFIG" ]; then
+            file_size=$(stat -f%z "$FINAL_CONFIG" 2>/dev/null || stat -c%s "$FINAL_CONFIG" 2>/dev/null || echo "unknown")
+            file_perms=$(ls -la "$FINAL_CONFIG" | awk '{print $1}')
             echo "| File Size | $file_size bytes |"
             echo "| Permissions | $file_perms |"
             echo "| Status | ✅ SUCCESS |"
