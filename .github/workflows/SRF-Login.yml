@@ -59,6 +59,21 @@ jobs:
             exit 1
           fi
 
+      - name: Debug SSH connection to ELFLEET042
+        run: |
+          echo "=== Raw SSH connection test (verbose, no password) ==="
+          echo "Attempting: ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ env.SRF_USERNAME }}@${{ env.SUT_IP }} exit"
+          echo ""
+          timeout 35 /usr/bin/ssh \
+            -v \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=30 \
+            -o BatchMode=yes \
+            "${{ env.SRF_USERNAME }}@${{ env.SUT_IP }}" exit 2>&1 || true
+          echo ""
+          echo "=== SSH debug complete (auth failure is expected here - we just want to see the handshake) ==="
+
       - name: Login to ELFLEET042 via SSH (using expect)
         env:
           SRF_PASSWORD: ${{ secrets.SRF_ELFLEET042_PASSWORD }}
@@ -75,42 +90,49 @@ jobs:
 
           printf '%s\n' \
             '#!/usr/bin/expect -f' \
+            'log_user 1' \
             'set timeout 60' \
             'set ssh_host   [lindex $argv 0]' \
             'set ssh_user   [lindex $argv 1]' \
             'set ssh_pass   [lindex $argv 2]' \
             'set remote_cmd [lindex $argv 3]' \
-            'spawn /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 $ssh_user@$ssh_host $remote_cmd' \
+            'puts "DEBUG: Spawning SSH to $ssh_host as $ssh_user"' \
+            'spawn /usr/bin/ssh -v -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 $ssh_user@$ssh_host $remote_cmd' \
+            'puts "DEBUG: Waiting for password prompt or other patterns..."' \
             'expect {' \
-            '  "assword:"             { send "$ssh_pass\r"; exp_continue }' \
-            '  "yes/no"               { send "yes\r"; exp_continue }' \
-            '  "continue connecting"  { send "yes\r"; exp_continue }' \
-            '  eof                    { catch wait result; exit [lindex $result 3] }' \
-            '  timeout                { puts "ERROR: SSH connection timed out"; exit 1 }' \
+            '  -re "assword"          { puts "DEBUG: Got password prompt"; send "$ssh_pass\r"; exp_continue }' \
+            '  -re "yes/no"           { puts "DEBUG: Got yes/no prompt"; send "yes\r"; exp_continue }' \
+            '  -re "continue connect" { puts "DEBUG: Got continue prompt"; send "yes\r"; exp_continue }' \
+            '  -re "Permission denied" { puts "DEBUG: Permission denied - wrong credentials"; exit 1 }' \
+            '  -re "Connection refused" { puts "DEBUG: Connection refused"; exit 1 }' \
+            '  -re "No route to host"  { puts "DEBUG: No route to host"; exit 1 }' \
+            '  eof                    { puts "DEBUG: Got EOF"; catch wait result; set rc [lindex $result 3]; puts "DEBUG: Exit code $rc"; exit $rc }' \
+            '  timeout                { puts "DEBUG: Timed out waiting for response"; exit 1 }' \
             '}' \
             > "$EXPECT_SCRIPT"
 
           chmod +x "$EXPECT_SCRIPT"
 
-          LOGIN_OUTPUT=$(${{ env.EXPECT_PATH }} "$EXPECT_SCRIPT" \
+          echo "=== Expect script contents ==="
+          cat "$EXPECT_SCRIPT"
+          echo "=== Running expect script ==="
+
+          ${{ env.EXPECT_PATH }} "$EXPECT_SCRIPT" \
             "${{ env.SUT_IP }}" \
             "${{ env.SRF_USERNAME }}" \
             "$SRF_PASSWORD" \
-            "$REMOTE_CMD" 2>&1)
+            "$REMOTE_CMD" 2>&1
 
           LOGIN_EXIT=$?
           rm -f "$EXPECT_SCRIPT"
 
-          echo "$LOGIN_OUTPUT"
           echo ""
+          echo "Expect exit code: $LOGIN_EXIT"
 
           if [ $LOGIN_EXIT -eq 0 ]; then
             echo "SUCCESS: Login to ${{ env.SYSTEM_NAME }} completed successfully!"
           else
             echo "FAILURE: SSH login failed (exit code: $LOGIN_EXIT)"
-            echo "Troubleshooting:"
-            echo "  1. Verify secret SRF_ELFLEET042_PASSWORD is set correctly"
-            echo "  2. Confirm CEFLS_User has SSH access to ${{ env.SUT_IP }}"
             exit $LOGIN_EXIT
           fi
 
@@ -129,10 +151,4 @@ jobs:
             echo "| Login Reason | ${{ github.event.inputs.login_reason }} |"
             echo "| Triggered By | ${{ github.actor }} |"
             echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
-            echo "| Custom Command | ${{ github.event.inputs.run_command }} |"
-            echo ""
-            echo "### System Details"
-            echo "- Lab: ECO 2B SHARED MEGALAB | Rack: DCAI LAB#B116"
-            echo "- Memory: 768GB (16x 48GB DDR5-5600) | Storage: 1TB"
-            echo "- KVM: https://10.138.186.164 | BMC: 10.138.186.193"
           } >> $GITHUB_STEP_SUMMARY
