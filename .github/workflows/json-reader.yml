@@ -7,6 +7,9 @@ on:
         description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
         required: true
         type: string
+        default: 'entry_criteria_data.json'
+  repository_dispatch:
+    types: [trigger-json-reader]
 
 jobs:
   read-json:
@@ -20,13 +23,39 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
       
+    - name: Set JSON filename from payload or input
+      id: set_filename
+      run: |
+        # Check if triggered via repository_dispatch (API/token)
+        if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+          JSON_FILENAME="${{ github.event.client_payload.json_filename }}"
+          echo "📡 Triggered via API with payload"
+          echo "📄 JSON filename from payload: $JSON_FILENAME"
+        else
+          JSON_FILENAME="${{ github.event.inputs.json_filename }}"
+          echo "🖱️ Triggered manually via UI"
+          echo "📄 JSON filename from input: $JSON_FILENAME"
+        fi
+        
+        # Set default if empty
+        if [ -z "$JSON_FILENAME" ] || [ "$JSON_FILENAME" = "null" ]; then
+          JSON_FILENAME="entry_criteria_data.json"
+          echo "⚠️ No filename provided, using default: $JSON_FILENAME"
+        fi
+        
+        echo "✅ Final JSON filename: $JSON_FILENAME"
+        echo "json_filename=$JSON_FILENAME" >> $GITHUB_OUTPUT
+      
     - name: Validate JSON file exists
       id: validate
       run: |
-        JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
+        JSON_FILENAME="${{ steps.set_filename.outputs.json_filename }}"
+        JSON_FILE=".github/json_files/$JSON_FILENAME"
+        
+        echo "🔍 Validating JSON file: $JSON_FILE"
         
         if [ ! -f "$JSON_FILE" ]; then
-          echo "❌ Error: JSON file '${{ github.event.inputs.json_filename }}' not found!"
+          echo "❌ Error: JSON file '$JSON_FILENAME' not found!"
           echo ""
           echo "📁 Available JSON files in .github/json_files/:"
           if [ -d ".github/json_files" ]; then
@@ -34,6 +63,9 @@ jobs:
           else
             echo "  Directory .github/json_files/ does not exist"
           fi
+          echo ""
+          echo "💡 Make sure your JSON file is named correctly and placed in .github/json_files/"
+          echo "💡 If triggering via API, ensure the payload contains: {\"json_filename\": \"your_file.json\"}"
           exit 1
         fi
         
@@ -115,12 +147,18 @@ jobs:
     - name: Create Summary
       run: |
         JSON_FILE="${{ steps.validate.outputs.json_path }}"
+        JSON_FILENAME="${{ steps.set_filename.outputs.json_filename }}"
         
         # Create a summary for the GitHub Actions summary page
         {
           echo "# 📊 JSON Entry Criteria Summary"
           echo ""
-          echo "**File:** \`${{ github.event.inputs.json_filename }}\`"
+          echo "**File:** \`$JSON_FILENAME\`"
+          echo "**Trigger:** ${{ github.event_name }}"
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "**Event Type:** ${{ github.event.action }}"
+            echo "**Payload:** \`${{ toJson(github.event.client_payload) }}\`"
+          fi
           echo ""
           echo "## 📋 Section 1 Values"
           echo "| Field | Value |"
@@ -673,10 +711,18 @@ jobs:
           echo "ℹ️  No changes to commit (file might already exist with same content)"
         else
           echo "📝 Committing changes..."
+          # Get the JSON filename for commit message
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            JSON_FILENAME="${{ github.event.client_payload.json_filename }}"
+          else
+            JSON_FILENAME="${{ github.event.inputs.json_filename }}"
+          fi
+          
           git commit -m "Add prepared config file: config_${CURRENT_VERSION}.ini
           
-          - Generated from JSON: ${{ github.event.inputs.json_filename }}
+          - Generated from JSON: $JSON_FILENAME
           - Version: 0x${CURRENT_VERSION}
+          - Triggered via: ${{ github.event_name }}
           - Automated by GitHub Actions workflow
           - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           
