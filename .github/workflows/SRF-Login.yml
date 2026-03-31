@@ -1,0 +1,134 @@
+name: SRF System Login - ELFLEET042
+
+on:
+  workflow_dispatch:
+    inputs:
+      login_reason:
+        description: 'Reason for login (optional, for audit trail)'
+        required: false
+        type: string
+        default: 'Manual system access'
+      run_command:
+        description: 'Optional command to run after login (leave empty for just connection test)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  SUT_IP: 10.138.186.199
+  NUC_HOST: 10.138.186.148
+  SYSTEM_NAME: ELFLEET042
+  SRF_USERNAME: CEFLS_User
+
+jobs:
+  login-elfleet042:
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Display System Information
+        run: |
+          echo "=============================================="
+          echo "  SRF System Login - ELFLEET042"
+          echo "=============================================="
+          echo "System ID      : 776798"
+          echo "System Name    : ELFLEET042"
+          echo "Friendly Name  : ELFLEET042_OC"
+          echo "Platform       : Birch Stream SP"
+          echo "Processor      : SRF SP"
+          echo "SUT/OS IP      : ${{ env.SUT_IP }}"
+          echo "NUC-HOST IP    : ${{ env.NUC_HOST }}"
+          echo "Username       : ${{ env.SRF_USERNAME }}"
+          echo "Login Reason   : ${{ github.event.inputs.login_reason }}"
+          echo "Triggered by   : ${{ github.actor }}"
+          echo "Timestamp      : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "=============================================="
+
+      - name: Verify SSH connectivity to ELFLEET042
+        run: |
+          echo "🔍 Checking SSH connectivity to ${{ env.SYSTEM_NAME }} (${{ env.SUT_IP }})..."
+
+          # Test TCP connectivity on port 22 first
+          if timeout 10 bash -c "echo >/dev/tcp/${{ env.SUT_IP }}/22" 2>/dev/null; then
+            echo "✅ Port 22 is reachable on ${{ env.SUT_IP }}"
+          else
+            echo "❌ ERROR: Cannot reach ${{ env.SUT_IP }}:22 - ensure you are on the correct VPN (OpenVPN)"
+            echo "   System requires OpenVPN - verify VPN connection on the runner"
+            exit 1
+          fi
+
+      - name: Login to ELFLEET042 via SSH
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_ELFLEET042_PASSWORD }}
+        run: |
+          echo "🔐 Logging in to ${{ env.SYSTEM_NAME }} as ${{ env.SRF_USERNAME }}..."
+
+          # Use sshpass for password-based SSH login
+          if ! command -v sshpass &>/dev/null; then
+            echo "❌ ERROR: sshpass is not installed on the runner."
+            echo "   Install it with: sudo apt-get install -y sshpass  (Debian/Ubuntu)"
+            echo "                or: sudo yum install -y sshpass       (RHEL/CentOS)"
+            exit 1
+          fi
+
+          # Build the remote command
+          REMOTE_CMD="echo '✅ Successfully logged in to \$(hostname) as \$(whoami)'; echo 'System uptime:'; uptime; echo 'Kernel:'; uname -r; echo 'Disk usage:'; df -h / 2>/dev/null || echo 'N/A'"
+
+          # Append optional user command if provided
+          if [ -n "${{ github.event.inputs.run_command }}" ]; then
+            REMOTE_CMD="$REMOTE_CMD; echo '--- Running custom command ---'; ${{ github.event.inputs.run_command }}"
+          fi
+
+          LOGIN_RESULT=$(sshpass -p "$SRF_PASSWORD" ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=30 \
+            -o ServerAliveInterval=10 \
+            -o ServerAliveCountMax=3 \
+            "${{ env.SRF_USERNAME }}@${{ env.SUT_IP }}" \
+            "$REMOTE_CMD" 2>&1)
+
+          SSH_EXIT=$?
+
+          echo "$LOGIN_RESULT"
+          echo ""
+
+          if [ $SSH_EXIT -eq 0 ]; then
+            echo "✅ SUCCESS: Login to ${{ env.SYSTEM_NAME }} completed successfully!"
+          else
+            echo "❌ FAILURE: SSH login to ${{ env.SYSTEM_NAME }} failed (exit code: $SSH_EXIT)"
+            echo ""
+            echo "Troubleshooting tips:"
+            echo "  1. Ensure OpenVPN is active on the runner (Connection type: OpenVPN)"
+            echo "  2. Verify secret SRF_ELFLEET042_PASSWORD is correctly set"
+            echo "  3. Check that ${{ env.SRF_USERNAME }} has access to this system"
+            echo "  4. Allowed users: muthusel, gkolanjx, CE-FLS_BDC_Lab, PSE_CSE_BDC"
+            exit $SSH_EXIT
+          fi
+
+      - name: Display Login Summary
+        if: always()
+        run: |
+          {
+            echo "# 🖥️ SRF System Login - ELFLEET042"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| System | ELFLEET042 (System ID: 776798) |"
+            echo "| Platform | Birch Stream SP / SRF SP |"
+            echo "| SUT/OS IP | \`${{ env.SUT_IP }}\` |"
+            echo "| NUC-HOST IP | \`${{ env.NUC_HOST }}\` |"
+            echo "| Username | \`${{ env.SRF_USERNAME }}\` |"
+            echo "| Login Reason | ${{ github.event.inputs.login_reason }} |"
+            echo "| Triggered By | ${{ github.actor }} |"
+            echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
+            echo "| Custom Command | \`${{ github.event.inputs.run_command }}\` |"
+            echo ""
+            echo "### System Details"
+            echo "- **Lab**: ECO 2B SHARED MEGALAB"
+            echo "- **Campus Rack**: DCAI LAB#B116"
+            echo "- **Memory**: 768GB (16x 48GB DDR5 5600-1Rx8)"
+            echo "- **Storage**: 1TB"
+            echo "- **CPU ID**: A0 / Q46E QSPEC"
+            echo "- **KVM**: https://10.138.186.164"
+            echo "- **BMC**: 10.138.186.193"
+            echo "- **COE**: SDPCloud"
+          } >> $GITHUB_STEP_SUMMARY
