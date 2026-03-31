@@ -59,17 +59,6 @@ jobs:
             exit 1
           fi
 
-      - name: Verify TCP connectivity to ELFLEET042
-        run: |
-          echo "Checking TCP connectivity to ${{ env.SYSTEM_NAME }} (${{ env.SUT_IP }}:22)..."
-          if timeout 10 bash -c "echo >/dev/tcp/${{ env.SUT_IP }}/22" 2>/dev/null; then
-            echo "Port 22 is reachable on ${{ env.SUT_IP }}"
-          else
-            echo "ERROR: Cannot reach ${{ env.SUT_IP }}:22"
-            echo "Ensure the runner is connected via OpenVPN (required for this system)"
-            exit 1
-          fi
-
       - name: Login to ELFLEET042 via SSH (using expect)
         env:
           SRF_PASSWORD: ${{ secrets.SRF_ELFLEET042_PASSWORD }}
@@ -86,17 +75,18 @@ jobs:
 
           printf '%s\n' \
             '#!/usr/bin/expect -f' \
-            'set timeout 30' \
+            'set timeout 60' \
             'set ssh_host   [lindex $argv 0]' \
             'set ssh_user   [lindex $argv 1]' \
             'set ssh_pass   [lindex $argv 2]' \
             'set remote_cmd [lindex $argv 3]' \
-            'spawn /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 $ssh_user@$ssh_host $remote_cmd' \
+            'spawn /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 $ssh_user@$ssh_host $remote_cmd' \
             'expect {' \
-            '  "assword:" { send "$ssh_pass\r"; exp_continue }' \
-            '  "yes/no"   { send "yes\r"; exp_continue }' \
-            '  eof        { catch wait result; exit [lindex $result 3] }' \
-            '  timeout    { puts "ERROR: SSH timed out"; exit 1 }' \
+            '  "assword:"             { send "$ssh_pass\r"; exp_continue }' \
+            '  "yes/no"               { send "yes\r"; exp_continue }' \
+            '  "continue connecting"  { send "yes\r"; exp_continue }' \
+            '  eof                    { catch wait result; exit [lindex $result 3] }' \
+            '  timeout                { puts "ERROR: SSH connection timed out"; exit 1 }' \
             '}' \
             > "$EXPECT_SCRIPT"
 
@@ -117,11 +107,10 @@ jobs:
           if [ $LOGIN_EXIT -eq 0 ]; then
             echo "SUCCESS: Login to ${{ env.SYSTEM_NAME }} completed successfully!"
           else
-            echo "FAILURE: SSH login to ${{ env.SYSTEM_NAME }} failed (exit code: $LOGIN_EXIT)"
+            echo "FAILURE: SSH login failed (exit code: $LOGIN_EXIT)"
             echo "Troubleshooting:"
-            echo "  1. Ensure runner is on OpenVPN (required for this system)"
-            echo "  2. Verify secret SRF_ELFLEET042_PASSWORD is set correctly"
-            echo "  3. Allowed users: muthusel, gkolanjx, CE-FLS_BDC_Lab, PSE_CSE_BDC"
+            echo "  1. Verify secret SRF_ELFLEET042_PASSWORD is set correctly"
+            echo "  2. Confirm CEFLS_User has SSH access to ${{ env.SUT_IP }}"
             exit $LOGIN_EXIT
           fi
 
@@ -146,5 +135,4 @@ jobs:
             echo "- Lab: ECO 2B SHARED MEGALAB | Rack: DCAI LAB#B116"
             echo "- Memory: 768GB (16x 48GB DDR5-5600) | Storage: 1TB"
             echo "- KVM: https://10.138.186.164 | BMC: 10.138.186.193"
-            echo "- COE: SDPCloud | Country: India"
           } >> $GITHUB_STEP_SUMMARY
