@@ -15,7 +15,7 @@ on:
         default: ''
 
 env:
-  SUT_IP: 10.138.186.199
+  SUT_IP: 10.138.186.148 
   SYSTEM_NAME: ELFLEET042
   SRF_USERNAME: CEFLS_User
   EXPECT_PATH: /usr/bin/expect
