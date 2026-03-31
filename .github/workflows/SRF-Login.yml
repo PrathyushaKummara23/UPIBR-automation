@@ -16,9 +16,10 @@ on:
 
 env:
   SUT_IP: 10.138.186.199
-  NUC_HOST: 10.138.186.148
   SYSTEM_NAME: ELFLEET042
   SRF_USERNAME: CEFLS_User
+  EXPECT_PATH: /usr/bin/expect
+  SSH_PATH: /usr/bin/ssh
 
 jobs:
   login-elfleet042:
@@ -30,78 +31,126 @@ jobs:
           echo "  SRF System Login - ELFLEET042"
           echo "=============================================="
           echo "System ID      : 776798"
-          echo "System Name    : ELFLEET042"
           echo "Friendly Name  : ELFLEET042_OC"
-          echo "Platform       : Birch Stream SP"
-          echo "Processor      : SRF SP"
+          echo "Platform       : Birch Stream SP / SRF SP"
           echo "SUT/OS IP      : ${{ env.SUT_IP }}"
-          echo "NUC-HOST IP    : ${{ env.NUC_HOST }}"
+          echo "BMC IP         : 10.138.186.193"
+          echo "NUC-HOST       : 10.138.186.148"
           echo "Username       : ${{ env.SRF_USERNAME }}"
           echo "Login Reason   : ${{ github.event.inputs.login_reason }}"
           echo "Triggered by   : ${{ github.actor }}"
           echo "Timestamp      : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo "=============================================="
 
-      - name: Verify SSH connectivity to ELFLEET042
+      - name: Verify SSH and expect tools exist
         run: |
-          echo "🔍 Checking SSH connectivity to ${{ env.SYSTEM_NAME }} (${{ env.SUT_IP }})..."
+          echo "🔍 Verifying required tools..."
 
-          # Test TCP connectivity on port 22 first
-          if timeout 10 bash -c "echo >/dev/tcp/${{ env.SUT_IP }}/22" 2>/dev/null; then
-            echo "✅ Port 22 is reachable on ${{ env.SUT_IP }}"
+          if [ -f "${{ env.SSH_PATH }}" ]; then
+            echo "✅ ssh found: ${{ env.SSH_PATH }}"
           else
-            echo "❌ ERROR: Cannot reach ${{ env.SUT_IP }}:22 - ensure you are on the correct VPN (OpenVPN)"
-            echo "   System requires OpenVPN - verify VPN connection on the runner"
+            echo "❌ ssh not found at ${{ env.SSH_PATH }}"
             exit 1
           fi
 
-      - name: Login to ELFLEET042 via SSH
+          if [ -f "${{ env.EXPECT_PATH }}" ]; then
+            echo "✅ expect found: ${{ env.EXPECT_PATH }}"
+          else
+            echo "❌ expect not found at ${{ env.EXPECT_PATH }}"
+            exit 1
+          fi
+
+      - name: Verify TCP connectivity to ELFLEET042
+        run: |
+          echo "🔍 Checking TCP connectivity to ${{ env.SYSTEM_NAME }} (${{ env.SUT_IP }}:22)..."
+
+          if timeout 10 bash -c "echo >/dev/tcp/${{ env.SUT_IP }}/22" 2>/dev/null; then
+            echo "✅ Port 22 is reachable on ${{ env.SUT_IP }}"
+          else
+            echo "❌ ERROR: Cannot reach ${{ env.SUT_IP }}:22"
+            echo "   Ensure the runner is connected via OpenVPN (required for this system)"
+            exit 1
+          fi
+
+      - name: Login to ELFLEET042 via SSH (using expect)
         env:
           SRF_PASSWORD: ${{ secrets.SRF_ELFLEET042_PASSWORD }}
         run: |
           echo "🔐 Logging in to ${{ env.SYSTEM_NAME }} as ${{ env.SRF_USERNAME }}..."
 
-          # Use sshpass for password-based SSH login
-          if ! command -v sshpass &>/dev/null; then
-            echo "❌ ERROR: sshpass is not installed on the runner."
-            echo "   Install it with: sudo apt-get install -y sshpass  (Debian/Ubuntu)"
-            echo "                or: sudo yum install -y sshpass       (RHEL/CentOS)"
-            exit 1
-          fi
+          # Build the remote command to run after login
+          REMOTE_CMD="echo 'LOGIN_SUCCESS'; echo '--- Hostname ---'; hostname; echo '--- Logged in as ---'; whoami; echo '--- Uptime ---'; uptime; echo '--- Kernel ---'; uname -r; echo '--- Disk Usage ---'; df -h / 2>/dev/null || echo N/A"
 
-          # Build the remote command
-          REMOTE_CMD="echo '✅ Successfully logged in to \$(hostname) as \$(whoami)'; echo 'System uptime:'; uptime; echo 'Kernel:'; uname -r; echo 'Disk usage:'; df -h / 2>/dev/null || echo 'N/A'"
-
-          # Append optional user command if provided
           if [ -n "${{ github.event.inputs.run_command }}" ]; then
-            REMOTE_CMD="$REMOTE_CMD; echo '--- Running custom command ---'; ${{ github.event.inputs.run_command }}"
+            REMOTE_CMD="$REMOTE_CMD; echo '--- Custom Command Output ---'; ${{ github.event.inputs.run_command }}"
           fi
 
-          LOGIN_RESULT=$(sshpass -p "$SRF_PASSWORD" ssh \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 \
-            -o ServerAliveInterval=10 \
-            -o ServerAliveCountMax=3 \
-            "${{ env.SRF_USERNAME }}@${{ env.SUT_IP }}" \
+          # Write expect script
+          cat > /tmp/ssh_login_elfleet042.exp << 'EXPECT_EOF'
+#!/usr/bin/expect -f
+set timeout 30
+set ssh_host    [lindex $argv 0]
+set ssh_user    [lindex $argv 1]
+set ssh_pass    [lindex $argv 2]
+set remote_cmd  [lindex $argv 3]
+
+spawn /usr/bin/ssh \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null \
+  -o ConnectTimeout=20 \
+  $ssh_user@$ssh_host \
+  $remote_cmd
+
+expect {
+  "assword:" {
+    send "$ssh_pass\r"
+    exp_continue
+  }
+  "yes/no" {
+    send "yes\r"
+    exp_continue
+  }
+  "LOGIN_SUCCESS" {
+    exp_continue
+  }
+  eof {
+    catch wait result
+    exit [lindex $result 3]
+  }
+  timeout {
+    puts "ERROR: SSH connection timed out after 30 seconds"
+    exit 1
+  }
+}
+EXPECT_EOF
+
+          chmod +x /tmp/ssh_login_elfleet042.exp
+
+          # Run the expect script
+          LOGIN_OUTPUT=$(${{ env.EXPECT_PATH }} /tmp/ssh_login_elfleet042.exp \
+            "${{ env.SUT_IP }}" \
+            "${{ env.SRF_USERNAME }}" \
+            "$SRF_PASSWORD" \
             "$REMOTE_CMD" 2>&1)
 
-          SSH_EXIT=$?
+          LOGIN_EXIT=$?
 
-          echo "$LOGIN_RESULT"
+          # Cleanup
+          rm -f /tmp/ssh_login_elfleet042.exp
+
+          echo "$LOGIN_OUTPUT"
           echo ""
 
-          if [ $SSH_EXIT -eq 0 ]; then
+          if [ $LOGIN_EXIT -eq 0 ]; then
             echo "✅ SUCCESS: Login to ${{ env.SYSTEM_NAME }} completed successfully!"
           else
-            echo "❌ FAILURE: SSH login to ${{ env.SYSTEM_NAME }} failed (exit code: $SSH_EXIT)"
+            echo "❌ FAILURE: SSH login to ${{ env.SYSTEM_NAME }} failed (exit code: $LOGIN_EXIT)"
             echo ""
-            echo "Troubleshooting tips:"
-            echo "  1. Ensure OpenVPN is active on the runner (Connection type: OpenVPN)"
-            echo "  2. Verify secret SRF_ELFLEET042_PASSWORD is correctly set"
-            echo "  3. Check that ${{ env.SRF_USERNAME }} has access to this system"
-            echo "  4. Allowed users: muthusel, gkolanjx, CE-FLS_BDC_Lab, PSE_CSE_BDC"
-            exit $SSH_EXIT
+            echo "Troubleshooting:"
+            echo "  1. Ensure runner is on OpenVPN (required for this system)"
+            echo "  2. Verify secret SRF_ELFLEET042_PASSWORD is set correctly"
+            echo "  3. Allowed users: muthusel, gkolanjx, CE-FLS_BDC_Lab, PSE_CSE_BDC"
+            exit $LOGIN_EXIT
           fi
 
       - name: Display Login Summary
@@ -115,7 +164,6 @@ jobs:
             echo "| System | ELFLEET042 (System ID: 776798) |"
             echo "| Platform | Birch Stream SP / SRF SP |"
             echo "| SUT/OS IP | \`${{ env.SUT_IP }}\` |"
-            echo "| NUC-HOST IP | \`${{ env.NUC_HOST }}\` |"
             echo "| Username | \`${{ env.SRF_USERNAME }}\` |"
             echo "| Login Reason | ${{ github.event.inputs.login_reason }} |"
             echo "| Triggered By | ${{ github.actor }} |"
@@ -123,12 +171,8 @@ jobs:
             echo "| Custom Command | \`${{ github.event.inputs.run_command }}\` |"
             echo ""
             echo "### System Details"
-            echo "- **Lab**: ECO 2B SHARED MEGALAB"
-            echo "- **Campus Rack**: DCAI LAB#B116"
-            echo "- **Memory**: 768GB (16x 48GB DDR5 5600-1Rx8)"
-            echo "- **Storage**: 1TB"
-            echo "- **CPU ID**: A0 / Q46E QSPEC"
-            echo "- **KVM**: https://10.138.186.164"
-            echo "- **BMC**: 10.138.186.193"
-            echo "- **COE**: SDPCloud"
+            echo "- **Lab**: ECO 2B SHARED MEGALAB | **Rack**: DCAI LAB#B116"
+            echo "- **Memory**: 768GB (16x 48GB DDR5-5600) | **Storage**: 1TB"
+            echo "- **KVM**: https://10.138.186.164 | **BMC**: 10.138.186.193"
+            echo "- **COE**: SDPCloud | **Country**: India"
           } >> $GITHUB_STEP_SUMMARY
