@@ -6,3 +6,4 @@ jobs:
     steps:
     - name: Opening Real VNC
       run: '"C:\Program Files\RealVNC\VNC Viewer\vncviewer.exe"'
+      shell: powershell
