@@ -1,0 +1,8 @@
+name: Open RealVNC
+on: workflow_dispatch
+jobs:
+  opening-real-vnc:
+    runs-on: self-hosted
+    steps:
+    - name: Opening Real VNC
+      run: '"C:\Program Files\RealVNC\VNC Viewer\vncviewer.exe"'
