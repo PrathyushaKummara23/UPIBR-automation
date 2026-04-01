@@ -5,5 +5,7 @@ jobs:
     runs-on: self-hosted
     steps:
     - name: Opening Real VNC
-      run: '"C:\Program Files\RealVNC\VNC Viewer\vncviewer.exe"'
-      shell: powershell
+      run: |
+        cd "C:\Program Files\RealVNC\VNC Viewer"
+        vncviewer.exe
+      shell: cmd
