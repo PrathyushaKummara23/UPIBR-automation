@@ -1,0 +1,154 @@
+name: SRF System Login - ELFLEET042
+
+on:
+  workflow_dispatch:
+    inputs:
+      login_reason:
+        description: 'Reason for login (optional, for audit trail)'
+        required: false
+        type: string
+        default: 'Manual system access'
+      run_command:
+        description: 'Optional command to run after login (leave empty for just connection test)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  SUT_IP: 10.138.186.148 
+  SYSTEM_NAME: ELFLEET042
+  SRF_USERNAME: CEFLS_User
+  EXPECT_PATH: /usr/bin/expect
+  SSH_PATH: /usr/bin/ssh
+
+jobs:
+  login-elfleet042:
+    runs-on: [self-hosted, node16]
+
+    steps:
+      - name: Display System Information
+        run: |
+          echo "=============================================="
+          echo "  SRF System Login - ELFLEET042"
+          echo "=============================================="
+          echo "System ID      : 776798"
+          echo "Friendly Name  : ELFLEET042_OC"
+          echo "Platform       : Birch Stream SP / SRF SP"
+          echo "SUT/OS IP      : ${{ env.SUT_IP }}"
+          echo "BMC IP         : 10.138.186.193"
+          echo "NUC-HOST       : 10.138.186.148"
+          echo "Username       : ${{ env.SRF_USERNAME }}"
+          echo "Login Reason   : ${{ github.event.inputs.login_reason }}"
+          echo "Triggered by   : ${{ github.actor }}"
+          echo "Timestamp      : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "=============================================="
+
+      - name: Verify SSH and expect tools exist
+        run: |
+          echo "Verifying required tools..."
+          if [ -f "${{ env.SSH_PATH }}" ]; then
+            echo "ssh found: ${{ env.SSH_PATH }}"
+          else
+            echo "ERROR: ssh not found at ${{ env.SSH_PATH }}"
+            exit 1
+          fi
+          if [ -f "${{ env.EXPECT_PATH }}" ]; then
+            echo "expect found: ${{ env.EXPECT_PATH }}"
+          else
+            echo "ERROR: expect not found at ${{ env.EXPECT_PATH }}"
+            exit 1
+          fi
+
+      - name: Debug SSH connection to ELFLEET042
+        run: |
+          echo "=== Raw SSH connection test (verbose, no password) ==="
+          echo "Attempting: ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ env.SRF_USERNAME }}@${{ env.SUT_IP }} exit"
+          echo ""
+          timeout 35 /usr/bin/ssh \
+            -v \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=30 \
+            -o BatchMode=yes \
+            "${{ env.SRF_USERNAME }}@${{ env.SUT_IP }}" exit 2>&1 || true
+          echo ""
+          echo "=== SSH debug complete (auth failure is expected here - we just want to see the handshake) ==="
+
+      - name: Login to ELFLEET042 via SSH (using expect)
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_ELFLEET042_PASSWORD }}
+        run: |
+          echo "Logging in to ${{ env.SYSTEM_NAME }} as ${{ env.SRF_USERNAME }}..."
+
+          REMOTE_CMD="echo LOGIN_SUCCESS; hostname; whoami; uptime; uname -r"
+
+          if [ -n "${{ github.event.inputs.run_command }}" ]; then
+            REMOTE_CMD="$REMOTE_CMD; ${{ github.event.inputs.run_command }}"
+          fi
+
+          EXPECT_SCRIPT="/tmp/ssh_login_elfleet042_$$.exp"
+
+          printf '%s\n' \
+            '#!/usr/bin/expect -f' \
+            'log_user 1' \
+            'set timeout 60' \
+            'set ssh_host   [lindex $argv 0]' \
+            'set ssh_user   [lindex $argv 1]' \
+            'set ssh_pass   [lindex $argv 2]' \
+            'set remote_cmd [lindex $argv 3]' \
+            'puts "DEBUG: Spawning SSH to $ssh_host as $ssh_user"' \
+            'spawn /usr/bin/ssh -v -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 $ssh_user@$ssh_host $remote_cmd' \
+            'puts "DEBUG: Waiting for password prompt or other patterns..."' \
+            'expect {' \
+            '  -re "assword"          { puts "DEBUG: Got password prompt"; send "$ssh_pass\r"; exp_continue }' \
+            '  -re "yes/no"           { puts "DEBUG: Got yes/no prompt"; send "yes\r"; exp_continue }' \
+            '  -re "continue connect" { puts "DEBUG: Got continue prompt"; send "yes\r"; exp_continue }' \
+            '  -re "Permission denied" { puts "DEBUG: Permission denied - wrong credentials"; exit 1 }' \
+            '  -re "Connection refused" { puts "DEBUG: Connection refused"; exit 1 }' \
+            '  -re "No route to host"  { puts "DEBUG: No route to host"; exit 1 }' \
+            '  eof                    { puts "DEBUG: Got EOF"; catch wait result; set rc [lindex $result 3]; puts "DEBUG: Exit code $rc"; exit $rc }' \
+            '  timeout                { puts "DEBUG: Timed out waiting for response"; exit 1 }' \
+            '}' \
+            > "$EXPECT_SCRIPT"
+
+          chmod +x "$EXPECT_SCRIPT"
+
+          echo "=== Expect script contents ==="
+          cat "$EXPECT_SCRIPT"
+          echo "=== Running expect script ==="
+
+          ${{ env.EXPECT_PATH }} "$EXPECT_SCRIPT" \
+            "${{ env.SUT_IP }}" \
+            "${{ env.SRF_USERNAME }}" \
+            "$SRF_PASSWORD" \
+            "$REMOTE_CMD" 2>&1
+
+          LOGIN_EXIT=$?
+          rm -f "$EXPECT_SCRIPT"
+
+          echo ""
+          echo "Expect exit code: $LOGIN_EXIT"
+
+          if [ $LOGIN_EXIT -eq 0 ]; then
+            echo "SUCCESS: Login to ${{ env.SYSTEM_NAME }} completed successfully!"
+          else
+            echo "FAILURE: SSH login failed (exit code: $LOGIN_EXIT)"
+            exit $LOGIN_EXIT
+          fi
+
+      - name: Display Login Summary
+        if: always()
+        run: |
+          {
+            echo "# SRF System Login - ELFLEET042"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| System | ELFLEET042 (System ID: 776798) |"
+            echo "| Platform | Birch Stream SP / SRF SP |"
+            echo "| SUT/OS IP | ${{ env.SUT_IP }} |"
+            echo "| Username | ${{ env.SRF_USERNAME }} |"
+            echo "| Login Reason | ${{ github.event.inputs.login_reason }} |"
+            echo "| Triggered By | ${{ github.actor }} |"
+            echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
+          } >> $GITHUB_STEP_SUMMARY

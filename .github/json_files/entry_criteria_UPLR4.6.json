@@ -3,42 +3,47 @@
         {
             "sr_no": 1,
             "check_list_item": "Milestone",
-            "entry": "UPLR0"
+            "entry": "UPLR4.6"
         },
         {
             "sr_no": 2,
-            "check_list_item": "UP Base Line Version",
-            "entry": "0x830003A3"
+            "check_list_item": "patch_description",
+            "entry": " "
         },
         {
             "sr_no": 3,
-            "check_list_item": "SVN Version",
-            "entry": "0x08"
+            "check_list_item": "version",
+            "entry": "0x830003B6"
         },
         {
             "sr_no": 4,
-            "check_list_item": "SVN_SE Version",
-            "entry": "7"
+            "check_list_item": "svn",
+            "entry": "0x09"
         },
         {
             "sr_no": 5,
-            "check_list_item": "Min SVN",
+            "check_list_item": "se_svn",
             "entry": "0x7"
         },
         {
             "sr_no": 6,
-            "check_list_item": "Min Runtime ID",
-            "entry": "24511"
+            "check_list_item": "min_svn",
+            "entry": "3"
         },
         {
             "sr_no": 7,
-            "check_list_item": "Rollback ID",
-            "entry": "22110"
+            "check_list_item": "min_runtime_id",
+            "entry": " "
         },
         {
             "sr_no": 8,
-            "check_list_item": "New UP Version",
-            "entry": "0x81321421"
+            "check_list_item": "patch_rollback_flags",
+            "entry": " "    
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "prev_version",
+            "entry": "0x830003A3"
         }
     ],
     "ucode": [

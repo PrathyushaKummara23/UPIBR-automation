@@ -1,29 +1,31 @@
-# Experimental Patch Build Automation
+# UPIBR-automation
 
-This repository automates the experimental debug patch build process for SRF unified patches.
+Automates the SRF Unified Patch Integrated Build & Release (UPIBR) process using GitHub Actions.
 
-## Overview
+## Runner
 
-This automation replaces the manual process of building experimental debug patches by:
-- Automatically generating experimental versions from baseline versions
-- Creating and modifying configuration files
-- Running the build process with proper error handling
-- Managing manual CSS signing steps
-- Validating build outputs
+All workflows use a **self-hosted runner** with the `node16` label:
+```
+runs-on: [self-hosted, node16]
+```
 
-## Usage
+## Workflows
 
-### Running the Workflow
+| Workflow | Description |
+|---|---|
+| `SRF-Exp-UP-build.yml` | Experimental UP patch build |
+| `SRF-Debug-UP.yml` | Debug UP patch build |
+| `json-reader.yml` | Reads JSON milestone/entry criteria files |
+| `kerberos-setup.yml` | Sets up Kerberos authentication |
+| `user-switch-new.yml` | Handles user switching during build |
+| `test-runner.yml` | Runs validation tests |
 
-1. Go to the **Actions** tab in GitHub
-2. Select **"Experimental Debug Patch Build"**
-3. Click **"Run workflow"**
-4. Fill in the required parameters:
-   - **Baseline version**: e.g., `830003A3`
-   - **OCODE path**: Full path to the OCODE file
-   - **Requester name**: Your name
-   - **Description**: Optional custom description
-   - **Additional changes**: Optional JSON for other code changes
-   - **Enable notifications**: Check to enable email notifications
+## How to Run
 
-# Testing Node 16 runner fix
+1. Go to the **Actions** tab
+2. Select the desired workflow
+3. Click **Run workflow** and fill in the inputs
+
+## Maintainer
+
+[@PrathyushaKummara23](https://github.com/PrathyushaKummara23)

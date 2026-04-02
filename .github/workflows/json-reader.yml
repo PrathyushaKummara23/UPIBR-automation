@@ -1,34 +1,15 @@
-name: SRF Debug UP Build - Complete Pipeline
+name: JSON Entry Criteria Reader
 
 on:
-  push:                    # Keep existing triggers if any
-    branches: [main]
-  pull_request:           # Keep existing triggers if any  
-    branches: [main]
-  workflow_dispatch:      # ← ADD THIS BLOCK for Python triggering
+  workflow_dispatch:
     inputs:
       json_filename:
         description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
         required: true
         type: string
-      build_description:
-        description: 'Build description'
-        required: false
-        type: string
-        default: 'SRF Debug UP Automated Build'
-      environment:
-        description: 'Environment'
-        required: false
-        type: string
-        default: 'production'
-
-env:
-  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
-  KTAB_PATH: /usr/intel/bin/ktab
-  KCRON_PATH: /usr/intel/bin/kcron
-  PYTHON_PATH: /usr/intel/bin/python3.7.4
-  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxtMuppt.py
-  EXPECT_PATH: /usr/bin/expect
+        default: 'entry_criteria_data.json'
+  repository_dispatch:
+    types: [trigger-json-reader]
 
 jobs:
   read-json:
@@ -42,13 +23,39 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
       
+    - name: Set JSON filename from payload or input
+      id: set_filename
+      run: |
+        # Check if triggered via repository_dispatch (API/token)
+        if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+          JSON_FILENAME="${{ github.event.client_payload.json_filename }}"
+          echo "📡 Triggered via API with payload"
+          echo "📄 JSON filename from payload: $JSON_FILENAME"
+        else
+          JSON_FILENAME="${{ github.event.inputs.json_filename }}"
+          echo "🖱️ Triggered manually via UI"
+          echo "📄 JSON filename from input: $JSON_FILENAME"
+        fi
+        
+        # Set default if empty
+        if [ -z "$JSON_FILENAME" ] || [ "$JSON_FILENAME" = "null" ]; then
+          JSON_FILENAME="entry_criteria_data.json"
+          echo "⚠️ No filename provided, using default: $JSON_FILENAME"
+        fi
+        
+        echo "✅ Final JSON filename: $JSON_FILENAME"
+        echo "json_filename=$JSON_FILENAME" >> $GITHUB_OUTPUT
+      
     - name: Validate JSON file exists
       id: validate
       run: |
-        JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
+        JSON_FILENAME="${{ steps.set_filename.outputs.json_filename }}"
+        JSON_FILE=".github/json_files/$JSON_FILENAME"
+        
+        echo "🔍 Validating JSON file: $JSON_FILE"
         
         if [ ! -f "$JSON_FILE" ]; then
-          echo "❌ Error: JSON file '${{ github.event.inputs.json_filename }}' not found!"
+          echo "❌ Error: JSON file '$JSON_FILENAME' not found!"
           echo ""
           echo "📁 Available JSON files in .github/json_files/:"
           if [ -d ".github/json_files" ]; then
@@ -56,6 +63,9 @@ jobs:
           else
             echo "  Directory .github/json_files/ does not exist"
           fi
+          echo ""
+          echo "💡 Make sure your JSON file is named correctly and placed in .github/json_files/"
+          echo "💡 If triggering via API, ensure the payload contains: {\"json_filename\": \"your_file.json\"}"
           exit 1
         fi
         
@@ -137,12 +147,18 @@ jobs:
     - name: Create Summary
       run: |
         JSON_FILE="${{ steps.validate.outputs.json_path }}"
+        JSON_FILENAME="${{ steps.set_filename.outputs.json_filename }}"
         
         # Create a summary for the GitHub Actions summary page
         {
-          echo "# 📊 SRF Debug UP Build Pipeline"
+          echo "# 📊 JSON Entry Criteria Summary"
           echo ""
-          echo "**JSON File:** \`${{ github.event.inputs.json_filename }}\`"
+          echo "**File:** \`$JSON_FILENAME\`"
+          echo "**Trigger:** ${{ github.event_name }}"
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "**Event Type:** ${{ github.event.action }}"
+            echo "**Payload:** \`${{ toJson(github.event.client_payload) }}\`"
+          fi
           echo ""
           echo "## 📋 Section 1 Values"
           echo "| Field | Value |"
@@ -348,6 +364,49 @@ jobs:
         
         echo ""
         echo "✅ Config file copy, permission, and rename operation completed successfully!"
+        
+        # Final summary
+        echo ""
+        echo "📋 OPERATION SUMMARY:"
+        echo "===================="
+        echo "✅ Source: $SOURCE_CONFIG"
+        echo "✅ Final Destination: $FINAL_CONFIG"
+        echo "✅ File Size: $FINAL_SIZE bytes"
+        echo "✅ Permissions: 777 (rwxrwxrwx)"
+        echo "✅ Previous Version: $PREV_VERSION"
+        echo "✅ Current Version: $CURRENT_VERSION"
+        echo "✅ Operation Status: SUCCESS"
+
+    - name: Update Summary with Copy Results
+      run: |
+        PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+        
+        {
+          echo ""
+          echo "## 📋 Config File Copy Results"
+          echo "| Field | Value |"
+          echo "|-------|-------|"
+          echo "| Previous Version | $PREV_VERSION |"
+          echo "| Current Version | $CURRENT_VERSION |"
+          echo "| Source File | \`config_${PREV_VERSION}.ini\` |"
+          echo "| Final File | \`config_${CURRENT_VERSION}.ini\` |"
+          echo "| Source Path | \`/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/$PREV_VERSION/release/config_${PREV_VERSION}.ini\` |"
+          echo "| Final Path | \`$FINAL_CONFIG\` |"
+          
+          if [ -f "$FINAL_CONFIG" ]; then
+            file_size=$(stat -f%z "$FINAL_CONFIG" 2>/dev/null || stat -c%s "$FINAL_CONFIG" 2>/dev/null || echo "unknown")
+            file_perms=$(ls -la "$FINAL_CONFIG" | awk '{print $1}')
+            echo "| File Size | $file_size bytes |"
+            echo "| Permissions | $file_perms |"
+            echo "| Status | ✅ SUCCESS |"
+          else
+            echo "| Status | ❌ FAILED |"
+          fi
+          
+        } >> $GITHUB_STEP_SUMMARY
 
   prepare-config:
     runs-on: [self-hosted, node16]
@@ -513,6 +572,18 @@ jobs:
         echo ""
         echo "✅ Config file update completed successfully!"
         
+        # Show differences
+        echo ""
+        echo "📋 CHANGES MADE:"
+        echo "================"
+        echo "🔍 Comparing with backup..."
+        if command -v diff >/dev/null 2>&1; then
+          diff "$BACKUP_CONFIG" "$CONFIG_FILE" || true
+        else
+          echo "diff command not available, showing updated config file:"
+          cat "$CONFIG_FILE"
+        fi
+        
         echo ""
         echo "📋 OPERATION SUMMARY:"
         echo "===================="
@@ -523,6 +594,31 @@ jobs:
         echo "✅ Updated SVN values and paths"
         echo "✅ Ensured css-debug signing"
         echo "✅ Operation Status: SUCCESS"
+
+    - name: Update Summary with Config Preparation Results
+      run: |
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+        
+        {
+          echo ""
+          echo "## 🔧 Config File Preparation Results"
+          echo "| Field | Status |"
+          echo "|-------|--------|"
+          
+          if [ -f "$CONFIG_FILE" ]; then
+            echo "| Config File | ✅ Updated Successfully |"
+            echo "| File Path | \`$CONFIG_FILE\` |"
+            echo "| Backup Created | ✅ Yes |"
+            echo "| Version Updated | ✅ Yes |"
+            echo "| Paths Updated | ✅ Yes |"
+            echo "| Sign Types | ✅ Set to css-debug |"
+          else
+            echo "| Config File | ❌ Update Failed |"
+          fi
+          
+        } >> $GITHUB_STEP_SUMMARY
 
   upload-config:
     runs-on: [self-hosted, node16]
@@ -615,10 +711,18 @@ jobs:
           echo "ℹ️  No changes to commit (file might already exist with same content)"
         else
           echo "📝 Committing changes..."
+          # Get the JSON filename for commit message
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            JSON_FILENAME="${{ github.event.client_payload.json_filename }}"
+          else
+            JSON_FILENAME="${{ github.event.inputs.json_filename }}"
+          fi
+          
           git commit -m "Add prepared config file: config_${CURRENT_VERSION}.ini
           
-          - Generated from JSON: ${{ github.event.inputs.json_filename }}
+          - Generated from JSON: $JSON_FILENAME
           - Version: 0x${CURRENT_VERSION}
+          - Triggered via: ${{ github.event_name }}
           - Automated by GitHub Actions workflow
           - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           
@@ -639,358 +743,49 @@ jobs:
         
         echo ""
         echo "✅ Config file upload operation completed successfully!"
+        
+        # Final summary
+        echo ""
+        echo "📋 UPLOAD SUMMARY:"
+        echo "=================="
+        echo "✅ Source: $CONFIG_FILE"
+        echo "✅ Repository Path: $REPO_CONFIG_FILE"
+        echo "✅ File Size: $REPO_SIZE bytes"
+        echo "✅ Git Status: Committed and Pushed"
+        echo "✅ GitHub URL: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/$REPO_CONFIG_FILE"
+        echo "✅ Operation Status: SUCCESS"
 
-  validate-config:
-    runs-on: [self-hosted, node16]
-    needs: [read-json, copy-config, prepare-config, upload-config]
-    outputs:
-      config_validated: ${{ steps.validate.outputs.config_validated }}
-      config_path: ${{ steps.validate.outputs.config_path }}
-    steps:
-      - name: Validate prepared config file exists
-        id: validate
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "=== VALIDATING PREPARED CONFIG FILE FOR SRF DEBUG UP BUILD ==="
-          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          CONFIG_FILE="config_${CURRENT_VERSION}.ini"
-          CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
-          
-          echo "🔍 Checking prepared config file: $CONFIG_FILE"
-          echo "📍 Full path: $CONFIG_PATH"
-          
-          # Check if config file exists
-          CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            if [[ -f '$CONFIG_PATH' ]]; then
-              echo 'EXISTS'
-            else
-              echo 'NOT_FOUND'
-            fi
-          ")
-          
-          if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
-            echo "✅ Prepared config file found: $CONFIG_PATH"
-            echo "config_validated=true" >> $GITHUB_OUTPUT
-            echo "config_path=$CONFIG_PATH" >> $GITHUB_OUTPUT
-          else
-            echo "❌ ERROR: Prepared config file not found: $CONFIG_PATH"
-            echo "config_validated=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Display prepared config file contents
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "=== PREPARED CONFIG FILE CONTENTS ==="
-          CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
-          
-          CONFIG_CONTENTS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            cat '$CONFIG_PATH'
-          ")
-          
-          echo "$CONFIG_CONTENTS"
-          echo "=== END PREPARED CONFIG FILE CONTENTS ==="
-
-  kerberos-setup:
-    runs-on: [self-hosted, node16]
-    needs: [read-json, validate-config]
-    if: ${{ needs.validate-config.outputs.config_validated == 'true' }}
-    steps:
-      - name: Switch to build account for Kerberos setup
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "Switching to build account for Kerberos setup..."
-          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
-          echo "Expected user: grp_srf_fit1_build"
-          echo "Actual user: $CURRENT_USER"
-          
-          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
-            echo "SUCCESS: User switch to build account successful"
-          else
-            echo "FAILURE: User switch failed"
-            exit 1
-          fi
-
-      - name: Initialize Kerberos Ticket (ktab)
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
-        run: |
-          echo "Initializing Kerberos Ticket with ktab for automated build..."
-          
-          KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
-          ")
-          
-          echo "ktab output: $KTAB_RESULT"
-          
-          if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
-            echo "ERROR: ktab initialization failed"
-            exit 1
-          else
-            echo "SUCCESS: ktab initialization completed"
-          fi
-
-      - name: Initialize Kerberos Cron (kcron)
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "Initializing Kerberos Cron with kcron for automated build..."
-          
-          KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
-          ")
-          
-          echo "kcron output: $KCRON_RESULT"
-          
-          if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
-            echo "ERROR: kcron initialization failed"
-            exit 1
-          else
-            echo "SUCCESS: kcron initialization completed"
-          fi
-
-  patch-build:
-    runs-on: [self-hosted, node16]
-    needs: [read-json, validate-config, kerberos-setup]
-    if: ${{ needs.validate-config.outputs.config_validated == 'true' }}
-    steps:
-      - name: Switch to faceless account for build
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "Switching to faceless account for SRF Debug UP automated build..."
-          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
-          echo "Expected user: grp_srf_fit1_build"
-          echo "Actual user: $CURRENT_USER"
-          
-          if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
-            echo "SUCCESS: User switch successful"
-          else
-            echo "FAILURE: User switch failed"
-            exit 1
-          fi
-
-      - name: Verify build tools exist
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "Verifying build tools for SRF Debug UP automated build..."
-          
-          # Check Python
-          PYTHON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            if [[ -f '${{ env.PYTHON_PATH }}' ]]; then
-              echo 'EXISTS'
-            else
-              echo 'NOT_FOUND'
-            fi
-          ")
-          
-          if [[ "$PYTHON_CHECK" == "EXISTS" ]]; then
-            echo "✅ Python found: ${{ env.PYTHON_PATH }}"
-          else
-            echo "❌ Python not found: ${{ env.PYTHON_PATH }}"
-            exit 1
-          fi
-          
-          # Check FXT tool
-          FXT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then
-              echo 'EXISTS'
-            else
-              echo 'NOT_FOUND'
-            fi
-          ")
-          
-          if [[ "$FXT_CHECK" == "EXISTS" ]]; then
-            echo "✅ FXT tool found: ${{ env.FXT_TOOL_PATH }}"
-          else
-            echo "❌ FXT tool not found: ${{ env.FXT_TOOL_PATH }}"
-            exit 1
-          fi
-          
-          # Check expect
-          EXPECT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            if [[ -f '${{ env.EXPECT_PATH }}' ]]; then
-              echo 'EXISTS'
-            else
-              echo 'NOT_FOUND'
-            fi
-          ")
-          
-          if [[ "$EXPECT_CHECK" == "EXISTS" ]]; then
-            echo "✅ expect found: ${{ env.EXPECT_PATH }}"
-          else
-            echo "❌ expect not found: ${{ env.EXPECT_PATH }}"
-            exit 1
-          fi
-          
-          echo "All build tools verified successfully"
-
-      - name: Execute SRF Debug UP automated build
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-          CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
-        run: |
-          echo "Starting SRF Debug UP automated build..."
-          
-          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          CONFIG_FILE="config_${CURRENT_VERSION}.ini"
-          
-          echo "Automated Build Configuration:"
-          echo "  - Working Directory: ${{ env.BUILD_BASE_PATH }}"
-          echo "  - Config File: $CONFIG_FILE"
-          echo "  - Build Description: ${{ github.event.inputs.build_description }}"
-          echo "  - JSON Source: ${{ github.event.inputs.json_filename }}"
-          echo "  - Version: 0x${CURRENT_VERSION}"
-          echo "  - Python Path: ${{ env.PYTHON_PATH }}"
-          echo "  - FXT Tool Path: ${{ env.FXT_TOOL_PATH }}"
+    - name: Update Summary with Upload Results
+      run: |
+        CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+        REPO_CONFIG_FILE="output_paths/config_${CURRENT_VERSION}.ini"
+        
+        {
           echo ""
+          echo "## 📤 Config File Upload Results"
+          echo "| Field | Value |"
+          echo "|-------|-------|"
+          echo "| Config File | \`config_${CURRENT_VERSION}.ini\` |"
+          echo "| Repository Path | \`$REPO_CONFIG_FILE\` |"
+          echo "| GitHub URL | [View File](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/$REPO_CONFIG_FILE) |"
           
-          BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            cd '${{ env.BUILD_BASE_PATH }}'
-            echo 'Current directory: \$(pwd)'
-            
-            # Create expect script for CSS password
-            cat > automated_build_expect.exp << 'EOF'
-          #!${{ env.EXPECT_PATH }} -f
-          set timeout 1800
-          
-          set css_password \$env(CSS_PASSWORD)
-          
-          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
-          
-          expect {
-            \"Enter your CSS password:\" {
-              send \"\$css_password\r\"
-              exp_continue
-            }
-            \"Enter your CSS password: \" {
-              send \"\$css_password\r\"
-              exp_continue
-            }
-            -re \".*assword.*\" {
-              send \"\$css_password\r\"
-              exp_continue
-            }
-            eof {
-              catch wait result
-              exit [lindex \$result 3]
-            }
-            timeout {
-              puts \"Automated build timed out after 30 minutes\"
-              exit 124
-            }
-          }
-          EOF
-            
-            chmod +x automated_build_expect.exp
-            echo 'Starting SRF Debug UP automated build with expect script...'
-            
-            export CSS_PASSWORD='$CSS_PASSWORD'
-            ./automated_build_expect.exp 2>&1
-            BUILD_EXIT=\$?
-            
-            rm -f automated_build_expect.exp
-            
-            echo \"Automated build completed with exit code: \$BUILD_EXIT\"
-            exit \$BUILD_EXIT
-          ")
-          
-          BUILD_EXIT_CODE=$?
-          
-          echo "Automated build output:"
-          echo "$BUILD_RESULT"
-          echo ""
-          echo "Automated build exit code: $BUILD_EXIT_CODE"
-          
-          if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
-            echo "✅ SUCCESS: SRF Debug UP automated build completed successfully"
-          elif [[ $BUILD_EXIT_CODE -eq 124 ]]; then
-            echo "⏰ TIMEOUT: Automated build timed out after 30 minutes"
-            exit $BUILD_EXIT_CODE
+          if [ -f "$REPO_CONFIG_FILE" ]; then
+            file_size=$(stat -f%z "$REPO_CONFIG_FILE" 2>/dev/null || stat -c%s "$REPO_CONFIG_FILE" 2>/dev/null || echo "unknown")
+            echo "| File Size | $file_size bytes |"
+            echo "| Status | ✅ SUCCESS |"
+            echo "| Git Status | ✅ Committed & Pushed |"
           else
-            echo "❌ FAILURE: Automated build failed with exit code: $BUILD_EXIT_CODE"
-            exit $BUILD_EXIT_CODE
+            echo "| Status | ❌ FAILED |"
           fi
-
-      - name: Verify automated build results
-        env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
-        run: |
-          echo "Verifying SRF Debug UP automated build results..."
           
-          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          echo ""
+          echo "### 📁 Repository Structure"
+          echo "\`\`\`"
+          echo "output_paths/"
+          echo "├── config_${CURRENT_VERSION}.ini  ← New file added"
+          if [ -d "output_paths" ]; then
+            echo "├── $(ls output_paths/ | grep -v "config_${CURRENT_VERSION}.ini" | head -3 | tr '\n' ' ' | sed 's/ $//' | sed 's/ /\n├── /g')"
+          fi
+          echo "\`\`\`"
           
-          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            cd '${{ env.BUILD_BASE_PATH }}'
-            echo 'Checking for automated build artifacts...'
-            
-            echo 'Recent files (last 30 minutes):'
-            find . -type f -mmin -30 2>/dev/null | head -20 || echo 'No recent files found'
-            echo ''
-            
-            echo 'Looking for patch/binary files:'
-            find . -name '*.patch' -o -name '*.bin' -o -name '*.ucode' 2>/dev/null | head -10 || echo 'No patch files found'
-            echo ''
-            
-            echo 'Looking for debug artifacts:'
-            find . -name '*debug*' -o -name '*css-debug*' 2>/dev/null | head -10 || echo 'No debug files found'
-            echo ''
-            
-            echo 'Looking for version-specific files:'
-            find . -name '*${CURRENT_VERSION}*' 2>/dev/null | head -10 || echo 'No version-specific files found'
-            echo ''
-            
-            echo 'Directory listing:'
-            ls -la | head -20
-          ")
-          
-          echo "$VERIFICATION_RESULT"
-
-      - name: Display automated build summary
-        run: |
-          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          
-          {
-            echo ""
-            echo "## 🚀 SRF Debug UP Automated Build Summary"
-            echo "| Field | Value |"
-            echo "|-------|-------|"
-            echo "| Build Type | SRF Debug UP Automated Build |"
-            echo "| JSON Source | \`${{ github.event.inputs.json_filename }}\` |"
-            echo "| Config File | \`config_${CURRENT_VERSION}.ini\` |"
-            echo "| Version | \`0x${CURRENT_VERSION}\` |"
-            echo "| Build Description | ${{ github.event.inputs.build_description }} |"
-            echo "| Build Directory | \`${{ env.BUILD_BASE_PATH }}\` |"
-            echo "| Account | grp_srf_fit1_build (faceless account) |"
-            echo ""
-            echo "### 🔄 Complete Pipeline Process:"
-            echo "1. ✅ **JSON Processing**: Extracted values from entry criteria JSON"
-            echo "2. ✅ **Config Preparation**: Copied, updated, and prepared config file"
-            echo "3. ✅ **Repository Upload**: Uploaded prepared config to GitHub"
-            echo "4. ✅ **Config Validation**: Verified prepared config file exists and is readable"
-            echo "5. ✅ **Kerberos Setup**: Initialized ktab and kcron for authentication"
-            echo "6. ✅ **Tool Verification**: Confirmed all build tools are available"
-            echo "7. ✅ **Build Execution**: Executed FXT tool with prepared config"
-            echo "8. ✅ **Result Verification**: Checked for build artifacts"
-            echo ""
-            echo "### 🎯 Automated Features:"
-            echo "- **JSON-Driven**: Automatically extracts all values from entry criteria JSON"
-            echo "- **Config Generation**: Creates properly configured build file"
-            echo "- **Version Management**: Handles version extraction and file naming"
-            echo "- **Path Updates**: Updates all staging area paths from JSON"
-            echo "- **Security**: Uses GitHub Secrets for password management"
-            echo "- **Full Pipeline**: Complete end-to-end automation"
-            echo ""
-            echo "### 📊 Build Configuration:"
-            echo "- **Source JSON**: ${{ github.event.inputs.json_filename }}"
-            echo "- **Generated Config**: config_${CURRENT_VERSION}.ini"
-            echo "- **GitHub Repository**: [View Config](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/output_paths/config_${CURRENT_VERSION}.ini)"
-            echo ""
-            echo "🎉 **SRF Debug UP automated build pipeline completed successfully!**"
-            
-          } >> $GITHUB_STEP_SUMMARY
+        } >> $GITHUB_STEP_SUMMARY
