@@ -1,0 +1,142 @@
+name: ELFLEET042 NUC/HOST Login
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Optional command to run on NUC after login (leave empty for connectivity check)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  NUC_HOST: 10.138.186.148
+  NUC_FQDN: ELFLEET042
+  NUC_USERNAME: CEFLS_User
+  SYSTEM_ID: 776798
+  EXPECT_PATH: /usr/bin/expect
+
+jobs:
+  nuc-login:
+    runs-on: [self-hosted, node16]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Verify network connectivity to ELFLEET042 NUC/HOST
+        run: |
+          echo "Pinging NUC/HOST at ${{ env.NUC_HOST }} (${{ env.NUC_FQDN }}, System ID: ${{ env.SYSTEM_ID }})..."
+          if ping -c 3 -W 5 ${{ env.NUC_HOST }} &> /dev/null; then
+            echo "Host ${{ env.NUC_HOST }} is reachable."
+          else
+            echo "WARNING: Host ${{ env.NUC_HOST }} did not respond to ping. Proceeding with SSH attempt..."
+          fi
+
+      - name: Login to ELFLEET042 NUC/HOST via SSH
+        env:
+          NUC_PASSWORD: ${{ secrets.NUC_PASSWORD }}
+        run: |
+          echo "Logging in to NUC/HOST: ${{ env.NUC_USERNAME }}@${{ env.NUC_HOST }} (${{ env.NUC_FQDN }})..."
+
+          ${{ env.EXPECT_PATH }} <<EOF
+          set timeout 30
+          spawn ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            ${{ env.NUC_USERNAME }}@${{ env.NUC_HOST }}
+
+          expect {
+            "password:" {
+              send "$env(NUC_PASSWORD)\r"
+            }
+            "Password:" {
+              send "$env(NUC_PASSWORD)\r"
+            }
+            timeout {
+              puts "ERROR: SSH connection timed out"
+              exit 1
+            }
+            "Connection refused" {
+              puts "ERROR: SSH connection refused"
+              exit 1
+            }
+            "No route to host" {
+              puts "ERROR: No route to host"
+              exit 1
+            }
+          }
+
+          expect {
+            -re {[$#>]} {
+              puts "LOGIN_SUCCESS: Logged in to ${{ env.NUC_FQDN }}"
+              send "echo LOGIN_SUCCESS && whoami && hostname\r"
+            }
+            timeout {
+              puts "ERROR: Did not get shell prompt after login"
+              exit 1
+            }
+          }
+
+          expect {
+            "LOGIN_SUCCESS" {
+              puts "SSH login to ${{ env.NUC_FQDN }} verified successfully."
+            }
+            timeout {
+              puts "ERROR: Login verification timed out"
+              exit 1
+            }
+          }
+
+          send "exit\r"
+          expect eof
+          EOF
+
+      - name: Run command on NUC/HOST (if provided)
+        if: ${{ inputs.command != '' }}
+        env:
+          NUC_PASSWORD: ${{ secrets.NUC_PASSWORD }}
+        run: |
+          echo "Running command on ${{ env.NUC_FQDN }}: ${{ inputs.command }}"
+
+          ${{ env.EXPECT_PATH }} <<EOF
+          set timeout 60
+          spawn ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            ${{ env.NUC_USERNAME }}@${{ env.NUC_HOST }}
+
+          expect {
+            "password:" { send "$env(NUC_PASSWORD)\r" }
+            "Password:" { send "$env(NUC_PASSWORD)\r" }
+            timeout     { puts "ERROR: SSH connection timed out"; exit 1 }
+          }
+
+          expect -re {[$#>]}
+          send "${{ inputs.command }}\r"
+
+          expect -re {[$#>]}
+          send "exit\r"
+          expect eof
+          EOF
+
+      - name: Collect basic system info from NUC/HOST
+        if: ${{ inputs.command == '' }}
+        env:
+          NUC_PASSWORD: ${{ secrets.NUC_PASSWORD }}
+        run: |
+          echo "Collecting system info from ${{ env.NUC_FQDN }}..."
+
+          ${{ env.EXPECT_PATH }} <<EOF
+          set timeout 60
+          spawn ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            ${{ env.NUC_USERNAME }}@${{ env.NUC_HOST }}
+
+          expect {
+            "password:" { send "$env(NUC_PASSWORD)\r" }
+            "Password:" { send "$env(NUC_PASSWORD)\r" }
+            timeout     { puts "ERROR: SSH connection timed out"; exit 1 }
+          }
+
+          expect -re {[$#>]}
+          send "echo '=== Hostname ===' && hostname && echo '=== Uptime ===' && uptime && echo '=== OS Info ===' && uname -a && echo '=== Disk Usage ===' && df -h / && echo '=== Memory ===' && free -h\r"
+
+          expect -re {[$#>]}
+          send "exit\r"
+          expect eof
+          EOF
