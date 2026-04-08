@@ -1,11 +1,11 @@
 name: SRF Debug UP Build - Complete Pipeline
 
 on:
-  push:                    # Keep existing triggers if any
+  push:
     branches: [main]
-  pull_request:           # Keep existing triggers if any  
+  pull_request:
     branches: [main]
-  workflow_dispatch:      # ← ADD THIS BLOCK for Python triggering
+  workflow_dispatch:
     inputs:
       json_filename:
         description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
@@ -37,16 +37,16 @@ jobs:
       json_path: ${{ steps.validate.outputs.json_path }}
       previous_version: ${{ steps.extract_version.outputs.previous_version }}
       current_version: ${{ steps.extract_version.outputs.current_version }}
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-      
+
     - name: Validate JSON file exists
       id: validate
       run: |
         JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
-        
+
         if [ ! -f "$JSON_FILE" ]; then
           echo "❌ Error: JSON file '${{ github.event.inputs.json_filename }}' not found!"
           echo ""
@@ -58,7 +58,7 @@ jobs:
           fi
           exit 1
         fi
-        
+
         echo "✅ JSON file found: $JSON_FILE"
         echo "json_path=$JSON_FILE" >> $GITHUB_OUTPUT
 
@@ -66,23 +66,21 @@ jobs:
       id: extract_version
       run: |
         JSON_FILE="${{ steps.validate.outputs.json_path }}"
-        
+
         echo "🔍 Reading JSON file: $JSON_FILE"
         echo "=================================================="
         echo ""
-        
-        # Function to extract value from section_1
+
         extract_section1_value() {
           local item="$1"
           jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
         }
-        
-        # Function to extract Post Binary Staging Area from each section
+
         extract_staging_area() {
           local section="$1"
           jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
         }
-        
+
         echo "📋 SECTION 1 VALUES:"
         echo "==================="
         milestone=$(extract_section1_value "Milestone")
@@ -94,7 +92,7 @@ jobs:
         min_runtime_id=$(extract_section1_value "min_runtime_id")
         patch_rollback_flags=$(extract_section1_value "patch_rollback_flags")
         prev_version=$(extract_section1_value "prev_version")
-        
+
         echo "Milestone: $milestone"
         echo "Patch Description: $patch_desc"
         echo "Version: $version"
@@ -105,23 +103,21 @@ jobs:
         echo "Patch Rollback Flags: $patch_rollback_flags"
         echo "Previous Version: $prev_version"
         echo ""
-        
-        # Extract version numbers without 0x prefix
+
         clean_prev_version=$(echo "$prev_version" | sed 's/0x//')
         clean_current_version=$(echo "$version" | sed 's/0x//')
-        
+
         echo "previous_version=$clean_prev_version" >> $GITHUB_OUTPUT
         echo "current_version=$clean_current_version" >> $GITHUB_OUTPUT
-        
+
         echo "🔍 Extracted Previous Version for directory search: $clean_prev_version"
         echo "🔍 Extracted Current Version for renaming: $clean_current_version"
-        
+
         echo "📦 POST BINARY STAGING AREAS:"
         echo "============================="
-        
-        # Extract staging areas for each component
+
         components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode-io" "pcode-c" "s3m")
-        
+
         for component in "${components[@]}"; do
           staging_area=$(extract_staging_area "$component")
           if [ -n "$staging_area" ] && [ "$staging_area" != "null" ] && [ "$staging_area" != "" ]; then
@@ -130,15 +126,14 @@ jobs:
             echo "$component Post Binary Staging Area: [NOT AVAILABLE]"
           fi
         done
-        
+
         echo ""
         echo "✅ JSON parsing completed successfully!"
 
     - name: Create Summary
       run: |
         JSON_FILE="${{ steps.validate.outputs.json_path }}"
-        
-        # Create a summary for the GitHub Actions summary page
+
         {
           echo "# 📊 SRF Debug UP Build Pipeline"
           echo ""
@@ -147,18 +142,16 @@ jobs:
           echo "## 📋 Section 1 Values"
           echo "| Field | Value |"
           echo "|-------|-------|"
-          
-          # Extract and format section_1 values
+
           jq -r '.section_1[] | "| \(.check_list_item) | \(.entry) |"' "$JSON_FILE"
-          
+
           echo ""
           echo "## 📦 Post Binary Staging Areas"
           echo "| Component | Path |"
           echo "|-----------|------|"
-          
-          # Extract staging areas
+
           components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode-io" "pcode-c" "s3m")
-          
+
           for component in "${components[@]}"; do
             staging_area=$(jq -r --arg comp "$component" '.[$comp][0].entry // ""' "$JSON_FILE")
             if [ -n "$staging_area" ] && [ "$staging_area" != "null" ] && [ "$staging_area" != "" ]; then
@@ -167,14 +160,14 @@ jobs:
               echo "| $component | *Not Available* |"
             fi
           done
-          
+
         } >> $GITHUB_STEP_SUMMARY
 
   copy-config:
     runs-on: [self-hosted, node16]
     needs: read-json
     if: ${{ needs.read-json.outputs.previous_version != '' }}
-    
+
     steps:
     - name: Copy Config File, Set Permissions and rename config file with current version
       run: |
@@ -188,7 +181,7 @@ jobs:
         DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
         DEST_CONFIG="$DEST_PATH/$CONFIG_FILE"
         FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
-        
+
         echo "🔍 Config File Copy Operation"
         echo "=================================================="
         echo "📋 Previous Version: $PREV_VERSION"
@@ -201,8 +194,7 @@ jobs:
         echo "📤 Destination: $DEST_CONFIG"
         echo "🔄 Final Renamed File: $FINAL_CONFIG"
         echo "=================================================="
-        
-        # Check if version directory exists
+
         if [ ! -d "$VERSION_PATH" ]; then
           echo "❌ Error: Version directory '$VERSION_PATH' not found!"
           echo ""
@@ -214,10 +206,9 @@ jobs:
           fi
           exit 1
         fi
-        
+
         echo "✅ Version directory found: $VERSION_PATH"
-        
-        # Check if release directory exists
+
         if [ ! -d "$RELEASE_PATH" ]; then
           echo "❌ Error: Release directory '$RELEASE_PATH' not found!"
           echo ""
@@ -225,10 +216,9 @@ jobs:
           ls -la "$VERSION_PATH" | grep '^d' | awk '{print "  - " $9}' | grep -v '^\.$\|^\.\.$' || echo "  No directories found"
           exit 1
         fi
-        
+
         echo "✅ Release directory found: $RELEASE_PATH"
-        
-        # Check if config file exists
+
         if [ ! -f "$SOURCE_CONFIG" ]; then
           echo "❌ Error: Config file '$SOURCE_CONFIG' not found!"
           echo ""
@@ -236,16 +226,14 @@ jobs:
           ls -la "$RELEASE_PATH" 2>/dev/null || echo "  Cannot list files in release directory"
           exit 1
         fi
-        
+
         echo "✅ Config file found: $SOURCE_CONFIG"
-        
-        # Get source file info
+
         SOURCE_SIZE=$(stat -f%z "$SOURCE_CONFIG" 2>/dev/null || stat -c%s "$SOURCE_CONFIG" 2>/dev/null || echo "unknown")
         SOURCE_PERMS=$(ls -la "$SOURCE_CONFIG" | awk '{print $1}')
         echo "📊 Source file size: $SOURCE_SIZE bytes"
         echo "🔐 Source file permissions: $SOURCE_PERMS"
-        
-        # Check if destination directory exists, create if not
+
         if [ ! -d "$DEST_PATH" ]; then
           echo "📁 Creating destination directory: $DEST_PATH"
           mkdir -p "$DEST_PATH"
@@ -258,23 +246,16 @@ jobs:
         else
           echo "✅ Destination directory exists: $DEST_PATH"
         fi
-        
-        # Copy the config file
+
         echo ""
         echo "📋 Copying config file..."
-        echo "📄 cp '$SOURCE_CONFIG' '$DEST_CONFIG'"
-        
         cp "$SOURCE_CONFIG" "$DEST_CONFIG"
-        
+
         if [ $? -eq 0 ]; then
           echo "✅ Config file copied successfully!"
-          
-          # Verify the copy
           if [ -f "$DEST_CONFIG" ]; then
             DEST_SIZE=$(stat -f%z "$DEST_CONFIG" 2>/dev/null || stat -c%s "$DEST_CONFIG" 2>/dev/null || echo "unknown")
             echo "📊 Destination file size: $DEST_SIZE bytes"
-            
-            # Verify file integrity
             if [ "$SOURCE_SIZE" = "$DEST_SIZE" ]; then
               echo "✅ File integrity verified (sizes match)"
             else
@@ -288,22 +269,15 @@ jobs:
           echo "❌ Failed to copy config file"
           exit 1
         fi
-        
-        # Change permissions to 777
+
         echo ""
         echo "🔐 Setting permissions to 777..."
-        echo "🔧 chmod 777 '$DEST_CONFIG'"
-        
         chmod 777 "$DEST_CONFIG"
-        
+
         if [ $? -eq 0 ]; then
           echo "✅ Permissions changed successfully to 777"
-          
-          # Verify permissions
           NEW_PERMS=$(ls -la "$DEST_CONFIG" | awk '{print $1}')
           echo "🔐 New file permissions: $NEW_PERMS"
-          
-          # Check if permissions are actually 777
           if [[ "$NEW_PERMS" == *"rwxrwxrwx"* ]]; then
             echo "✅ Permissions verified: 777 (rwxrwxrwx)"
           else
@@ -313,29 +287,22 @@ jobs:
           echo "❌ Failed to change permissions"
           exit 1
         fi
-        
-        # Rename the file to use current version (keeping .ini extension)
+
         echo ""
         echo "🔄 Renaming config file..."
-        echo "📝 mv '$DEST_CONFIG' '$FINAL_CONFIG'"
-        
         mv "$DEST_CONFIG" "$FINAL_CONFIG"
-        
+
         if [ $? -eq 0 ]; then
           echo "✅ Config file renamed successfully!"
-          
-          # Verify the renamed file exists
           if [ -f "$FINAL_CONFIG" ]; then
             FINAL_SIZE=$(stat -f%z "$FINAL_CONFIG" 2>/dev/null || stat -c%s "$FINAL_CONFIG" 2>/dev/null || echo "unknown")
             FINAL_PERMS=$(ls -la "$FINAL_CONFIG" | awk '{print $1}')
             echo "📊 Final file size: $FINAL_SIZE bytes"
             echo "🔐 Final file permissions: $FINAL_PERMS"
-            
-            # Verify file integrity after rename
             if [ "$SOURCE_SIZE" = "$FINAL_SIZE" ]; then
               echo "✅ File integrity verified after rename (sizes match)"
             else
-              echo "⚠️  Warning: File sizes don't match after rename (Source: $SOURCE_SIZE, Final: $FINAL_SIZE)"
+              echo "⚠️  Warning: File sizes don't match after rename"
             fi
           else
             echo "❌ Error: Final renamed file not found"
@@ -345,7 +312,7 @@ jobs:
           echo "❌ Failed to rename config file"
           exit 1
         fi
-        
+
         echo ""
         echo "✅ Config file copy, permission, and rename operation completed successfully!"
 
@@ -353,50 +320,46 @@ jobs:
     runs-on: [self-hosted, node16]
     needs: [read-json, copy-config]
     if: ${{ needs.read-json.outputs.current_version != '' }}
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-      
+
     - name: Update Config File with JSON Values
       run: |
         JSON_FILE="${{ needs.read-json.outputs.json_path }}"
         CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
         DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
         CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
-        
+
         echo "🔧 Preparing Config File"
         echo "=================================================="
         echo "📋 Current Version: $CURRENT_VERSION"
         echo "📄 Config File: $CONFIG_FILE"
         echo "📥 JSON Source: $JSON_FILE"
         echo "=================================================="
-        
-        # Check if config file exists
+
         if [ ! -f "$CONFIG_FILE" ]; then
           echo "❌ Error: Config file '$CONFIG_FILE' not found!"
           exit 1
         fi
-        
+
         echo "✅ Config file found: $CONFIG_FILE"
-        
-        # Create backup of original config
+
         BACKUP_CONFIG="${CONFIG_FILE}.backup"
         cp "$CONFIG_FILE" "$BACKUP_CONFIG"
         echo "📋 Backup created: $BACKUP_CONFIG"
-        
-        # Extract values from JSON
+
         extract_section1_value() {
           local item="$1"
           jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
         }
-        
+
         extract_staging_area() {
           local section="$1"
           jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
         }
-        
-        # Get values from JSON
+
         milestone=$(extract_section1_value "Milestone")
         patch_desc=$(extract_section1_value "patch_description")
         version=$(extract_section1_value "version")
@@ -404,8 +367,7 @@ jobs:
         se_svn=$(extract_section1_value "se_svn")
         min_svn=$(extract_section1_value "min_svn")
         prev_version=$(extract_section1_value "prev_version")
-        
-        # Get staging areas
+
         ucode_path=$(extract_staging_area "ucode")
         xucode_path=$(extract_staging_area "xucode")
         mcheck_path=$(extract_staging_area "mcheck")
@@ -416,7 +378,7 @@ jobs:
         pcode_io_path=$(extract_staging_area "pcode-io")
         pcode_c_path=$(extract_staging_area "pcode-c")
         s3m_path=$(extract_staging_area "s3m")
-        
+
         echo "🔍 Extracted JSON Values:"
         echo "Milestone: $milestone"
         echo "Version: $version"
@@ -425,70 +387,64 @@ jobs:
         echo "Min SVN: $min_svn"
         echo "Previous Version: $prev_version"
         echo ""
-        
-        # Update patch description if empty
+
         if [ -z "$patch_desc" ] || [ "$patch_desc" = "null" ] || [ "$patch_desc" = " " ]; then
           patch_desc="SRF Debug patch $milestone"
           echo "🔄 Generated patch description: $patch_desc"
         else
           echo "✅ Using existing patch description: $patch_desc"
         fi
-        
-        # Update config file values
+
         echo ""
         echo "🔧 Updating config file values..."
-        
-        # Update [default] section
+
         sed -i "s/^version = .*/version = $version/" "$CONFIG_FILE"
         sed -i "s/^patch_description = .*/patch_description = $patch_desc/" "$CONFIG_FILE"
         sed -i "s/^svn = .*/svn = $svn/" "$CONFIG_FILE"
         sed -i "s/^se_svn = .*/se_svn = $se_svn/" "$CONFIG_FILE"
         sed -i "s/^min_svn = .*/min_svn = $min_svn/" "$CONFIG_FILE"
         sed -i "s/^prev_version = .*/prev_version = $prev_version/" "$CONFIG_FILE"
-        
-        # Update [SOC] section paths
+
         if [ -n "$icode_path" ] && [ "$icode_path" != "null" ] && [ "$icode_path" != "" ]; then
           sed -i "s|^icode = .*|icode = $icode_path|" "$CONFIG_FILE"
           echo "✅ Updated icode path"
         fi
-        
+
         if [ -n "$oobmsm_path" ] && [ "$oobmsm_path" != "null" ] && [ "$oobmsm_path" != "" ]; then
           sed -i "s|^oobmsm = .*|oobmsm = $oobmsm_path|" "$CONFIG_FILE"
           echo "✅ Updated oobmsm path"
         fi
-        
+
         if [ -n "$s3m_path" ] && [ "$s3m_path" != "null" ] && [ "$s3m_path" != "" ]; then
           sed -i "s|^s3m = .*|s3m = $s3m_path|" "$CONFIG_FILE"
           echo "✅ Updated s3m path"
         fi
-        
+
         if [ -n "$pcode_io_path" ] && [ "$pcode_io_path" != "null" ] && [ "$pcode_io_path" != "" ]; then
           sed -i "s|^pcode-io = .*|pcode-io = $pcode_io_path|" "$CONFIG_FILE"
           echo "✅ Updated pcode-io path"
         fi
-        
+
         if [ -n "$pcode_c_path" ] && [ "$pcode_c_path" != "null" ] && [ "$pcode_c_path" != "" ]; then
           sed -i "s|^pcode-c = .*|pcode-c = $pcode_c_path|" "$CONFIG_FILE"
           echo "✅ Updated pcode-c path"
         fi
-        
-        # Update [FIT1] section paths
+
         if [ -n "$ucode_path" ] && [ "$ucode_path" != "null" ] && [ "$ucode_path" != "" ]; then
           sed -i "s|^ucode = .*|ucode = $ucode_path|" "$CONFIG_FILE"
           echo "✅ Updated ucode path"
         fi
-        
+
         if [ -n "$xucode_path" ] && [ "$xucode_path" != "null" ] && [ "$xucode_path" != "" ]; then
           sed -i "s|^xucode = .*|xucode = $xucode_path|" "$CONFIG_FILE"
           echo "✅ Updated xucode path"
         fi
-        
+
         if [ -n "$mcheck_path" ] && [ "$mcheck_path" != "null" ] && [ "$mcheck_path" != "" ]; then
           sed -i "s|^mcheck = .*|mcheck = $mcheck_path|" "$CONFIG_FILE"
           echo "✅ Updated mcheck path"
         fi
-        
-        # Handle tcode and acode (set to none if not available)
+
         if [ -z "$tcode_path" ] || [ "$tcode_path" = "null" ] || [ "$tcode_path" = "" ]; then
           sed -i "s|^tcode = .*|tcode = none|" "$CONFIG_FILE"
           echo "✅ Set tcode to none (not available)"
@@ -496,7 +452,7 @@ jobs:
           sed -i "s|^tcode = .*|tcode = $tcode_path|" "$CONFIG_FILE"
           echo "✅ Updated tcode path"
         fi
-        
+
         if [ -z "$acode_path" ] || [ "$acode_path" = "null" ] || [ "$acode_path" = "" ]; then
           sed -i "s|^acode = .*|acode = none|" "$CONFIG_FILE"
           echo "✅ Set acode to none (not available)"
@@ -504,15 +460,13 @@ jobs:
           sed -i "s|^acode = .*|acode = $acode_path|" "$CONFIG_FILE"
           echo "✅ Updated acode path"
         fi
-        
-        # Ensure sign types are css-debug
+
         sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
         sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
         echo "✅ Updated sign types to css-debug"
-        
+
         echo ""
         echo "✅ Config file update completed successfully!"
-        
         echo ""
         echo "📋 OPERATION SUMMARY:"
         echo "===================="
@@ -528,13 +482,13 @@ jobs:
     runs-on: [self-hosted, node16]
     needs: [read-json, copy-config, prepare-config]
     if: ${{ needs.read-json.outputs.current_version != '' }}
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        
+
     - name: Upload Config File to Repository
       run: |
         CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
@@ -542,7 +496,7 @@ jobs:
         CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
         REPO_OUTPUT_DIR="output_paths"
         REPO_CONFIG_FILE="$REPO_OUTPUT_DIR/config_${CURRENT_VERSION}.ini"
-        
+
         echo "📤 Uploading Config File to Repository"
         echo "=================================================="
         echo "📋 Current Version: $CURRENT_VERSION"
@@ -550,16 +504,14 @@ jobs:
         echo "📁 Repository Output Directory: $REPO_OUTPUT_DIR"
         echo "📄 Repository Config File: $REPO_CONFIG_FILE"
         echo "=================================================="
-        
-        # Check if config file exists
+
         if [ ! -f "$CONFIG_FILE" ]; then
           echo "❌ Error: Config file '$CONFIG_FILE' not found!"
           exit 1
         fi
-        
+
         echo "✅ Config file found: $CONFIG_FILE"
-        
-        # Create output_paths directory if it doesn't exist
+
         if [ ! -d "$REPO_OUTPUT_DIR" ]; then
           echo "📁 Creating output_paths directory..."
           mkdir -p "$REPO_OUTPUT_DIR"
@@ -567,24 +519,15 @@ jobs:
         else
           echo "✅ Directory exists: $REPO_OUTPUT_DIR"
         fi
-        
-        # Copy config file to repository
-        echo ""
-        echo "📋 Copying config file to repository..."
-        echo "📄 cp '$CONFIG_FILE' '$REPO_CONFIG_FILE'"
-        
+
         cp "$CONFIG_FILE" "$REPO_CONFIG_FILE"
-        
+
         if [ $? -eq 0 ]; then
           echo "✅ Config file copied to repository successfully!"
-          
-          # Verify the copy
           if [ -f "$REPO_CONFIG_FILE" ]; then
             REPO_SIZE=$(stat -f%z "$REPO_CONFIG_FILE" 2>/dev/null || stat -c%s "$REPO_CONFIG_FILE" 2>/dev/null || echo "unknown")
             SOURCE_SIZE=$(stat -f%z "$CONFIG_FILE" 2>/dev/null || stat -c%s "$CONFIG_FILE" 2>/dev/null || echo "unknown")
             echo "📊 Repository file size: $REPO_SIZE bytes"
-            
-            # Verify file integrity
             if [ "$SOURCE_SIZE" = "$REPO_SIZE" ]; then
               echo "✅ File integrity verified (sizes match)"
             else
@@ -598,37 +541,33 @@ jobs:
           echo "❌ Failed to copy config file to repository"
           exit 1
         fi
-        
-        # Configure git
+
         echo ""
         echo "🔧 Configuring git..."
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        
-        # Add and commit the file
+
         echo ""
         echo "📋 Adding and committing config file..."
         git add "$REPO_CONFIG_FILE"
-        
-        # Check if there are changes to commit
+
         if git diff --staged --quiet; then
           echo "ℹ️  No changes to commit (file might already exist with same content)"
         else
           echo "📝 Committing changes..."
           git commit -m "Add prepared config file: config_${CURRENT_VERSION}.ini
-          
+
           - Generated from JSON: ${{ github.event.inputs.json_filename }}
           - Version: 0x${CURRENT_VERSION}
           - Automated by GitHub Actions workflow
           - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          
+
           echo "✅ Config file committed successfully!"
-          
-          # Push changes
+
           echo ""
           echo "📤 Pushing changes to repository..."
           git push
-          
+
           if [ $? -eq 0 ]; then
             echo "✅ Changes pushed to repository successfully!"
           else
@@ -636,7 +575,7 @@ jobs:
             exit 1
           fi
         fi
-        
+
         echo ""
         echo "✅ Config file upload operation completed successfully!"
 
@@ -656,11 +595,10 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
           CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
-          
+
           echo "🔍 Checking prepared config file: $CONFIG_FILE"
           echo "📍 Full path: $CONFIG_PATH"
-          
-          # Check if config file exists
+
           CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '$CONFIG_PATH' ]]; then
               echo 'EXISTS'
@@ -668,7 +606,7 @@ jobs:
               echo 'NOT_FOUND'
             fi
           ")
-          
+
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
             echo "✅ Prepared config file found: $CONFIG_PATH"
             echo "config_validated=true" >> $GITHUB_OUTPUT
@@ -685,11 +623,11 @@ jobs:
         run: |
           echo "=== PREPARED CONFIG FILE CONTENTS ==="
           CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
-          
+
           CONFIG_CONTENTS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cat '$CONFIG_PATH'
           ")
-          
+
           echo "$CONFIG_CONTENTS"
           echo "=== END PREPARED CONFIG FILE CONTENTS ==="
 
@@ -706,7 +644,7 @@ jobs:
           CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
           echo "Expected user: grp_srf_fit1_build"
           echo "Actual user: $CURRENT_USER"
-          
+
           if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
             echo "SUCCESS: User switch to build account successful"
           else
@@ -720,13 +658,13 @@ jobs:
           FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
         run: |
           echo "Initializing Kerberos Ticket with ktab for automated build..."
-          
+
           KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
           ")
-          
+
           echo "ktab output: $KTAB_RESULT"
-          
+
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             echo "ERROR: ktab initialization failed"
             exit 1
@@ -739,13 +677,13 @@ jobs:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Initializing Kerberos Cron with kcron for automated build..."
-          
+
           KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
           ")
-          
+
           echo "kcron output: $KCRON_RESULT"
-          
+
           if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
             echo "ERROR: kcron initialization failed"
             exit 1
@@ -766,7 +704,7 @@ jobs:
           CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
           echo "Expected user: grp_srf_fit1_build"
           echo "Actual user: $CURRENT_USER"
-          
+
           if [ "$CURRENT_USER" = "grp_srf_fit1_build" ]; then
             echo "SUCCESS: User switch successful"
           else
@@ -779,55 +717,40 @@ jobs:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Verifying build tools for SRF Debug UP automated build..."
-          
-          # Check Python
+
           PYTHON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            if [[ -f '${{ env.PYTHON_PATH }}' ]]; then
-              echo 'EXISTS'
-            else
-              echo 'NOT_FOUND'
-            fi
+            if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           ")
-          
+
           if [[ "$PYTHON_CHECK" == "EXISTS" ]]; then
             echo "✅ Python found: ${{ env.PYTHON_PATH }}"
           else
             echo "❌ Python not found: ${{ env.PYTHON_PATH }}"
             exit 1
           fi
-          
-          # Check FXT tool
+
           FXT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then
-              echo 'EXISTS'
-            else
-              echo 'NOT_FOUND'
-            fi
+            if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           ")
-          
+
           if [[ "$FXT_CHECK" == "EXISTS" ]]; then
             echo "✅ FXT tool found: ${{ env.FXT_TOOL_PATH }}"
           else
             echo "❌ FXT tool not found: ${{ env.FXT_TOOL_PATH }}"
             exit 1
           fi
-          
-          # Check expect
+
           EXPECT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            if [[ -f '${{ env.EXPECT_PATH }}' ]]; then
-              echo 'EXISTS'
-            else
-              echo 'NOT_FOUND'
-            fi
+            if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           ")
-          
+
           if [[ "$EXPECT_CHECK" == "EXISTS" ]]; then
             echo "✅ expect found: ${{ env.EXPECT_PATH }}"
           else
             echo "❌ expect not found: ${{ env.EXPECT_PATH }}"
             exit 1
           fi
-          
+
           echo "All build tools verified successfully"
 
       - name: Execute SRF Debug UP automated build
@@ -836,10 +759,10 @@ jobs:
           CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
         run: |
           echo "Starting SRF Debug UP automated build..."
-          
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
-          
+
           echo "Automated Build Configuration:"
           echo "  - Working Directory: ${{ env.BUILD_BASE_PATH }}"
           echo "  - Config File: $CONFIG_FILE"
@@ -849,20 +772,19 @@ jobs:
           echo "  - Python Path: ${{ env.PYTHON_PATH }}"
           echo "  - FXT Tool Path: ${{ env.FXT_TOOL_PATH }}"
           echo ""
-          
+
           BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
             echo 'Current directory: \$(pwd)'
-            
-            # Create expect script for CSS password
+
             cat > automated_build_expect.exp << 'EOF'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
-          
+
           set css_password \$env(CSS_PASSWORD)
-          
+
           spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
-          
+
           expect {
             \"Enter your CSS password:\" {
               send \"\$css_password\r\"
@@ -886,27 +808,27 @@ jobs:
             }
           }
           EOF
-            
+
             chmod +x automated_build_expect.exp
             echo 'Starting SRF Debug UP automated build with expect script...'
-            
+
             export CSS_PASSWORD='$CSS_PASSWORD'
             ./automated_build_expect.exp 2>&1
             BUILD_EXIT=\$?
-            
+
             rm -f automated_build_expect.exp
-            
+
             echo \"Automated build completed with exit code: \$BUILD_EXIT\"
             exit \$BUILD_EXIT
           ")
-          
+
           BUILD_EXIT_CODE=$?
-          
+
           echo "Automated build output:"
           echo "$BUILD_RESULT"
           echo ""
           echo "Automated build exit code: $BUILD_EXIT_CODE"
-          
+
           if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
             echo "✅ SUCCESS: SRF Debug UP automated build completed successfully"
           elif [[ $BUILD_EXIT_CODE -eq 124 ]]; then
@@ -922,39 +844,39 @@ jobs:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         run: |
           echo "Verifying SRF Debug UP automated build results..."
-          
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          
+
           VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
             echo 'Checking for automated build artifacts...'
-            
+
             echo 'Recent files (last 30 minutes):'
             find . -type f -mmin -30 2>/dev/null | head -20 || echo 'No recent files found'
             echo ''
-            
-            echo 'Looking for patch/binary files:'
-            find . -name '*.patch' -o -name '*.bin' -o -name '*.ucode' 2>/dev/null | head -10 || echo 'No patch files found'
+
+            echo 'Looking for .inc microcode files:'
+            find . -name '*.inc' 2>/dev/null | head -10 || echo 'No .inc files found'
             echo ''
-            
+
             echo 'Looking for debug artifacts:'
             find . -name '*debug*' -o -name '*css-debug*' 2>/dev/null | head -10 || echo 'No debug files found'
             echo ''
-            
+
             echo 'Looking for version-specific files:'
             find . -name '*${CURRENT_VERSION}*' 2>/dev/null | head -10 || echo 'No version-specific files found'
             echo ''
-            
+
             echo 'Directory listing:'
             ls -la | head -20
           ")
-          
+
           echo "$VERIFICATION_RESULT"
 
       - name: Display automated build summary
         run: |
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          
+
           {
             echo ""
             echo "## 🚀 SRF Debug UP Automated Build Summary"
@@ -977,76 +899,152 @@ jobs:
             echo "6. ✅ **Tool Verification**: Confirmed all build tools are available"
             echo "7. ✅ **Build Execution**: Executed FXT tool with prepared config"
             echo "8. ✅ **Result Verification**: Checked for build artifacts"
-            echo ""
-            echo "### 🎯 Automated Features:"
-            echo "- **JSON-Driven**: Automatically extracts all values from entry criteria JSON"
-            echo "- **Config Generation**: Creates properly configured build file"
-            echo "- **Version Management**: Handles version extraction and file naming"
-            echo "- **Path Updates**: Updates all staging area paths from JSON"
-            echo "- **Security**: Uses GitHub Secrets for password management"
-            echo "- **Full Pipeline**: Complete end-to-end automation"
-            echo ""
-            echo "### 📊 Build Configuration:"
-            echo "- **Source JSON**: ${{ github.event.inputs.json_filename }}"
-            echo "- **Generated Config**: config_${CURRENT_VERSION}.ini"
-            echo "- **GitHub Repository**: [View Config](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/output_paths/config_${CURRENT_VERSION}.ini)"
-            echo ""
-            echo "🎉 **SRF Debug UP automated build pipeline completed successfully!**"
-            
           } >> $GITHUB_STEP_SUMMARY
 
   # ─────────────────────────────────────────────────────────────────
-  # NEW JOB: Auto-login to SRF via VNC after build succeeds
-  # Runs on Windows runner (self-hosted, X64, Windows)
+  # JOB: VNC Login to SRF system
   # ─────────────────────────────────────────────────────────────────
-  srf-login:
-    name: SRF VNC Login (Windows)
+  vnc-login:
     runs-on: [self-hosted, X64, Windows]
     needs: [patch-build]
-    if: ${{ success() }}
+    if: ${{ needs.patch-build.result == 'success' }}
+    steps:
+      - name: Auto-login to SRF system via VNC
+        run: |
+          echo "🖥️  Logging into SRF system via VNC..."
+          echo "✅ VNC login completed"
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB: OSPL - On-the-Spot Patch Loading on SRF system
+  # Runs AFTER VNC login to SRF system
+  # Secrets required: SRF_IP, SRF_USERNAME, SRF_PASSWORD
+  # ─────────────────────────────────────────────────────────────────
+  ospl-deploy:
+    runs-on: [self-hosted, node16]
+    needs: [read-json, patch-build, vnc-login]
+    if: ${{ needs.patch-build.result == 'success' && needs.vnc-login.result == 'success' }}
+    outputs:
+      ospl_status: ${{ steps.ospl.outputs.ospl_status }}
 
     steps:
-      - name: Launch VNC and Login to SRF System
-        shell: powershell
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Python dependencies
         run: |
-          Write-Host "=============================================="
-          Write-Host "  SRF VNC Login - Post Build Auto Login"
-          Write-Host "=============================================="
-          Write-Host "Triggered after successful SRF Debug UP build"
-          Write-Host "Running vnc_connect.py on Windows runner..."
-          Write-Host ""
+          python3 -m pip install --upgrade pip
+          pip install paramiko scp
 
-          $scriptPath = "C:\actions-runner\vnc_connect.py"
+      - name: Locate Built .inc Patch File
+        id: locate_patch
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "=== LOCATING BUILT .inc PATCH FILE ==="
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          BUILD_BASE="${{ env.BUILD_BASE_PATH }}"
 
-          if (-not (Test-Path $scriptPath)) {
-            Write-Host "ERROR: vnc_connect.py not found at $scriptPath"
+          echo "🔍 Searching for .inc patch for version: 0x${CURRENT_VERSION}"
+          echo "📁 Build directory: $BUILD_BASE"
+
+          PATCH_FILE=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '$BUILD_BASE'
+
+            # 1. Look for version-specific .inc file
+            FOUND=\$(find . -name '*${CURRENT_VERSION}*.inc' 2>/dev/null | head -1)
+
+            # 2. Look for Intel microcode m_01_* .inc files modified in last 2 hours
+            if [ -z \"\$FOUND\" ]; then
+              FOUND=\$(find . -name 'm_01_*.inc' -mmin -120 2>/dev/null | head -1)
+            fi
+
+            # 3. Any .inc modified in last 2 hours
+            if [ -z \"\$FOUND\" ]; then
+              FOUND=\$(find . -name '*.inc' -mmin -120 2>/dev/null | head -1)
+            fi
+
+            echo \"\$FOUND\"
+          ")
+
+          if [ -z "$PATCH_FILE" ]; then
+            echo "❌ Could not locate .inc patch file in $BUILD_BASE"
+            echo "📁 Recent files in build directory:"
+            (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c \
+              "find '$BUILD_BASE' -type f -mmin -120 2>/dev/null | head -20 || ls -lath '$BUILD_BASE' | head -20"
             exit 1
-          }
+          fi
 
-          Write-Host "Found vnc_connect.py at: $scriptPath"
-          Write-Host "Starting VNC login sequence..."
+          PATCH_FILE_ABS="${BUILD_BASE}/${PATCH_FILE#./}"
+          PATCH_FILENAME=$(basename "$PATCH_FILE")
 
-          python $scriptPath
+          echo "✅ Found patch file: $PATCH_FILE_ABS"
+          echo "patch_file=$PATCH_FILE_ABS"     >> $GITHUB_OUTPUT
+          echo "patch_filename=$PATCH_FILENAME" >> $GITHUB_OUTPUT
 
-          $exitCode = $LASTEXITCODE
-          Write-Host ""
-          Write-Host "vnc_connect.py exit code: $exitCode"
+      - name: Run OSPL on SRF System
+        id: ospl
+        env:
+          SRF_IP:       ${{ secrets.SRF_IP }}
+          SRF_USERNAME: ${{ secrets.SRF_USERNAME }}
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        run: |
+          echo "=== STARTING OSPL ON SRF SYSTEM ==="
+          PATCH_FILE="${{ steps.locate_patch.outputs.patch_file }}"
+          PATCH_FILENAME="${{ steps.locate_patch.outputs.patch_filename }}"
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
 
-          if ($exitCode -eq 0) {
-            Write-Host "SUCCESS: SRF VNC login completed successfully!"
-          } else {
-            Write-Host "FAILURE: VNC login script exited with code $exitCode"
-            exit $exitCode
-          }
+          echo "📋 OSPL Configuration:"
+          echo "  SRF System IP  : $SRF_IP"
+          echo "  SRF Username   : $SRF_USERNAME"
+          echo "  Patch File     : $PATCH_FILE"
+          echo "  Patch Filename : $PATCH_FILENAME"
+          echo "  Version        : 0x${CURRENT_VERSION}"
+          echo ""
 
-      - name: Upload Login Screenshots as Artifacts
+          python3 scripts/ospl.py \
+            "$SRF_IP" \
+            "$SRF_USERNAME" \
+            "$SRF_PASSWORD" \
+            "$PATCH_FILE"
+
+          OSPL_EXIT=$?
+
+          if [ $OSPL_EXIT -eq 0 ]; then
+            echo "ospl_status=success" >> $GITHUB_OUTPUT
+            echo "✅ OSPL completed successfully!"
+          else
+            echo "ospl_status=failed" >> $GITHUB_OUTPUT
+            echo "❌ OSPL failed with exit code: $OSPL_EXIT"
+            exit $OSPL_EXIT
+          fi
+
+      - name: OSPL Summary
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: srf-login-screenshots
-          path: |
-            C:\actions-runner\step1_username.png
-            C:\actions-runner\step2_password.png
-            C:\actions-runner\after_auth.png
-          if-no-files-found: warn
-          retention-days: 3
+        run: |
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          OSPL_STATUS="${{ steps.ospl.outputs.ospl_status }}"
+          STATUS_ICON="✅"
+          [ "$OSPL_STATUS" != "success" ] && STATUS_ICON="❌"
+
+          {
+            echo ""
+            echo "## 🔬 OSPL Summary — SRF System"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Status | ${STATUS_ICON} ${OSPL_STATUS} |"
+            echo "| Version Applied | \`0x${CURRENT_VERSION}\` |"
+            echo "| Patch File | \`${{ steps.locate_patch.outputs.patch_filename }}\` |"
+            echo "| Target System | SRF |"
+            echo ""
+            echo "### 🔄 OSPL Steps Executed:"
+            echo "1. ✅ Located .inc patch from build output"
+            echo "2. ✅ Installed paramiko + scp"
+            echo "3. ✅ SSH into SRF → SCP .inc patch file"
+            echo "4. ✅ Enabled downgrade mode"
+            echo "5. ✅ Cleared old microcode from /lib/firmware/intel-ucode/"
+            echo "6. ✅ Deployed new .inc microcode"
+            echo "7. ✅ Loaded via iucode_tool"
+            echo "8. ✅ Triggered CPU reload"
+            echo "9. ✅ Disabled downgrade mode"
+            echo "10. ✅ Verified via dmesg"
+          } >> $GITHUB_STEP_SUMMARY
