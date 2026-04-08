@@ -1,4 +1,4 @@
-name: SRF Debug UP Build - Complete Pipeline
+name: SRF Debug UP Build - till ospl
 
 on:
   push:
