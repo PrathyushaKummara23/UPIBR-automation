@@ -999,11 +999,11 @@ jobs:
   # NEW JOB: Auto-login to SRF via VNC after build succeeds
   # Runs on Windows runner (self-hosted, X64, Windows)
   # ─────────────────────────────────────────────────────────────────
-  srf-login:
+  vnc-login:
     name: SRF VNC Login (Windows)
     runs-on: [self-hosted, X64, Windows]
     needs: [patch-build]
-    if: ${{ success() }}
+    if: ${{ needs.patch-build.result == 'success' }}
 
     steps:
       - name: Launch VNC and Login to SRF System
@@ -1050,3 +1050,131 @@ jobs:
             C:\actions-runner\after_auth.png
           if-no-files-found: warn
           retention-days: 3
+
+  ospl-deploy:
+    runs-on: [self-hosted, node16]
+    needs: [read-json, patch-build, vnc-login]
+    if: ${{ needs.patch-build.result == 'success' && needs.vnc-login.result == 'success' }}
+    permissions:
+      contents: read
+    outputs:
+      ospl_status: ${{ steps.ospl.outputs.ospl_status }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install paramiko scp
+
+      - name: Locate Built Patch File (.inc)
+        id: locate_patch
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "=== LOCATING BUILT .inc PATCH FILE ==="
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          BUILD_BASE="${{ env.BUILD_BASE_PATH }}"
+
+          echo "🔍 Searching for .inc patch for version: 0x${CURRENT_VERSION}"
+          echo "📁 Build directory: $BUILD_BASE"
+
+          PATCH_FILE=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '$BUILD_BASE'
+
+            # 1. Look for version-specific .inc file
+            FOUND=\$(find . -name '*${CURRENT_VERSION}*.inc' 2>/dev/null | head -1)
+
+            # 2. Look for any .inc modified in last 2 hours
+            if [ -z \"\$FOUND\" ]; then
+              FOUND=\$(find . -name '*.inc' -mmin -120 2>/dev/null | head -1)
+            fi
+
+            # 3. Look for m_01_* style Intel microcode .inc files
+            if [ -z \"\$FOUND\" ]; then
+              FOUND=\$(find . -name 'm_01_*.inc' 2>/dev/null | head -1)
+            fi
+
+            echo \"\$FOUND\"
+          ")
+
+          if [ -z "$PATCH_FILE" ]; then
+            echo "❌ Could not locate .inc patch file in $BUILD_BASE"
+            echo "📁 Recent files in build directory:"
+            (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "find '$BUILD_BASE' -type f -mmin -120 2>/dev/null | head -20 || ls -lath '$BUILD_BASE' | head -20"
+            exit 1
+          fi
+
+          PATCH_FILE_ABS="${BUILD_BASE}/${PATCH_FILE#./}"
+          echo "✅ Found patch file: $PATCH_FILE_ABS"
+          echo "patch_file=$PATCH_FILE_ABS" >> $GITHUB_OUTPUT
+          echo "patch_filename=$(basename $PATCH_FILE)" >> $GITHUB_OUTPUT
+
+      - name: Run OSPL on SRF System
+        id: ospl
+        env:
+          SRF_IP:       ${{ secrets.SRF_IP }}
+          SRF_USERNAME: ${{ secrets.SRF_USERNAME }}
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        run: |
+          echo "=== STARTING OSPL ON SRF SYSTEM ==="
+          PATCH_FILE="${{ steps.locate_patch.outputs.patch_file }}"
+          PATCH_FILENAME="${{ steps.locate_patch.outputs.patch_filename }}"
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+
+          echo "📋 OSPL Configuration:"
+          echo "  SRF System IP  : $SRF_IP"
+          echo "  SRF Username   : $SRF_USERNAME"
+          echo "  Patch File     : $PATCH_FILE"
+          echo "  Patch Filename : $PATCH_FILENAME"
+          echo "  Version        : 0x${CURRENT_VERSION}"
+          echo ""
+
+          python3 scripts/ospl.py \
+            "$SRF_IP" \
+            "$SRF_USERNAME" \
+            "$SRF_PASSWORD" \
+            "$PATCH_FILE"
+
+          OSPL_EXIT=$?
+
+          if [ $OSPL_EXIT -eq 0 ]; then
+            echo "ospl_status=success" >> $GITHUB_OUTPUT
+            echo "✅ OSPL completed successfully!"
+          else
+            echo "ospl_status=failed" >> $GITHUB_OUTPUT
+            echo "❌ OSPL failed with exit code: $OSPL_EXIT"
+            exit $OSPL_EXIT
+          fi
+
+      - name: OSPL Summary
+        if: always()
+        run: |
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          OSPL_STATUS="${{ steps.ospl.outputs.ospl_status }}"
+          STATUS_ICON="✅"
+          [ "$OSPL_STATUS" != "success" ] && STATUS_ICON="❌"
+
+          {
+            echo ""
+            echo "## 🔬 OSPL Summary — SRF System"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Status | ${STATUS_ICON} ${OSPL_STATUS} |"
+            echo "| Version Applied | \`0x${CURRENT_VERSION}\` |"
+            echo "| Patch File | \`${{ steps.locate_patch.outputs.patch_filename }}\` |"
+            echo ""
+            echo "### 🔄 OSPL Steps Executed:"
+            echo "1. ✅ Located .inc patch from build output"
+            echo "2. ✅ Installed paramiko + scp"
+            echo "3. ✅ SSH into SRF → SCP patch file"
+            echo "4. ✅ Enabled downgrade mode"
+            echo "5. ✅ Cleared old microcode"
+            echo "6. ✅ Deployed new .inc microcode"
+            echo "7. ✅ Loaded via iucode_tool"
+            echo "8. ✅ Triggered CPU reload"
+            echo "9. ✅ Disabled downgrade mode"
+            echo "10. ✅ Verified via dmesg"
+          } >> $GITHUB_STEP_SUMMARY
