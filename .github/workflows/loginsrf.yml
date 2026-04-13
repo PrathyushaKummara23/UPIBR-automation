@@ -18,30 +18,23 @@ jobs:
           Write-Host "Triggered after successful SRF Debug UP build"
           Write-Host "Running vnc_connect.py on Windows runner..."
           Write-Host ""
-
           $scriptPath = "C:\actions-runner\vnc_connect.py"
-
           if (-not (Test-Path $scriptPath)) {
             Write-Host "ERROR: vnc_connect.py not found at $scriptPath"
             exit 1
           }
-
           Write-Host "Found vnc_connect.py at: $scriptPath"
           Write-Host "Starting VNC login sequence..."
-
           python $scriptPath
-
           $exitCode = $LASTEXITCODE
           Write-Host ""
           Write-Host "vnc_connect.py exit code: $exitCode"
-
           if ($exitCode -eq 0) {
             Write-Host "SUCCESS: SRF VNC login completed successfully!"
           } else {
             Write-Host "FAILURE: VNC login script exited with code $exitCode"
             exit $exitCode
           }
-
       - name: Upload Login Screenshots as Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -66,24 +59,19 @@ jobs:
           Write-Host "=============================================="
           Write-Host "  Listing Contents of C:\pkummara"
           Write-Host "=============================================="
-
           $targetPath = "C:\pkummara"
-
           if (-not (Test-Path $targetPath)) {
             Write-Host "WARNING: Directory '$targetPath' does not exist on this runner."
             Write-Host "Please verify the path is correct or that the directory has been created."
             exit 0
           }
-
           Write-Host "Directory found: $targetPath"
           Write-Host ""
           Write-Host "--- Full Directory Listing (Get-ChildItem) ---"
           Get-ChildItem -Path $targetPath -Force | Format-Table Name, Length, LastWriteTime, Attributes -AutoSize
-
           Write-Host ""
           Write-Host "--- Recursive Listing (all files and folders) ---"
           Get-ChildItem -Path $targetPath -Recurse -Force | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
-
           Write-Host ""
           Write-Host "=============================================="
           Write-Host "  Directory listing completed successfully!"
