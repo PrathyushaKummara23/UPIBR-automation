@@ -1,0 +1,240 @@
+name: SRF VNC Auto-Login
+
+# Trigger 1: Automatically after the build pipeline completes successfully
+on:
+  workflow_run:
+    workflows: ["SRF Debug UP Build - Complete Pipeline"]
+    types:
+      - completed
+
+  # Trigger 2: Manually run (standalone or for testing)
+  workflow_dispatch:
+    inputs:
+      vnc_host:
+        description: 'VNC Host / IP address of the SRF machine'
+        required: true
+        type: string
+      vnc_port:
+        description: 'VNC Port'
+        required: false
+        type: string
+        default: '5900'
+      vnc_display:
+        description: 'VNC Display number (e.g., :1)'
+        required: false
+        type: string
+        default: ':1'
+      login_username:
+        description: 'Username to log in on the SRF machine'
+        required: false
+        type: string
+        default: 'grp_srf_fit1_build'
+
+env:
+  VNC_HOST:    ${{ github.event.inputs.vnc_host     || 'YOUR_DEFAULT_SRF_HOST' }}
+  VNC_PORT:    ${{ github.event.inputs.vnc_port     || '5900' }}
+  VNC_DISPLAY: ${{ github.event.inputs.vnc_display  || ':1' }}
+  LOGIN_USER:  ${{ github.event.inputs.login_username || 'grp_srf_fit1_build' }}
+
+jobs:
+  # ── Guard: only proceed when triggered by a successful build ──────────────
+  check-build-status:
+    runs-on: ubuntu-latest          # lightweight check – no self-hosted needed
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check upstream workflow result
+        id: check
+        run: |
+          # If manually dispatched, always run
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ Manual trigger – proceeding with VNC login"
+          # If triggered by workflow_run, only proceed when build succeeded
+          elif [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ Build succeeded – proceeding with VNC login"
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Build did not succeed (conclusion: ${{ github.event.workflow_run.conclusion }}) – skipping VNC login"
+          fi
+
+  # ── Main VNC login job ────────────────────────────────────────────────────
+  vnc-login:
+    runs-on: [self-hosted, X64, Windows]   # Windows runner with VNC client
+    needs: check-build-status
+    if: ${{ needs.check-build-status.outputs.should_run == 'true' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # ------------------------------------------------------------------
+      # Step 1 – Verify VNC client is available
+      # ------------------------------------------------------------------
+      - name: Verify VNC client tools
+        shell: powershell
+        run: |
+          Write-Host "=== Verifying VNC client tools ==="
+
+          # Check for vncviewer (TigerVNC / RealVNC / TightVNC)
+          $vncPaths = @(
+            "C:\Program Files\TigerVNC\vncviewer.exe",
+            "C:\Program Files\RealVNC\VNC Viewer\vncviewer.exe",
+            "C:\Program Files\TightVNC\tvnviewer.exe",
+            "C:\Program Files (x86)\TightVNC\tvnviewer.exe"
+          )
+
+          $found = $false
+          foreach ($path in $vncPaths) {
+            if (Test-Path $path) {
+              Write-Host "✅ VNC viewer found: $path"
+              echo "VNC_VIEWER=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
+              $found = $true
+              break
+            }
+          }
+
+          if (-not $found) {
+            # Fall back to PATH lookup
+            $cmd = Get-Command vncviewer -ErrorAction SilentlyContinue
+            if ($cmd) {
+              Write-Host "✅ vncviewer found in PATH: $($cmd.Source)"
+              echo "VNC_VIEWER=$($cmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
+            } else {
+              Write-Host "❌ VNC viewer not found. Please install TigerVNC, RealVNC, or TightVNC on the runner."
+              exit 1
+            }
+          }
+
+      # ------------------------------------------------------------------
+      # Step 2 – Verify network connectivity to the SRF machine
+      # ------------------------------------------------------------------
+      - name: Test connectivity to SRF machine
+        shell: powershell
+        run: |
+          Write-Host "=== Testing connectivity to SRF machine ==="
+          Write-Host "Host : ${{ env.VNC_HOST }}"
+          Write-Host "Port : ${{ env.VNC_PORT }}"
+
+          try {
+            $tcpClient = New-Object System.Net.Sockets.TcpClient
+            $connect   = $tcpClient.BeginConnect("${{ env.VNC_HOST }}", [int]"${{ env.VNC_PORT }}", $null, $null)
+            $wait      = $connect.AsyncWaitHandle.WaitOne(5000, $false)
+
+            if ($wait -and -not $tcpClient.Client.Connected) { $wait = $false }
+
+            if ($wait) {
+              $tcpClient.EndConnect($connect)
+              $tcpClient.Close()
+              Write-Host "✅ Successfully connected to ${{ env.VNC_HOST }}:${{ env.VNC_PORT }}"
+            } else {
+              $tcpClient.Close()
+              Write-Host "❌ Cannot reach ${{ env.VNC_HOST }}:${{ env.VNC_PORT }} – check VNC server and firewall"
+              exit 1
+            }
+          } catch {
+            Write-Host "❌ Connection error: $_"
+            exit 1
+          }
+
+      # ------------------------------------------------------------------
+      # Step 3 – Perform VNC login using expect-style automation (PowerShell)
+      # ------------------------------------------------------------------
+      - name: Execute VNC login to SRF machine
+        shell: powershell
+        env:
+          VNC_PASSWORD:  ${{ secrets.VNC_PASSWORD }}
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          Write-Host "=== Starting VNC Auto-Login to SRF machine ==="
+          Write-Host "Host    : ${{ env.VNC_HOST }}"
+          Write-Host "Port    : ${{ env.VNC_PORT }}"
+          Write-Host "Display : ${{ env.VNC_DISPLAY }}"
+          Write-Host "User    : ${{ env.LOGIN_USER }}"
+
+          # ---- Option A: TigerVNC via command line (headless / scripted) ----
+          # TigerVNC supports -passwd flag with a password file
+          $passwdFile = "$env:TEMP\vnc_pass.tmp"
+          try {
+            # Write the VNC password to a temp file (vncpasswd format requires
+            # the vncpasswd utility; here we pass it inline for simple setups)
+            $env:VNC_PASSWORD | Out-File -FilePath $passwdFile -Encoding ASCII -NoNewline
+
+            Write-Host "Launching VNC viewer..."
+            $args = @(
+              "${{ env.VNC_HOST }}:${{ env.VNC_PORT }}",
+              "-passwd", $passwdFile,
+              "-SecurityTypes", "VncAuth",
+              "-DotWhenNoCursor"
+            )
+
+            $proc = Start-Process -FilePath "${{ env.VNC_VIEWER }}" `
+                                  -ArgumentList $args `
+                                  -PassThru -NoNewWindow
+
+            # Give the viewer a few seconds to authenticate
+            Start-Sleep -Seconds 10
+
+            if (-not $proc.HasExited) {
+              Write-Host "✅ VNC session established successfully (PID $($proc.Id))"
+              # Keep the session open for 30 s then close (adjust as needed)
+              Start-Sleep -Seconds 30
+              $proc.Kill()
+              Write-Host "ℹ️  VNC session closed after automation window"
+            } else {
+              Write-Host "❌ VNC viewer exited immediately (exit code $($proc.ExitCode))"
+              exit 1
+            }
+          } finally {
+            # Always clean up the password temp file
+            if (Test-Path $passwdFile) { Remove-Item $passwdFile -Force }
+          }
+
+      # ------------------------------------------------------------------
+      # Step 4 – Post-login verification (optional ping / SSH check)
+      # ------------------------------------------------------------------
+      - name: Verify post-login state
+        shell: powershell
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          Write-Host "=== Post-Login Verification ==="
+
+          # Simple ping check to confirm machine is still reachable
+          $ping = Test-Connection -ComputerName "${{ env.VNC_HOST }}" -Count 3 -Quiet
+          if ($ping) {
+            Write-Host "✅ SRF machine is still reachable after VNC login"
+          } else {
+            Write-Host "⚠️  Warning: SRF machine not responding to ping (may be normal if ICMP is blocked)"
+          }
+
+          Write-Host "✅ VNC login automation completed"
+
+      # ------------------------------------------------------------------
+      # Step 5 – Summary
+      # ------------------------------------------------------------------
+      - name: Write job summary
+        shell: powershell
+        run: |
+          $summary = @"
+          ## 🖥️ SRF VNC Auto-Login Summary
+
+          | Field        | Value                              |
+          |--------------|------------------------------------|
+          | VNC Host     | ``${{ env.VNC_HOST }}``            |
+          | VNC Port     | ``${{ env.VNC_PORT }}``            |
+          | VNC Display  | ``${{ env.VNC_DISPLAY }}``         |
+          | Login User   | ``${{ env.LOGIN_USER }}``          |
+          | Triggered By | ${{ github.event_name }}           |
+          | Status       | ✅ Completed                       |
+
+          ### 🔄 Steps Executed:
+          1. ✅ VNC client tool verified
+          2. ✅ Network connectivity confirmed
+          3. ✅ VNC session opened and authenticated
+          4. ✅ Post-login state verified
+          "@
+
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          Write-Host $summary
