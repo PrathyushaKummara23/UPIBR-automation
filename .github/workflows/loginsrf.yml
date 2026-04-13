@@ -53,3 +53,38 @@ jobs:
             C:\actions-runner\after_auth.png
           if-no-files-found: warn
           retention-days: 3
+
+  list-pkummara-contents:
+    name: List Contents of C:\pkummara
+    runs-on: [self-hosted, X64, Windows]
+    needs: srf-login
+
+    steps:
+      - name: List contents of C:\pkummara
+        shell: powershell
+        run: |
+          Write-Host "=============================================="
+          Write-Host "  Listing Contents of C:\pkummara"
+          Write-Host "=============================================="
+
+          $targetPath = "C:\pkummara"
+
+          if (-not (Test-Path $targetPath)) {
+            Write-Host "WARNING: Directory '$targetPath' does not exist on this runner."
+            Write-Host "Please verify the path is correct or that the directory has been created."
+            exit 0
+          }
+
+          Write-Host "Directory found: $targetPath"
+          Write-Host ""
+          Write-Host "--- Full Directory Listing (Get-ChildItem) ---"
+          Get-ChildItem -Path $targetPath -Force | Format-Table Name, Length, LastWriteTime, Attributes -AutoSize
+
+          Write-Host ""
+          Write-Host "--- Recursive Listing (all files and folders) ---"
+          Get-ChildItem -Path $targetPath -Recurse -Force | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
+
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "  Directory listing completed successfully!"
+          Write-Host "=============================================="
