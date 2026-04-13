@@ -35,6 +35,7 @@ jobs:
             Write-Host "FAILURE: VNC login script exited with code $exitCode"
             exit $exitCode
           }
+
       - name: Upload Login Screenshots as Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,59 +45,12 @@ jobs:
             C:\actions-runner\step1_username.png
             C:\actions-runner\step2_password.png
             C:\actions-runner\after_auth.png
+            C:\actions-runner\srf_step1_run_dialog.png
+            C:\actions-runner\srf_step2_powershell_typed.png
+            C:\actions-runner\srf_step3_powershell_opened.png
+            C:\actions-runner\srf_step4_cmd1_typed.png
+            C:\actions-runner\srf_step5_cmd1_output.png
+            C:\actions-runner\srf_step6_cmd2_typed.png
+            C:\actions-runner\srf_step7_cmd2_output.png
           if-no-files-found: warn
           retention-days: 3
-
-  diagnose-runner:
-    name: Diagnose Runner Identity
-    runs-on: [self-hosted, X64, Windows]
-    needs: srf-login
-
-    steps:
-      - name: Show runner identity and C drive root
-        shell: powershell
-        run: |
-          Write-Host "=============================================="
-          Write-Host "  RUNNER IDENTITY DIAGNOSTICS"
-          Write-Host "=============================================="
-          Write-Host "Current User    : $env:USERNAME"
-          Write-Host "User Domain     : $env:USERDOMAIN"
-          Write-Host "User Profile    : $env:USERPROFILE"
-          Write-Host "Computer Name   : $env:COMPUTERNAME"
-          Write-Host "Runner Temp     : $env:RUNNER_TEMP"
-          Write-Host "Runner WorkDir  : $env:GITHUB_WORKSPACE"
-          Write-Host ""
-          Write-Host "--- whoami output ---"
-          whoami
-          Write-Host ""
-          Write-Host "--- whoami /groups (abbreviated) ---"
-          whoami /groups 2>&1 | Select-Object -First 20
-          Write-Host ""
-          Write-Host "--- Contents of C:\ root ---"
-          Get-ChildItem -Path "C:\" -Force -ErrorAction SilentlyContinue | Format-Table Name, Attributes -AutoSize
-          Write-Host ""
-          Write-Host "--- Direct Test-Path checks ---"
-          Write-Host "Test-Path C:\pkummara              : $(Test-Path 'C:\pkummara')"
-          Write-Host "Test-Path C:\pkummara (SilentlyCont): $(Test-Path 'C:\pkummara' -ErrorAction SilentlyContinue)"
-          Write-Host ""
-          Write-Host "--- Try Get-Item directly ---"
-          try {
-            $item = Get-Item -Path "C:\pkummara" -Force -ErrorAction Stop
-            Write-Host "Get-Item SUCCESS: $($item.FullName) | Attributes: $($item.Attributes)"
-          } catch {
-            Write-Host "Get-Item ERROR: $_"
-          }
-          Write-Host ""
-          Write-Host "--- Try Get-ChildItem on C:\ looking for pkummara ---"
-          Get-ChildItem -Path "C:\" -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*pkummara*" } | Format-Table Name, FullName, Attributes -AutoSize
-          Write-Host ""
-          Write-Host "--- ACL on C:\pkummara (if accessible) ---"
-          try {
-            $acl = Get-Acl -Path "C:\pkummara" -ErrorAction Stop
-            $acl.Access | Format-Table IdentityReference, FileSystemRights, AccessControlType -AutoSize
-          } catch {
-            Write-Host "Cannot read ACL: $_"
-          }
-          Write-Host "=============================================="
-          Write-Host "  Diagnostics completed!"
-          Write-Host "=============================================="
