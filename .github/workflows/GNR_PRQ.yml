@@ -68,12 +68,12 @@ jobs:
         echo "baseline_version=$BASELINE_VERSION" >> $GITHUB_OUTPUT
         echo "current_version=$CURRENT_VERSION"   >> $GITHUB_OUTPUT
 
-    - name: Display all *code paths from baseline config
+    - name: Display all code paths from baseline config
       run: |
         BASELINE_VERSION="${{ github.event.inputs.baseline_version }}"
         CONFIG_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/$BASELINE_VERSION/release/config_${BASELINE_VERSION}.ini"
 
-        echo "📦 *CODE PATHS FROM BASELINE CONFIG"
+        echo "📦 CODE PATHS FROM BASELINE CONFIG"
         echo "====================================="
 
         extract_value() {
@@ -104,26 +104,24 @@ jobs:
         echo "s3m      : ${s3m_val:-[NOT SET]}"
 
         {
-          echo "# 📊 GNR Engineering Debug UP Build Pipeline"
+          echo "## 📊 GNR Engineering Debug UP Build Pipeline"
           echo ""
-          echo "> ⚠️ **This is a Debug Build — NOT for Production Release**"
+          echo "Baseline Version: ${BASELINE_VERSION}"
+          echo "Current Version: ${{ github.event.inputs.current_version }}"
           echo ""
-          echo "**Baseline Version:** \`$BASELINE_VERSION\`"
-          echo "**Current Version:** \`${{ github.event.inputs.current_version }}\`"
-          echo ""
-          echo "## 📦 *Code Paths (from Baseline Config)"
+          echo "### 📦 Code Paths (from Baseline Config)"
           echo "| Component | Path |"
           echo "|-----------|------|"
-          echo "| ucode     | \`${ucode_val:-NOT SET}\` |"
-          echo "| xucode    | \`${xucode_val:-NOT SET}\` |"
-          echo "| mcheck    | \`${mcheck_val:-NOT SET}\` |"
-          echo "| tcode     | \`${tcode_val:-NOT SET}\` |"
-          echo "| acode     | \`${acode_val:-NOT SET}\` |"
-          echo "| icode     | \`${icode_val:-NOT SET}\` |"
-          echo "| oobmsm    | \`${oobmsm_val:-NOT SET}\` |"
-          echo "| pcode-io  | \`${pcode_io_val:-NOT SET}\` |"
-          echo "| pcode-c   | \`${pcode_c_val:-NOT SET}\` |"
-          echo "| s3m       | \`${s3m_val:-NOT SET}\` |"
+          echo "| ucode     | ${ucode_val:-NOT SET} |"
+          echo "| xucode    | ${xucode_val:-NOT SET} |"
+          echo "| mcheck    | ${mcheck_val:-NOT SET} |"
+          echo "| tcode     | ${tcode_val:-NOT SET} |"
+          echo "| acode     | ${acode_val:-NOT SET} |"
+          echo "| icode     | ${icode_val:-NOT SET} |"
+          echo "| oobmsm    | ${oobmsm_val:-NOT SET} |"
+          echo "| pcode-io  | ${pcode_io_val:-NOT SET} |"
+          echo "| pcode-c   | ${pcode_c_val:-NOT SET} |"
+          echo "| s3m       | ${s3m_val:-NOT SET} |"
         } >> $GITHUB_STEP_SUMMARY
 
   copy-config:
@@ -151,7 +149,6 @@ jobs:
         echo "🔄 Final Renamed    : $FINAL_CONFIG"
         echo "=================================================="
 
-        # Validate source
         if [ ! -d "$SOURCE_DIR" ]; then
           echo "❌ Error: Release directory not found: $SOURCE_DIR"
           exit 1
@@ -171,18 +168,15 @@ jobs:
         echo "📊 Source file size: $SOURCE_SIZE bytes"
         echo "🔐 Source permissions: $SOURCE_PERMS"
 
-        # Ensure destination directory exists
         mkdir -p "$DEST_PATH"
         echo "✅ Destination directory ready: $DEST_PATH"
 
-        # Copy
         echo ""
         echo "📋 Copying config file..."
         cp "$SOURCE_CONFIG" "$DEST_CONFIG"
         if [ $? -ne 0 ]; then echo "❌ Failed to copy config file"; exit 1; fi
         echo "✅ Copied successfully"
 
-        # Verify copy
         DEST_SIZE=$(stat -c%s "$DEST_CONFIG" 2>/dev/null || echo "unknown")
         if [ "$SOURCE_SIZE" = "$DEST_SIZE" ]; then
           echo "✅ File integrity verified (sizes match: $SOURCE_SIZE bytes)"
@@ -190,7 +184,6 @@ jobs:
           echo "⚠️  Warning: sizes differ (Source: $SOURCE_SIZE, Dest: $DEST_SIZE)"
         fi
 
-        # Set permissions
         echo ""
         echo "🔐 Setting permissions to 777..."
         chmod 777 "$DEST_CONFIG"
@@ -198,7 +191,6 @@ jobs:
         NEW_PERMS=$(ls -la "$DEST_CONFIG" | awk '{print $1}')
         echo "✅ Permissions set: $NEW_PERMS"
 
-        # Rename to current version
         echo ""
         echo "🔄 Renaming to current version..."
         mv "$DEST_CONFIG" "$FINAL_CONFIG"
@@ -247,37 +239,33 @@ jobs:
         fi
         echo "✅ Config file found: $CONFIG_FILE"
 
-        # Backup
         BACKUP_CONFIG="${CONFIG_FILE}.backup"
         cp "$CONFIG_FILE" "$BACKUP_CONFIG"
         echo "📋 Backup created: $BACKUP_CONFIG"
 
-        # Show before
         echo ""
         echo "📄 CONFIG BEFORE CHANGES:"
         echo "========================="
         grep -E "^(version|prev_version|patch_description|soc_sign|fit1_sign)\s*=" "$CONFIG_FILE" || true
 
-        # Apply updates
         echo ""
         echo "🔧 Applying updates..."
 
-        sed -i "s|^version\s*=.*|version = 0x${CURRENT_VERSION}|"           "$CONFIG_FILE"
+        sed -i "s|^version\s*=.*|version = 0x${CURRENT_VERSION}|"              "$CONFIG_FILE"
         echo "✅ Updated version = 0x${CURRENT_VERSION}"
 
-        sed -i "s|^prev_version\s*=.*|prev_version = 0x${CURRENT_VERSION}|" "$CONFIG_FILE"
+        sed -i "s|^prev_version\s*=.*|prev_version = 0x${CURRENT_VERSION}|"    "$CONFIG_FILE"
         echo "✅ Updated prev_version = 0x${CURRENT_VERSION}"
 
         sed -i "s|^patch_description\s*=.*|patch_description = ${BUILD_DESC}|" "$CONFIG_FILE"
         echo "✅ Updated patch_description = ${BUILD_DESC}"
 
-        sed -i "s|^soc_sign\s*=.*|soc_sign = css-debug|"  "$CONFIG_FILE"
+        sed -i "s|^soc_sign\s*=.*|soc_sign = css-debug|"                       "$CONFIG_FILE"
         echo "✅ Updated soc_sign = css-debug"
 
-        sed -i "s|^fit1_sign\s*=.*|fit1_sign = css-debug|" "$CONFIG_FILE"
+        sed -i "s|^fit1_sign\s*=.*|fit1_sign = css-debug|"                     "$CONFIG_FILE"
         echo "✅ Updated fit1_sign = css-debug"
 
-        # Show after
         echo ""
         echo "📄 CONFIG AFTER CHANGES:"
         echo "========================"
@@ -294,88 +282,11 @@ jobs:
         echo "✅ prev_version   : 0x${CURRENT_VERSION}"
         echo "✅ soc_sign       : css-debug"
         echo "✅ fit1_sign      : css-debug"
-        echo "✅ *code paths    : unchanged from baseline"
-
-  upload-config:
-    runs-on: [self-hosted, node16]
-    needs: [read-config, copy-config, prepare-config]
-    if: ${{ needs.read-config.outputs.current_version != '' }}
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload Config File to Repository
-      run: |
-        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
-        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
-        CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
-        REPO_OUTPUT_DIR="output_paths"
-        REPO_CONFIG_FILE="$REPO_OUTPUT_DIR/config_${CURRENT_VERSION}.ini"
-
-        echo "📤 Uploading Config File to Repository"
-        echo "=================================================="
-        echo "📋 Current Version : $CURRENT_VERSION"
-        echo "📄 Source Config   : $CONFIG_FILE"
-        echo "📁 Repo Output Dir : $REPO_OUTPUT_DIR"
-        echo "=================================================="
-
-        if [ ! -f "$CONFIG_FILE" ]; then
-          echo "❌ Error: Config file not found: $CONFIG_FILE"
-          exit 1
-        fi
-        echo "✅ Config file found: $CONFIG_FILE"
-
-        mkdir -p "$REPO_OUTPUT_DIR"
-        cp "$CONFIG_FILE" "$REPO_CONFIG_FILE"
-        if [ $? -ne 0 ]; then echo "❌ Failed to copy config to repo"; exit 1; fi
-
-        SOURCE_SIZE=$(stat -c%s "$CONFIG_FILE" 2>/dev/null || echo "unknown")
-        REPO_SIZE=$(stat -c%s "$REPO_CONFIG_FILE" 2>/dev/null || echo "unknown")
-        if [ "$SOURCE_SIZE" = "$REPO_SIZE" ]; then
-          echo "✅ File integrity verified ($SOURCE_SIZE bytes)"
-        else
-          echo "⚠️  Warning: sizes differ (Source: $SOURCE_SIZE, Repo: $REPO_SIZE)"
-        fi
-
-        echo ""
-        echo "🔧 Configuring git..."
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-
-        git add "$REPO_CONFIG_FILE"
-
-        if git diff --staged --quiet; then
-          echo "ℹ️  No changes to commit (file already exists with same content)"
-        else
-          git commit -m "Add GNR Debug UP prepared config: config_${CURRENT_VERSION}.ini
-
-          - GNR Engineering Debug Build (NOT for Production Release)
-          - PRQ Bit=1 (--set_prq flag)
-          - Baseline Version: ${{ github.event.inputs.baseline_version }}
-          - Current Version: 0x${CURRENT_VERSION}
-          - Automated by GitHub Actions workflow
-          - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-
-          echo "✅ Config file committed"
-
-          git push
-          if [ $? -eq 0 ]; then
-            echo "✅ Changes pushed to repository successfully!"
-          else
-            echo "❌ Failed to push changes"
-            exit 1
-          fi
-        fi
-
-        echo ""
-        echo "✅ Config file upload operation completed successfully!"
+        echo "✅ code paths     : unchanged from baseline"
 
   validate-config:
     runs-on: [self-hosted, node16]
-    needs: [read-config, copy-config, prepare-config, upload-config]
+    needs: [read-config, copy-config, prepare-config]
     outputs:
       config_validated: ${{ steps.validate.outputs.config_validated }}
       config_path: ${{ steps.validate.outputs.config_path }}
@@ -515,7 +426,6 @@ jobs:
       run: |
         echo "Verifying build tools for GNR Debug UP automated build..."
 
-        # Check Python
         PYTHON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
           if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
         ")
@@ -526,7 +436,6 @@ jobs:
           exit 1
         fi
 
-        # Check FXT tool (fxtMuppet.py)
         FXT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
           if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
         ")
@@ -537,7 +446,6 @@ jobs:
           exit 1
         fi
 
-        # Check expect
         EXPECT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
           if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
         ")
@@ -559,68 +467,71 @@ jobs:
 
         CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
         CONFIG_FILE="config_${CURRENT_VERSION}.ini"
+        EXPECT_SCRIPT_TMP="/tmp/gnr_build_$$.exp"
+        PYTHON_BIN="${{ env.PYTHON_PATH }}"
+        FXT_TOOL="${{ env.FXT_TOOL_PATH }}"
+        EXPECT_BIN="${{ env.EXPECT_PATH }}"
+        BUILD_DIR="${{ env.BUILD_BASE_PATH }}"
 
         echo "Automated Build Configuration:"
-        echo "  - Working Directory  : ${{ env.BUILD_BASE_PATH }}"
+        echo "  - Working Directory  : $BUILD_DIR"
         echo "  - Config File        : $CONFIG_FILE"
         echo "  - Build Description  : ${{ github.event.inputs.build_description }}"
         echo "  - Baseline Version   : ${{ github.event.inputs.baseline_version }}"
         echo "  - Current Version    : 0x${CURRENT_VERSION}"
-        echo "  - Python Path        : ${{ env.PYTHON_PATH }}"
-        echo "  - FXT Tool Path      : ${{ env.FXT_TOOL_PATH }}"
+        echo "  - Python Path        : $PYTHON_BIN"
+        echo "  - FXT Tool Path      : $FXT_TOOL"
         echo "  - PRQ Flag           : --set_prq"
         echo ""
 
+        # Build expect script using printf to avoid heredoc/YAML indentation conflict
+        printf '#!%s -f\n'                                        "$EXPECT_BIN"           >  "$EXPECT_SCRIPT_TMP"
+        printf 'set timeout 1800\n'                                                        >> "$EXPECT_SCRIPT_TMP"
+        printf 'set css_password $env(CSS_PASSWORD)\n'                                    >> "$EXPECT_SCRIPT_TMP"
+        printf 'spawn %s %s --conf %s --set_prq\n'               "$PYTHON_BIN" "$FXT_TOOL" "$CONFIG_FILE" >> "$EXPECT_SCRIPT_TMP"
+        printf 'expect {\n'                                                                >> "$EXPECT_SCRIPT_TMP"
+        printf '  "Enter your CSS password:" {\n'                                         >> "$EXPECT_SCRIPT_TMP"
+        printf '    send "$css_password\\r"\n'                                             >> "$EXPECT_SCRIPT_TMP"
+        printf '    exp_continue\n'                                                        >> "$EXPECT_SCRIPT_TMP"
+        printf '  }\n'                                                                     >> "$EXPECT_SCRIPT_TMP"
+        printf '  "Enter your CSS password: " {\n'                                        >> "$EXPECT_SCRIPT_TMP"
+        printf '    send "$css_password\\r"\n'                                             >> "$EXPECT_SCRIPT_TMP"
+        printf '    exp_continue\n'                                                        >> "$EXPECT_SCRIPT_TMP"
+        printf '  }\n'                                                                     >> "$EXPECT_SCRIPT_TMP"
+        printf '  -re ".*assword.*" {\n'                                                   >> "$EXPECT_SCRIPT_TMP"
+        printf '    send "$css_password\\r"\n'                                             >> "$EXPECT_SCRIPT_TMP"
+        printf '    exp_continue\n'                                                        >> "$EXPECT_SCRIPT_TMP"
+        printf '  }\n'                                                                     >> "$EXPECT_SCRIPT_TMP"
+        printf '  eof {\n'                                                                 >> "$EXPECT_SCRIPT_TMP"
+        printf '    catch wait result\n'                                                   >> "$EXPECT_SCRIPT_TMP"
+        printf '    exit [lindex $result 3]\n'                                             >> "$EXPECT_SCRIPT_TMP"
+        printf '  }\n'                                                                     >> "$EXPECT_SCRIPT_TMP"
+        printf '  timeout {\n'                                                             >> "$EXPECT_SCRIPT_TMP"
+        printf '    puts "GNR Debug UP build timed out after 30 minutes"\n'               >> "$EXPECT_SCRIPT_TMP"
+        printf '    exit 124\n'                                                            >> "$EXPECT_SCRIPT_TMP"
+        printf '  }\n'                                                                     >> "$EXPECT_SCRIPT_TMP"
+        printf '}\n'                                                                       >> "$EXPECT_SCRIPT_TMP"
+
+        chmod +x "$EXPECT_SCRIPT_TMP"
+
+        echo "✅ Expect script written to: $EXPECT_SCRIPT_TMP"
+
         BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
-          cd '${{ env.BUILD_BASE_PATH }}'
+          cp '$EXPECT_SCRIPT_TMP' '$BUILD_DIR/automated_build_expect.exp'
+          chmod +x '$BUILD_DIR/automated_build_expect.exp'
+          cd '$BUILD_DIR'
           echo 'Current directory: \$(pwd)'
-
-          cat > automated_build_expect.exp << 'EOF'
-#!${{ env.EXPECT_PATH }} -f
-set timeout 1800
-
-set css_password \$env(CSS_PASSWORD)
-
-spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE --set_prq
-
-expect {
-  \"Enter your CSS password:\" {
-    send \"\$css_password\r\"
-    exp_continue
-  }
-  \"Enter your CSS password: \" {
-    send \"\$css_password\r\"
-    exp_continue
-  }
-  -re \".*assword.*\" {
-    send \"\$css_password\r\"
-    exp_continue
-  }
-  eof {
-    catch wait result
-    exit [lindex \$result 3]
-  }
-  timeout {
-    puts \"GNR Debug UP automated build timed out after 30 minutes\"
-    exit 124
-  }
-}
-EOF
-
-          chmod +x automated_build_expect.exp
           echo 'Starting GNR Debug UP build with --set_prq flag...'
-
-          export CSS_PASSWORD='$CSS_PASSWORD'
+          export CSS_PASSWORD='${CSS_PASSWORD}'
           ./automated_build_expect.exp 2>&1
           BUILD_EXIT=\$?
-
           rm -f automated_build_expect.exp
-
           echo \"Build completed with exit code: \$BUILD_EXIT\"
           exit \$BUILD_EXIT
         ")
 
         BUILD_EXIT_CODE=$?
+        rm -f "$EXPECT_SCRIPT_TMP"
 
         echo "Build output:"
         echo "$BUILD_RESULT"
@@ -676,37 +587,27 @@ EOF
         CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
 
         {
-          echo ""
           echo "## 🚀 GNR Engineering Debug UP Automated Build Summary"
-          echo ""
-          echo "> ⚠️ **This is a Debug Build — NOT for Production Release**"
           echo ""
           echo "| Field | Value |"
           echo "|-------|-------|"
           echo "| Build Type | GNR Engineering Debug UP (PRQ Bit=1) |"
-          echo "| Baseline Version | \`${{ github.event.inputs.baseline_version }}\` |"
-          echo "| Current Version | \`0x${CURRENT_VERSION}\` |"
-          echo "| Config File | \`config_${CURRENT_VERSION}.ini\` |"
+          echo "| Baseline Version | ${{ github.event.inputs.baseline_version }} |"
+          echo "| Current Version | 0x${CURRENT_VERSION} |"
+          echo "| Config File | config_${CURRENT_VERSION}.ini |"
           echo "| Build Description | ${{ github.event.inputs.build_description }} |"
-          echo "| Build Directory | \`${{ env.BUILD_BASE_PATH }}\` |"
+          echo "| Build Directory | ${{ env.BUILD_BASE_PATH }} |"
           echo "| Faceless Account | grp_gnr_fit1_build |"
-          echo "| Build Flag | \`--set_prq\` |"
+          echo "| Build Flag | --set_prq |"
           echo ""
           echo "### 🔄 Complete Pipeline Process:"
-          echo "1. ✅ **Read Config**: Read \*code paths from baseline config"
-          echo "2. ✅ **Copy Config**: Copied and renamed config file"
-          echo "3. ✅ **Prepare Config**: Updated version, prev_version, sign type to css-debug"
-          echo "4. ✅ **Upload Config**: Uploaded prepared config to GitHub"
-          echo "5. ✅ **Validate Config**: Verified config file exists and is readable"
-          echo "6. ✅ **Kerberos Setup**: Initialized ktab and kcron"
-          echo "7. ✅ **Build Execution**: Executed fxtMuppet.py with --set_prq flag"
-          echo "8. ✅ **Result Verification**: Checked for build artifacts"
+          echo "1. Read Config: Read code paths from baseline config"
+          echo "2. Copy Config: Copied and renamed config file"
+          echo "3. Prepare Config: Updated version, prev_version, sign type to css-debug"
+          echo "4. Validate Config: Verified config file exists and is readable"
+          echo "5. Kerberos Setup: Initialized ktab and kcron"
+          echo "6. Build Execution: Executed fxtMuppet.py with --set_prq flag"
+          echo "7. Result Verification: Checked for build artifacts"
           echo ""
-          echo "### 🎯 Key Build Details:"
-          echo "- **PRQ Bit=1**: Build uses \`--set_prq\` flag"
-          echo "- **Debug Signed**: css-debug signing"
-          echo "- **Config Source**: GNR B0 build path"
-          echo "- **GitHub Config**: [View Config](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/output_paths/config_${CURRENT_VERSION}.ini)"
-          echo ""
-          echo "🎉 **GNR Engineering Debug UP automated build pipeline completed successfully!**"
+          echo "GNR Engineering Debug UP automated build pipeline completed successfully!"
         } >> $GITHUB_STEP_SUMMARY
