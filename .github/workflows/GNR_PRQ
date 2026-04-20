@@ -1,0 +1,712 @@
+# GNR Engineering Debug Build - NOT for Production Release
+name: GNR Engineering Debug UP Build - Complete Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_version:
+        description: 'Baseline (previous) version e.g. a1b2c3d4'
+        required: true
+        type: string
+      current_version:
+        description: 'New version being built e.g. e5f6a7b8'
+        required: true
+        type: string
+      build_description:
+        description: 'Build description'
+        required: false
+        type: string
+        default: 'GNR Engineering Debug UP Automated Build'
+
+env:
+  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
+  KTAB_PATH: /usr/intel/bin/ktab
+  KCRON_PATH: /usr/intel/bin/kcron
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
+  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools/MUPPET/fxtMuppet.py
+  EXPECT_PATH: /usr/bin/expect
+
+jobs:
+  read-config:
+    runs-on: [self-hosted, node16]
+    outputs:
+      baseline_version: ${{ steps.validate.outputs.baseline_version }}
+      current_version: ${{ steps.validate.outputs.current_version }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Validate baseline config file exists
+      id: validate
+      run: |
+        BASELINE_VERSION="${{ github.event.inputs.baseline_version }}"
+        CURRENT_VERSION="${{ github.event.inputs.current_version }}"
+        GNR_BUILD_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build"
+        CONFIG_PATH="$GNR_BUILD_PATH/$BASELINE_VERSION/release/config_${BASELINE_VERSION}.ini"
+
+        echo "🔍 Validating baseline config file"
+        echo "=================================================="
+        echo "📋 Baseline Version : $BASELINE_VERSION"
+        echo "📋 Current Version  : $CURRENT_VERSION"
+        echo "📄 Config Path      : $CONFIG_PATH"
+        echo "=================================================="
+
+        if [ ! -f "$CONFIG_PATH" ]; then
+          echo "❌ Error: Baseline config file not found: $CONFIG_PATH"
+          echo ""
+          echo "📁 Available directories in build path:"
+          if [ -d "$GNR_BUILD_PATH" ]; then
+            ls -la "$GNR_BUILD_PATH" | grep '^d' | awk '{print "  - " $9}' | grep -v '^\s*-\s*\.\.\?$' || echo "  No directories found"
+          else
+            echo "  Build path '$GNR_BUILD_PATH' does not exist"
+          fi
+          exit 1
+        fi
+
+        echo "✅ Baseline config file found: $CONFIG_PATH"
+        echo "baseline_version=$BASELINE_VERSION" >> $GITHUB_OUTPUT
+        echo "current_version=$CURRENT_VERSION"   >> $GITHUB_OUTPUT
+
+    - name: Display all *code paths from baseline config
+      run: |
+        BASELINE_VERSION="${{ github.event.inputs.baseline_version }}"
+        CONFIG_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/$BASELINE_VERSION/release/config_${BASELINE_VERSION}.ini"
+
+        echo "📦 *CODE PATHS FROM BASELINE CONFIG"
+        echo "====================================="
+
+        extract_value() {
+          local key="$1"
+          grep "^${key}\s*=" "$CONFIG_PATH" | head -1 | cut -d'=' -f2- | sed 's/^[[:space:]]*//'
+        }
+
+        ucode_val=$(extract_value "ucode")
+        xucode_val=$(extract_value "xucode")
+        mcheck_val=$(extract_value "mcheck")
+        tcode_val=$(extract_value "tcode")
+        acode_val=$(extract_value "acode")
+        icode_val=$(extract_value "icode")
+        oobmsm_val=$(extract_value "oobmsm")
+        pcode_io_val=$(extract_value "pcode-io")
+        pcode_c_val=$(extract_value "pcode-c")
+        s3m_val=$(extract_value "s3m")
+
+        echo "ucode    : ${ucode_val:-[NOT SET]}"
+        echo "xucode   : ${xucode_val:-[NOT SET]}"
+        echo "mcheck   : ${mcheck_val:-[NOT SET]}"
+        echo "tcode    : ${tcode_val:-[NOT SET]}"
+        echo "acode    : ${acode_val:-[NOT SET]}"
+        echo "icode    : ${icode_val:-[NOT SET]}"
+        echo "oobmsm   : ${oobmsm_val:-[NOT SET]}"
+        echo "pcode-io : ${pcode_io_val:-[NOT SET]}"
+        echo "pcode-c  : ${pcode_c_val:-[NOT SET]}"
+        echo "s3m      : ${s3m_val:-[NOT SET]}"
+
+        {
+          echo "# 📊 GNR Engineering Debug UP Build Pipeline"
+          echo ""
+          echo "> ⚠️ **This is a Debug Build — NOT for Production Release**"
+          echo ""
+          echo "**Baseline Version:** \`$BASELINE_VERSION\`"
+          echo "**Current Version:** \`${{ github.event.inputs.current_version }}\`"
+          echo ""
+          echo "## 📦 *Code Paths (from Baseline Config)"
+          echo "| Component | Path |"
+          echo "|-----------|------|"
+          echo "| ucode     | \`${ucode_val:-NOT SET}\` |"
+          echo "| xucode    | \`${xucode_val:-NOT SET}\` |"
+          echo "| mcheck    | \`${mcheck_val:-NOT SET}\` |"
+          echo "| tcode     | \`${tcode_val:-NOT SET}\` |"
+          echo "| acode     | \`${acode_val:-NOT SET}\` |"
+          echo "| icode     | \`${icode_val:-NOT SET}\` |"
+          echo "| oobmsm    | \`${oobmsm_val:-NOT SET}\` |"
+          echo "| pcode-io  | \`${pcode_io_val:-NOT SET}\` |"
+          echo "| pcode-c   | \`${pcode_c_val:-NOT SET}\` |"
+          echo "| s3m       | \`${s3m_val:-NOT SET}\` |"
+        } >> $GITHUB_STEP_SUMMARY
+
+  copy-config:
+    runs-on: [self-hosted, node16]
+    needs: read-config
+    if: ${{ needs.read-config.outputs.baseline_version != '' }}
+
+    steps:
+    - name: Copy Config File, Set Permissions and Rename with Current Version
+      run: |
+        BASELINE_VERSION="${{ needs.read-config.outputs.baseline_version }}"
+        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
+        SOURCE_DIR="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/$BASELINE_VERSION/release"
+        SOURCE_CONFIG="$SOURCE_DIR/config_${BASELINE_VERSION}.ini"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        DEST_CONFIG="$DEST_PATH/config_${BASELINE_VERSION}.ini"
+        FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+
+        echo "🔍 Config File Copy Operation"
+        echo "=================================================="
+        echo "📋 Baseline Version : $BASELINE_VERSION"
+        echo "📋 Current Version  : $CURRENT_VERSION"
+        echo "📥 Source           : $SOURCE_CONFIG"
+        echo "📤 Destination      : $DEST_CONFIG"
+        echo "🔄 Final Renamed    : $FINAL_CONFIG"
+        echo "=================================================="
+
+        # Validate source
+        if [ ! -d "$SOURCE_DIR" ]; then
+          echo "❌ Error: Release directory not found: $SOURCE_DIR"
+          exit 1
+        fi
+        echo "✅ Release directory found: $SOURCE_DIR"
+
+        if [ ! -f "$SOURCE_CONFIG" ]; then
+          echo "❌ Error: Config file not found: $SOURCE_CONFIG"
+          echo "📁 Available files in release directory:"
+          ls -la "$SOURCE_DIR" 2>/dev/null || echo "  Cannot list files"
+          exit 1
+        fi
+        echo "✅ Source config found: $SOURCE_CONFIG"
+
+        SOURCE_SIZE=$(stat -c%s "$SOURCE_CONFIG" 2>/dev/null || echo "unknown")
+        SOURCE_PERMS=$(ls -la "$SOURCE_CONFIG" | awk '{print $1}')
+        echo "📊 Source file size: $SOURCE_SIZE bytes"
+        echo "🔐 Source permissions: $SOURCE_PERMS"
+
+        # Ensure destination directory exists
+        mkdir -p "$DEST_PATH"
+        echo "✅ Destination directory ready: $DEST_PATH"
+
+        # Copy
+        echo ""
+        echo "📋 Copying config file..."
+        cp "$SOURCE_CONFIG" "$DEST_CONFIG"
+        if [ $? -ne 0 ]; then echo "❌ Failed to copy config file"; exit 1; fi
+        echo "✅ Copied successfully"
+
+        # Verify copy
+        DEST_SIZE=$(stat -c%s "$DEST_CONFIG" 2>/dev/null || echo "unknown")
+        if [ "$SOURCE_SIZE" = "$DEST_SIZE" ]; then
+          echo "✅ File integrity verified (sizes match: $SOURCE_SIZE bytes)"
+        else
+          echo "⚠️  Warning: sizes differ (Source: $SOURCE_SIZE, Dest: $DEST_SIZE)"
+        fi
+
+        # Set permissions
+        echo ""
+        echo "🔐 Setting permissions to 777..."
+        chmod 777 "$DEST_CONFIG"
+        if [ $? -ne 0 ]; then echo "❌ Failed to set permissions"; exit 1; fi
+        NEW_PERMS=$(ls -la "$DEST_CONFIG" | awk '{print $1}')
+        echo "✅ Permissions set: $NEW_PERMS"
+
+        # Rename to current version
+        echo ""
+        echo "🔄 Renaming to current version..."
+        mv "$DEST_CONFIG" "$FINAL_CONFIG"
+        if [ $? -ne 0 ]; then echo "❌ Failed to rename config file"; exit 1; fi
+
+        if [ -f "$FINAL_CONFIG" ]; then
+          FINAL_SIZE=$(stat -c%s "$FINAL_CONFIG" 2>/dev/null || echo "unknown")
+          FINAL_PERMS=$(ls -la "$FINAL_CONFIG" | awk '{print $1}')
+          echo "✅ Renamed successfully: $FINAL_CONFIG"
+          echo "📊 Final file size: $FINAL_SIZE bytes"
+          echo "🔐 Final permissions: $FINAL_PERMS"
+        else
+          echo "❌ Error: Final renamed file not found"
+          exit 1
+        fi
+
+        echo ""
+        echo "✅ Copy, permission and rename operation completed successfully!"
+
+  prepare-config:
+    runs-on: [self-hosted, node16]
+    needs: [read-config, copy-config]
+    if: ${{ needs.read-config.outputs.current_version != '' }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Update Config File with Build Values
+      run: |
+        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+        BUILD_DESC="${{ github.event.inputs.build_description }}"
+
+        echo "🔧 Preparing Config File"
+        echo "=================================================="
+        echo "📋 Current Version  : $CURRENT_VERSION"
+        echo "📄 Config File      : $CONFIG_FILE"
+        echo "📝 Build Description: $BUILD_DESC"
+        echo "=================================================="
+
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Error: Config file not found: $CONFIG_FILE"
+          exit 1
+        fi
+        echo "✅ Config file found: $CONFIG_FILE"
+
+        # Backup
+        BACKUP_CONFIG="${CONFIG_FILE}.backup"
+        cp "$CONFIG_FILE" "$BACKUP_CONFIG"
+        echo "📋 Backup created: $BACKUP_CONFIG"
+
+        # Show before
+        echo ""
+        echo "📄 CONFIG BEFORE CHANGES:"
+        echo "========================="
+        grep -E "^(version|prev_version|patch_description|soc_sign|fit1_sign)\s*=" "$CONFIG_FILE" || true
+
+        # Apply updates
+        echo ""
+        echo "🔧 Applying updates..."
+
+        sed -i "s|^version\s*=.*|version = 0x${CURRENT_VERSION}|"           "$CONFIG_FILE"
+        echo "✅ Updated version = 0x${CURRENT_VERSION}"
+
+        sed -i "s|^prev_version\s*=.*|prev_version = 0x${CURRENT_VERSION}|" "$CONFIG_FILE"
+        echo "✅ Updated prev_version = 0x${CURRENT_VERSION}"
+
+        sed -i "s|^patch_description\s*=.*|patch_description = ${BUILD_DESC}|" "$CONFIG_FILE"
+        echo "✅ Updated patch_description = ${BUILD_DESC}"
+
+        sed -i "s|^soc_sign\s*=.*|soc_sign = css-debug|"  "$CONFIG_FILE"
+        echo "✅ Updated soc_sign = css-debug"
+
+        sed -i "s|^fit1_sign\s*=.*|fit1_sign = css-debug|" "$CONFIG_FILE"
+        echo "✅ Updated fit1_sign = css-debug"
+
+        # Show after
+        echo ""
+        echo "📄 CONFIG AFTER CHANGES:"
+        echo "========================"
+        grep -E "^(version|prev_version|patch_description|soc_sign|fit1_sign)\s*=" "$CONFIG_FILE" || true
+
+        echo ""
+        echo "✅ Config file preparation completed successfully!"
+        echo ""
+        echo "📋 OPERATION SUMMARY:"
+        echo "===================="
+        echo "✅ Config file    : $CONFIG_FILE"
+        echo "✅ Backup file    : $BACKUP_CONFIG"
+        echo "✅ version        : 0x${CURRENT_VERSION}"
+        echo "✅ prev_version   : 0x${CURRENT_VERSION}"
+        echo "✅ soc_sign       : css-debug"
+        echo "✅ fit1_sign      : css-debug"
+        echo "✅ *code paths    : unchanged from baseline"
+
+  upload-config:
+    runs-on: [self-hosted, node16]
+    needs: [read-config, copy-config, prepare-config]
+    if: ${{ needs.read-config.outputs.current_version != '' }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload Config File to Repository
+      run: |
+        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
+        DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+        CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+        REPO_OUTPUT_DIR="output_paths"
+        REPO_CONFIG_FILE="$REPO_OUTPUT_DIR/config_${CURRENT_VERSION}.ini"
+
+        echo "📤 Uploading Config File to Repository"
+        echo "=================================================="
+        echo "📋 Current Version : $CURRENT_VERSION"
+        echo "📄 Source Config   : $CONFIG_FILE"
+        echo "📁 Repo Output Dir : $REPO_OUTPUT_DIR"
+        echo "=================================================="
+
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Error: Config file not found: $CONFIG_FILE"
+          exit 1
+        fi
+        echo "✅ Config file found: $CONFIG_FILE"
+
+        mkdir -p "$REPO_OUTPUT_DIR"
+        cp "$CONFIG_FILE" "$REPO_CONFIG_FILE"
+        if [ $? -ne 0 ]; then echo "❌ Failed to copy config to repo"; exit 1; fi
+
+        SOURCE_SIZE=$(stat -c%s "$CONFIG_FILE" 2>/dev/null || echo "unknown")
+        REPO_SIZE=$(stat -c%s "$REPO_CONFIG_FILE" 2>/dev/null || echo "unknown")
+        if [ "$SOURCE_SIZE" = "$REPO_SIZE" ]; then
+          echo "✅ File integrity verified ($SOURCE_SIZE bytes)"
+        else
+          echo "⚠️  Warning: sizes differ (Source: $SOURCE_SIZE, Repo: $REPO_SIZE)"
+        fi
+
+        echo ""
+        echo "🔧 Configuring git..."
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+        git add "$REPO_CONFIG_FILE"
+
+        if git diff --staged --quiet; then
+          echo "ℹ️  No changes to commit (file already exists with same content)"
+        else
+          git commit -m "Add GNR Debug UP prepared config: config_${CURRENT_VERSION}.ini
+
+          - GNR Engineering Debug Build (NOT for Production Release)
+          - PRQ Bit=1 (--set_prq flag)
+          - Baseline Version: ${{ github.event.inputs.baseline_version }}
+          - Current Version: 0x${CURRENT_VERSION}
+          - Automated by GitHub Actions workflow
+          - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          echo "✅ Config file committed"
+
+          git push
+          if [ $? -eq 0 ]; then
+            echo "✅ Changes pushed to repository successfully!"
+          else
+            echo "❌ Failed to push changes"
+            exit 1
+          fi
+        fi
+
+        echo ""
+        echo "✅ Config file upload operation completed successfully!"
+
+  validate-config:
+    runs-on: [self-hosted, node16]
+    needs: [read-config, copy-config, prepare-config, upload-config]
+    outputs:
+      config_validated: ${{ steps.validate.outputs.config_validated }}
+      config_path: ${{ steps.validate.outputs.config_path }}
+
+    steps:
+    - name: Validate prepared config file exists
+      id: validate
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "=== VALIDATING PREPARED CONFIG FILE FOR GNR DEBUG UP BUILD ==="
+        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
+        CONFIG_FILE="config_${CURRENT_VERSION}.ini"
+        CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
+
+        echo "🔍 Checking prepared config file: $CONFIG_FILE"
+        echo "📍 Full path: $CONFIG_PATH"
+
+        CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          if [[ -f '$CONFIG_PATH' ]]; then
+            echo 'EXISTS'
+          else
+            echo 'NOT_FOUND'
+          fi
+        ")
+
+        if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
+          echo "✅ Prepared config file found: $CONFIG_PATH"
+          echo "config_validated=true" >> $GITHUB_OUTPUT
+          echo "config_path=$CONFIG_PATH" >> $GITHUB_OUTPUT
+        else
+          echo "❌ ERROR: Prepared config file not found: $CONFIG_PATH"
+          echo "config_validated=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Display prepared config file contents
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "=== PREPARED CONFIG FILE CONTENTS ==="
+        CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
+
+        CONFIG_CONTENTS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          cat '$CONFIG_PATH'
+        ")
+
+        echo "$CONFIG_CONTENTS"
+        echo "=== END PREPARED CONFIG FILE CONTENTS ==="
+
+  kerberos-setup:
+    runs-on: [self-hosted, node16]
+    needs: [read-config, validate-config]
+    if: ${{ needs.validate-config.outputs.config_validated == 'true' }}
+
+    steps:
+    - name: Switch to build account for Kerberos setup
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "Switching to build account for Kerberos setup..."
+        CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build whoami)
+        echo "Expected user: grp_gnr_fit1_build"
+        echo "Actual user  : $CURRENT_USER"
+
+        if [ "$CURRENT_USER" = "grp_gnr_fit1_build" ]; then
+          echo "SUCCESS: User switch to build account successful"
+        else
+          echo "FAILURE: User switch failed"
+          exit 1
+        fi
+
+    - name: Initialize Kerberos Ticket (ktab)
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        FA_PASSWORD: ${{ secrets.GNR_FA_PASSWORD }}
+      run: |
+        echo "Initializing Kerberos Ticket with ktab for GNR automated build..."
+
+        KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
+        ")
+
+        echo "ktab output: $KTAB_RESULT"
+
+        if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
+          echo "ERROR: ktab initialization failed"
+          exit 1
+        else
+          echo "SUCCESS: ktab initialization completed"
+        fi
+
+    - name: Initialize Kerberos Cron (kcron)
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "Initializing Kerberos Cron with kcron for GNR automated build..."
+
+        KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
+        ")
+
+        echo "kcron output: $KCRON_RESULT"
+
+        if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
+          echo "ERROR: kcron initialization failed"
+          exit 1
+        else
+          echo "SUCCESS: kcron initialization completed"
+        fi
+
+  patch-build:
+    runs-on: [self-hosted, node16]
+    needs: [read-config, validate-config, kerberos-setup]
+    if: ${{ needs.validate-config.outputs.config_validated == 'true' }}
+
+    steps:
+    - name: Switch to faceless account for build
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "Switching to faceless account for GNR Debug UP automated build..."
+        CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build whoami)
+        echo "Expected user: grp_gnr_fit1_build"
+        echo "Actual user  : $CURRENT_USER"
+
+        if [ "$CURRENT_USER" = "grp_gnr_fit1_build" ]; then
+          echo "SUCCESS: User switch successful"
+        else
+          echo "FAILURE: User switch failed"
+          exit 1
+        fi
+
+    - name: Verify build tools exist
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "Verifying build tools for GNR Debug UP automated build..."
+
+        # Check Python
+        PYTHON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
+        ")
+        if [[ "$PYTHON_CHECK" == "EXISTS" ]]; then
+          echo "✅ Python found: ${{ env.PYTHON_PATH }}"
+        else
+          echo "❌ Python not found: ${{ env.PYTHON_PATH }}"
+          exit 1
+        fi
+
+        # Check FXT tool (fxtMuppet.py)
+        FXT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
+        ")
+        if [[ "$FXT_CHECK" == "EXISTS" ]]; then
+          echo "✅ FXT tool found: ${{ env.FXT_TOOL_PATH }}"
+        else
+          echo "❌ FXT tool not found: ${{ env.FXT_TOOL_PATH }}"
+          exit 1
+        fi
+
+        # Check expect
+        EXPECT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
+        ")
+        if [[ "$EXPECT_CHECK" == "EXISTS" ]]; then
+          echo "✅ expect found: ${{ env.EXPECT_PATH }}"
+        else
+          echo "❌ expect not found: ${{ env.EXPECT_PATH }}"
+          exit 1
+        fi
+
+        echo "All build tools verified successfully"
+
+    - name: Execute GNR Debug UP automated build (--set_prq)
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
+      run: |
+        echo "Starting GNR Engineering Debug UP automated build (PRQ Bit=1)..."
+
+        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
+        CONFIG_FILE="config_${CURRENT_VERSION}.ini"
+
+        echo "Automated Build Configuration:"
+        echo "  - Working Directory  : ${{ env.BUILD_BASE_PATH }}"
+        echo "  - Config File        : $CONFIG_FILE"
+        echo "  - Build Description  : ${{ github.event.inputs.build_description }}"
+        echo "  - Baseline Version   : ${{ github.event.inputs.baseline_version }}"
+        echo "  - Current Version    : 0x${CURRENT_VERSION}"
+        echo "  - Python Path        : ${{ env.PYTHON_PATH }}"
+        echo "  - FXT Tool Path      : ${{ env.FXT_TOOL_PATH }}"
+        echo "  - PRQ Flag           : --set_prq"
+        echo ""
+
+        BUILD_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          cd '${{ env.BUILD_BASE_PATH }}'
+          echo 'Current directory: \$(pwd)'
+
+          cat > automated_build_expect.exp << 'EOF'
+#!${{ env.EXPECT_PATH }} -f
+set timeout 1800
+
+set css_password \$env(CSS_PASSWORD)
+
+spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE --set_prq
+
+expect {
+  \"Enter your CSS password:\" {
+    send \"\$css_password\r\"
+    exp_continue
+  }
+  \"Enter your CSS password: \" {
+    send \"\$css_password\r\"
+    exp_continue
+  }
+  -re \".*assword.*\" {
+    send \"\$css_password\r\"
+    exp_continue
+  }
+  eof {
+    catch wait result
+    exit [lindex \$result 3]
+  }
+  timeout {
+    puts \"GNR Debug UP automated build timed out after 30 minutes\"
+    exit 124
+  }
+}
+EOF
+
+          chmod +x automated_build_expect.exp
+          echo 'Starting GNR Debug UP build with --set_prq flag...'
+
+          export CSS_PASSWORD='$CSS_PASSWORD'
+          ./automated_build_expect.exp 2>&1
+          BUILD_EXIT=\$?
+
+          rm -f automated_build_expect.exp
+
+          echo \"Build completed with exit code: \$BUILD_EXIT\"
+          exit \$BUILD_EXIT
+        ")
+
+        BUILD_EXIT_CODE=$?
+
+        echo "Build output:"
+        echo "$BUILD_RESULT"
+        echo ""
+        echo "Build exit code: $BUILD_EXIT_CODE"
+
+        if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
+          echo "✅ SUCCESS: GNR Debug UP automated build completed successfully"
+        elif [[ $BUILD_EXIT_CODE -eq 124 ]]; then
+          echo "⏰ TIMEOUT: Automated build timed out after 30 minutes"
+          exit $BUILD_EXIT_CODE
+        else
+          echo "❌ FAILURE: Automated build failed with exit code: $BUILD_EXIT_CODE"
+          exit $BUILD_EXIT_CODE
+        fi
+
+    - name: Verify automated build results
+      env:
+        BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      run: |
+        echo "Verifying GNR Debug UP automated build results..."
+
+        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
+
+        VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_gnr_fit1_build bash -c "
+          cd '${{ env.BUILD_BASE_PATH }}'
+          echo 'Checking for build artifacts...'
+
+          echo 'Recent files (last 30 minutes):'
+          find . -type f -mmin -30 2>/dev/null | head -20 || echo 'No recent files found'
+          echo ''
+
+          echo 'Looking for patch/binary files:'
+          find . -name '*.patch' -o -name '*.bin' -o -name '*.ucode' 2>/dev/null | head -10 || echo 'No patch files found'
+          echo ''
+
+          echo 'Looking for debug artifacts:'
+          find . -name '*debug*' -o -name '*css-debug*' 2>/dev/null | head -10 || echo 'No debug files found'
+          echo ''
+
+          echo 'Looking for version-specific files:'
+          find . -name '*${CURRENT_VERSION}*' 2>/dev/null | head -10 || echo 'No version-specific files found'
+          echo ''
+
+          echo 'Directory listing:'
+          ls -la | head -20
+        ")
+
+        echo "$VERIFICATION_RESULT"
+
+    - name: Display automated build summary
+      run: |
+        CURRENT_VERSION="${{ needs.read-config.outputs.current_version }}"
+
+        {
+          echo ""
+          echo "## 🚀 GNR Engineering Debug UP Automated Build Summary"
+          echo ""
+          echo "> ⚠️ **This is a Debug Build — NOT for Production Release**"
+          echo ""
+          echo "| Field | Value |"
+          echo "|-------|-------|"
+          echo "| Build Type | GNR Engineering Debug UP (PRQ Bit=1) |"
+          echo "| Baseline Version | \`${{ github.event.inputs.baseline_version }}\` |"
+          echo "| Current Version | \`0x${CURRENT_VERSION}\` |"
+          echo "| Config File | \`config_${CURRENT_VERSION}.ini\` |"
+          echo "| Build Description | ${{ github.event.inputs.build_description }} |"
+          echo "| Build Directory | \`${{ env.BUILD_BASE_PATH }}\` |"
+          echo "| Faceless Account | grp_gnr_fit1_build |"
+          echo "| Build Flag | \`--set_prq\` |"
+          echo ""
+          echo "### 🔄 Complete Pipeline Process:"
+          echo "1. ✅ **Read Config**: Read \*code paths from baseline config"
+          echo "2. ✅ **Copy Config**: Copied and renamed config file"
+          echo "3. ✅ **Prepare Config**: Updated version, prev_version, sign type to css-debug"
+          echo "4. ✅ **Upload Config**: Uploaded prepared config to GitHub"
+          echo "5. ✅ **Validate Config**: Verified config file exists and is readable"
+          echo "6. ✅ **Kerberos Setup**: Initialized ktab and kcron"
+          echo "7. ✅ **Build Execution**: Executed fxtMuppet.py with --set_prq flag"
+          echo "8. ✅ **Result Verification**: Checked for build artifacts"
+          echo ""
+          echo "### 🎯 Key Build Details:"
+          echo "- **PRQ Bit=1**: Build uses \`--set_prq\` flag"
+          echo "- **Debug Signed**: css-debug signing"
+          echo "- **Config Source**: GNR B0 build path"
+          echo "- **GitHub Config**: [View Config](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/output_paths/config_${CURRENT_VERSION}.ini)"
+          echo ""
+          echo "🎉 **GNR Engineering Debug UP automated build pipeline completed successfully!**"
+        } >> $GITHUB_STEP_SUMMARY
