@@ -1018,7 +1018,7 @@ jobs:
           set timeout 30
           set password $env(SRF_PASSWORD)
 
-          spawn ssh -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
 
           expect {
             "*assword:*" {
