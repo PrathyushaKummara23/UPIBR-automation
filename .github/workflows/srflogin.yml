@@ -39,7 +39,6 @@ jobs:
             -u $env:SRF_USERNAME `
             -p $env:SRF_PASSWORD `
             -accepteula `
-            -i `
             "C:\Python310\python.exe" "C:\pkummara\scripts\deploy_reboot_wrapper.py"
 
           $exitCode = $LASTEXITCODE
