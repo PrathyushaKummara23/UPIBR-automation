@@ -1,7 +1,8 @@
 name: SRF Deploy via PsExec
 
 on:
-  workflow_call:
+  workflow_call:       # ← called from login.yml
+  workflow_dispatch:   # ← run manually from Actions tab
 
 jobs:
   deploy-on-srf:
