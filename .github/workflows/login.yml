@@ -1015,7 +1015,7 @@ jobs:
           # Write expect script
           cat > /tmp/ssh_login.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 30
+          set timeout 3000
           set password $env(SRF_PASSWORD)
 
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
@@ -1042,10 +1042,30 @@ jobs:
 
           expect {
             "*>*" {
-              send "exit\r"
+              send "cd C:\\pkummara\\scripts\r"
             }
             timeout {
               puts "FAILURE: whoami did not complete"
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {
+              send "C:\\Python310\\python.exe .\\deploy_reboot_wrapper.py\r"
+            }
+            timeout {
+              puts "FAILURE: cd to scripts directory did not complete"
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {
+              send "exit\r"
+            }
+            timeout {
+              puts "FAILURE: Python script did not complete"
               exit 1
             }
           }
