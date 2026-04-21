@@ -1,0 +1,72 @@
+name: SRF Deploy via PsExec
+
+on:
+  workflow_call:
+
+jobs:
+  deploy-on-srf:
+    name: Deploy on SRF Machine (Windows)
+    runs-on: [self-hosted, X64, Windows]
+
+    steps:
+      # ─────────────────────────────────────────────
+      # STEP 1: Run deploy_reboot_wrapper.py on SRF
+      #         Machine remotely via PsExec
+      # PsExec64.exe must be at C:\tools\PsExec64.exe
+      # ─────────────────────────────────────────────
+      - name: Run Deploy Script on SRF via PsExec
+        shell: powershell
+        run: |
+          Write-Host "=============================================="
+          Write-Host "  Running deploy_reboot_wrapper.py on SRF"
+          Write-Host "=============================================="
+
+          $psexecPath = "C:\tools\PsExec64.exe"
+
+          if (-not (Test-Path $psexecPath)) {
+            Write-Host "ERROR: PsExec64.exe not found at $psexecPath"
+            Write-Host "Please manually place PsExec64.exe at C:\tools\PsExec64.exe"
+            exit 1
+          }
+
+          Write-Host "PsExec64 found at: $psexecPath"
+          Write-Host "Connecting to SRF machine: $env:SRF_HOST"
+          Write-Host "Executing deploy_reboot_wrapper.py..."
+          Write-Host ""
+
+          & $psexecPath \\$env:SRF_HOST `
+            -u $env:SRF_USERNAME `
+            -p $env:SRF_PASSWORD `
+            -accepteula `
+            -i `
+            "C:\Python310\python.exe" "C:\pkummara\scripts\deploy_reboot_wrapper.py"
+
+          $exitCode = $LASTEXITCODE
+          Write-Host ""
+          Write-Host "deploy_reboot_wrapper.py exit code: $exitCode"
+
+          if ($exitCode -eq 0) {
+            Write-Host "SUCCESS: deploy_reboot_wrapper.py completed on SRF machine!"
+          } else {
+            Write-Host "FAILURE: Script exited with code $exitCode"
+            exit $exitCode
+          }
+        env:
+          SRF_HOST: ${{ secrets.SRF_HOST }}
+          SRF_USERNAME: ${{ secrets.SRF_USERNAME }}
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+
+      # ─────────────────────────────────────────────
+      # STEP 2: Upload Screenshots as Artifacts
+      # ─────────────────────────────────────────────
+      - name: Upload Login Screenshots as Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: srf-login-screenshots
+          path: |
+            C:\actions-runner\step1_username.png
+            C:\actions-runner\step2_password.png
+            C:\actions-runner\after_auth.png
+          if-no-files-found: warn
+          retention-days: 3
