@@ -1,56 +1,56 @@
-name: SRF VNC Login
+name: SRF Host Login (Windows)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
-  srf-login:
-    name: SRF VNC Login (Windows)
+  srf-host-login:
+    name: SSH Login to SRF Host from Windows
     runs-on: [self-hosted, X64, Windows]
 
     steps:
-      - name: Launch VNC and Login to SRF System
+      - name: Install paramiko
         shell: powershell
         run: |
+          python -m pip install paramiko -q
+
+      - name: SSH into SRF Host and run commands
+        shell: powershell
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        run: |
           Write-Host "=============================================="
-          Write-Host "  SRF VNC Login - Post Build Auto Login"
+          Write-Host "  SRF Host Login - Windows Runner"
           Write-Host "=============================================="
-          Write-Host "Triggered after successful SRF Debug UP build"
-          Write-Host "Running vnc_connect.py on Windows runner..."
-          Write-Host ""
-          $scriptPath = "C:\actions-runner\vnc_connect.py"
-          if (-not (Test-Path $scriptPath)) {
-            Write-Host "ERROR: vnc_connect.py not found at $scriptPath"
+
+          # Write Python SSH script to file line by line
+          Set-Content  -Path ssh_script.py -Value "import paramiko, sys, os"
+          Add-Content  -Path ssh_script.py -Value "client = paramiko.SSHClient()"
+          Add-Content  -Path ssh_script.py -Value "client.set_missing_host_key_policy(paramiko.AutoAddPolicy())"
+          Add-Content  -Path ssh_script.py -Value "password = os.environ.get('SRF_PASSWORD')"
+          Add-Content  -Path ssh_script.py -Value "try:"
+          Add-Content  -Path ssh_script.py -Value "    client.connect('10.138.186.133', username='CEFLS_User', password=password, timeout=30)"
+          Add-Content  -Path ssh_script.py -Value "    print('Connected successfully!')"
+          Add-Content  -Path ssh_script.py -Value "    stdin,stdout,stderr = client.exec_command('whoami')"
+          Add-Content  -Path ssh_script.py -Value "    print('whoami:', stdout.read().decode().strip())"
+          Add-Content  -Path ssh_script.py -Value "    stdin,stdout,stderr = client.exec_command('dir C:\\Users\\CEFLS_User')"
+          Add-Content  -Path ssh_script.py -Value "    print(stdout.read().decode())"
+          Add-Content  -Path ssh_script.py -Value "    client.close()"
+          Add-Content  -Path ssh_script.py -Value "    sys.exit(0)"
+          Add-Content  -Path ssh_script.py -Value "except Exception as e:"
+          Add-Content  -Path ssh_script.py -Value "    print('FAILURE:', str(e))"
+          Add-Content  -Path ssh_script.py -Value "    sys.exit(1)"
+
+          # Run the script
+          python ssh_script.py
+          $exitCode = $LASTEXITCODE
+
+          # Cleanup
+          Remove-Item -Path ssh_script.py -Force
+
+          if ($exitCode -eq 0) {
+            Write-Host "✅ SUCCESS: SRF host login completed!"
+          } else {
+            Write-Host "❌ FAILURE: SRF host login failed!"
             exit 1
           }
-          Write-Host "Found vnc_connect.py at: $scriptPath"
-          Write-Host "Starting VNC login sequence..."
-          python $scriptPath
-          $exitCode = $LASTEXITCODE
-          Write-Host ""
-          Write-Host "vnc_connect.py exit code: $exitCode"
-          if ($exitCode -eq 0) {
-            Write-Host "SUCCESS: SRF VNC login completed successfully!"
-          } else {
-            Write-Host "FAILURE: VNC login script exited with code $exitCode"
-            exit $exitCode
-          }
-
-      - name: Upload Login Screenshots as Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: srf-login-screenshots
-          path: |
-            C:\actions-runner\step1_username.png
-            C:\actions-runner\step2_password.png
-            C:\actions-runner\after_auth.png
-            C:\actions-runner\srf_step1_run_dialog.png
-            C:\actions-runner\srf_step2_powershell_typed.png
-            C:\actions-runner\srf_step3_powershell_opened.png
-            C:\actions-runner\srf_step4_cmd1_typed.png
-            C:\actions-runner\srf_step5_cmd1_output.png
-            C:\actions-runner\srf_step6_cmd2_typed.png
-            C:\actions-runner\srf_step7_cmd2_output.png
-          if-no-files-found: warn
-          retention-days: 3
