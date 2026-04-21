@@ -1012,23 +1012,54 @@ jobs:
           echo "  SRF SSH Login - Post Build Auto Login"
           echo "=============================================="
 
-          # Install sshpass if not available
-          if ! command -v sshpass &> /dev/null; then
-            echo "Installing sshpass..."
-            sudo apt-get install -y sshpass 2>/dev/null || \
-            sudo yum install -y sshpass 2>/dev/null || \
-            { echo "❌ Could not install sshpass"; exit 1; }
-          fi
+          # Write expect script
+          cat > /tmp/ssh_login.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 30
+          set password $env(SRF_PASSWORD)
+
+          spawn ssh -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+
+          expect {
+            "*assword:*" {
+              send "$password\r"
+            }
+            timeout {
+              puts "FAILURE: Connection timed out"
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {
+              send "whoami\r"
+            }
+            timeout {
+              puts "FAILURE: Shell prompt not received"
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {
+              send "exit\r"
+            }
+            timeout {
+              puts "FAILURE: whoami did not complete"
+              exit 1
+            }
+          }
+
+          expect eof
+          EOF
+
+          chmod +x /tmp/ssh_login.exp
 
           echo "Connecting to SRF host via SSH..."
-          OUTPUT=$(sshpass -p "$SRF_PASSWORD" ssh \
-            -o StrictHostKeyChecking=no \
-            -o ConnectTimeout=30 \
-            CEFLS_User@10.138.186.133 \
-            "whoami")
-
+          /usr/bin/expect /tmp/ssh_login.exp
           SSH_EXIT=$?
-          echo "SSH Output: $OUTPUT"
+
+          rm -f /tmp/ssh_login.exp
 
           if [ $SSH_EXIT -eq 0 ]; then
             echo "✅ SUCCESS: SSH login and command executed successfully!"
@@ -1036,4 +1067,3 @@ jobs:
             echo "❌ FAILURE: SSH connection failed with exit code: $SSH_EXIT"
             exit $SSH_EXIT
           fi
- 
