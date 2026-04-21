@@ -285,7 +285,7 @@ jobs:
             exit 1
           fi
         else
-          echo "❌ Failed to copy config file"
+          echo "��� Failed to copy config file"
           exit 1
         fi
         
@@ -996,8 +996,7 @@ jobs:
           } >> $GITHUB_STEP_SUMMARY
 
   # ─────────────────────────────────────────────────────────────────
-  # NEW JOB: Auto-login to SRF via VNC after build succeeds
-  # Runs on Windows runner (self-hosted, X64, Windows)
+  # JOB: VNC Login ONLY — runs on Windows runner after patch-build
   # ─────────────────────────────────────────────────────────────────
   srf-login:
     name: SRF VNC Login (Windows)
@@ -1039,14 +1038,12 @@ jobs:
             exit $exitCode
           }
 
-      - name: Upload Login Screenshots as Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: srf-login-screenshots
-          path: |
-            C:\actions-runner\step1_username.png
-            C:\actions-runner\step2_password.png
-            C:\actions-runner\after_auth.png
-          if-no-files-found: warn
-          retention-days: 3
+  # ─────────────────────────────────────────────────────────────────
+  # JOB: Calls srflogin.yml AFTER VNC login succeeds
+  # ─────────────────────────────────────────────────────────────────
+  srf-deploy:
+    name: Call SRF Deploy Workflow
+    needs: [srf-login]
+    if: ${{ success() }}
+    uses: ./.github/workflows/srflogin.yml
+    secrets: inherit
