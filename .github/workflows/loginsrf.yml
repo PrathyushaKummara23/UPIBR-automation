@@ -18,9 +18,15 @@ jobs:
           set timeout 60
           set password $env(SRF_PASSWORD)
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
-          expect { "*assword:*" { send "$password\r" } timeout { puts "TIMEOUT: password"; exit 1 } }
-          expect { "*>*" { send "powershell -Command \"Start-Process cmd.exe -ArgumentList '/c C:\\pkummara\\scripts\\run_pipeline.bat' -WindowStyle Hidden\"\r" } timeout { puts "TIMEOUT: prompt"; exit 1 } }
-          expect { "*>*" { send "exit\r" } timeout { puts "TIMEOUT: response"; exit 1 } }
+          expect "*assword:*"
+          send "$password\r"
+          expect {
+            "*assword:*" { puts "AUTH FAILED"; exit 1 }
+            "*>*"        { }
+          }
+          send "powershell -Command \"Start-Process cmd.exe -ArgumentList '/c C:\\pkummara\\scripts\\run_pipeline.bat' -WindowStyle Hidden\"\r"
+          expect "*>*"
+          send "exit\r"
           expect eof
           EOF
           chmod +x /tmp/ssh_trigger.exp
@@ -44,10 +50,15 @@ jobs:
           set timeout 60
           set password $env(SRF_PASSWORD)
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
-          expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
-          sleep 5
+          expect "*assword:*"
+          send "$password\r"
+          expect {
+            "*assword:*" { puts "AUTH FAILED"; exit 1 }
+            "*>*"        { }
+          }
           send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
-          expect { "*>*" { send "exit\r" } timeout { exit 1 } }
+          expect "*>*"
+          send "exit\r"
           expect eof
           EOF
           chmod +x /tmp/ssh_poll.exp
@@ -59,10 +70,8 @@ jobs:
           while [ $ELAPSED -lt $TIMEOUT ]; do
             sleep 30
             ELAPSED=$((ELAPSED + 30))
-
             RESULT=$(/usr/bin/expect /tmp/ssh_poll.exp 2>/dev/null)
             echo "[$ELAPSED s] Raw result: $RESULT"
-
             if echo "$RESULT" | grep -q "PASSED"; then
               echo "✅ SUCCESS: Pipeline PASSED!"
               rm -f /tmp/ssh_poll.exp
@@ -80,4 +89,3 @@ jobs:
           rm -f /tmp/ssh_poll.exp
           echo "❌ FAILURE: Timed out after 2 hours"
           exit 1
-
