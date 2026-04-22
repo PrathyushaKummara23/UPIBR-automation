@@ -9,82 +9,68 @@ jobs:
     runs-on: [self-hosted, node16]
 
     steps:
-      - name: SSH into SRF host and run deploy_reboot_wrapper.py
+      - name: Trigger pipeline via Task Scheduler
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
-          cat > /tmp/ssh_login.exp << 'EOF'
+          # Step 1: Trigger the Task Scheduler task via SSH
+          cat > /tmp/ssh_trigger.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 7200
-
+          set timeout 30
           set password $env(SRF_PASSWORD)
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
-
-          expect {
-            "*assword:*" { send "$password\r" }
-            timeout { puts "FAILURE: Connection timed out"; exit 1 }
-          }
-
-          expect {
-            "*>*" { send "cd C:\\pkummara\\scripts\r" }
-            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
-          }
-
-          expect {
-            "*>*" { send "C:\\Python310\\python.exe .\\deploy_reboot_wrapper.py\r" }
-            timeout { puts "FAILURE: cd failed"; exit 1 }
-          }
-
-          # Wait for PASSED or FAILED — python script takes ~30+ min
-          expect {
-            "*DEPLOY_REBOOT_VERIFY PASSED*" {
-              puts "PIPELINE_RESULT: PASSED"
-              send "exit\r"
-              expect eof
-              exit 0
-            }
-            "*STITCHED IFWI FAILED*" {
-              puts "PIPELINE_RESULT: FAILED - Stitch IFWI"
-              send "exit\r"
-              expect eof
-              exit 1
-            }
-            "*DEPLOY FAILED*" {
-              puts "PIPELINE_RESULT: FAILED - OSPL Deploy"
-              send "exit\r"
-              expect eof
-              exit 1
-            }
-            "*FAILED on cold reboot*" {
-              puts "PIPELINE_RESULT: FAILED - Cold Reboot"
-              send "exit\r"
-              expect eof
-              exit 1
-            }
-            "*FAILED on warm reboot*" {
-              puts "PIPELINE_RESULT: FAILED - Warm Reboot"
-              send "exit\r"
-              expect eof
-              exit 1
-            }
-            timeout {
-              puts "FAILURE: Script timed out after 2 hours"
-              send "exit\r"
-              expect eof
-              exit 1
-            }
-          }
+          expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
+          expect { "*>*" { send "schtasks /run /tn DeployRebootWrapper\r" } timeout { exit 1 } }
+          expect { "*>*" { send "exit\r" } timeout { exit 1 } }
+          expect eof
           EOF
+          chmod +x /tmp/ssh_trigger.exp
+          echo "Triggering pipeline via Task Scheduler..."
+          /usr/bin/expect /tmp/ssh_trigger.exp
+          rm -f /tmp/ssh_trigger.exp
+          echo "Task triggered. Waiting for pipeline to start..."
+          sleep 15
 
-          chmod +x /tmp/ssh_login.exp
-          echo "Connecting to SRF host..."
-          /usr/bin/expect /tmp/ssh_login.exp
-          SSH_EXIT=$?
-          rm -f /tmp/ssh_login.exp
+      - name: Poll pipeline_result.txt until done
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        run: |
+          TIMEOUT=7200
+          ELAPSED=0
+          echo "Polling every 30s for result (max 2 hours)..."
 
-          if [ $SSH_EXIT -eq 0 ]; then
-            echo "✅ SUCCESS: Full pipeline PASSED!"
-          else
-            echo "❌ FAILURE: Pipeline FAILED with exit code: $SSH_EXIT"
-            exit $SSH_EXIT
-          fi
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            sleep 30
+            ELAPSED=$((ELAPSED + 30))
+
+            # Read result file via SSH
+            cat > /tmp/ssh_poll.exp << 'EXPEOF'
+            #!/usr/bin/expect -f
+            set timeout 15
+            set password $env(SRF_PASSWORD)
+            spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+            expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
+            expect { "*>*" { send "type C:\\pkummara\\logs\\pipeline_result.txt\r" } timeout { exit 1 } }
+            expect { "*>*" { send "exit\r" } timeout { exit 1 } }
+            expect eof
+            EXPEOF
+            chmod +x /tmp/ssh_poll.exp
+            RESULT=$(/usr/bin/expect /tmp/ssh_poll.exp 2>/dev/null)
+            rm -f /tmp/ssh_poll.exp
+
+            echo "[$ELAPSED s] Raw result: $RESULT"
+
+            if echo "$RESULT" | grep -q "PASSED"; then
+              echo "✅ SUCCESS: Pipeline PASSED!"
+              exit 0
+            elif echo "$RESULT" | grep -q "FAILED"; then
+              REASON=$(echo "$RESULT" | grep "FAILED")
+              echo "❌ FAILURE: $REASON"
+              exit 1
+            else
+              echo "[$ELAPSED s] Still running..."
+            fi
+          done
+
+          echo "❌ FAILURE: Timed out after 2 hours"
+          exit 1
