@@ -9,7 +9,7 @@ jobs:
     runs-on: [self-hosted, node16]
 
     steps:
-      - name: Trigger pipeline via Task Scheduler
+      - name: Trigger pipeline via Start-Process
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
@@ -19,20 +19,20 @@ jobs:
           set password $env(SRF_PASSWORD)
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
           expect { "*assword:*" { send "$password\r" } timeout { puts "TIMEOUT: password"; exit 1 } }
-          expect { "*>*" { send "schtasks /run /tn DeployRebootWrapper\r" } timeout { puts "TIMEOUT: prompt"; exit 1 } }
-          expect { "*>*" { send "exit\r" } timeout { puts "TIMEOUT: schtasks response"; exit 1 } }
+          expect { "*>*" { send "powershell -Command \"Start-Process cmd.exe -ArgumentList '/c C:\\pkummara\\scripts\\run_pipeline.bat' -WindowStyle Hidden\"\r" } timeout { puts "TIMEOUT: prompt"; exit 1 } }
+          expect { "*>*" { send "exit\r" } timeout { puts "TIMEOUT: response"; exit 1 } }
           expect eof
           EOF
           chmod +x /tmp/ssh_trigger.exp
-          echo "Triggering pipeline via Task Scheduler..."
+          echo "Triggering pipeline..."
           /usr/bin/expect /tmp/ssh_trigger.exp
           TRIGGER_EXIT=$?
           rm -f /tmp/ssh_trigger.exp
           if [ $TRIGGER_EXIT -ne 0 ]; then
-            echo "❌ FAILURE: Could not trigger Task Scheduler task"
+            echo "❌ FAILURE: Could not trigger pipeline"
             exit 1
           fi
-          echo "✅ Task triggered successfully. Waiting for pipeline to start..."
+          echo "✅ Pipeline triggered. Waiting for it to start..."
           sleep 15
 
       - name: Poll pipeline result
