@@ -24,7 +24,7 @@ jobs:
             "*assword:*" { puts "AUTH FAILED"; exit 1 }
             "*>*"        { }
           }
-          send "powershell -Command \"Start-Process cmd.exe -ArgumentList '/c C:\\pkummara\\scripts\\run_pipeline.bat' -WindowStyle Hidden\"\r"
+          send "powershell -Command \"Start-Process cmd.exe -ArgumentList '/c C:\\pkummara\\scripts\\run_pipeline.bat' -WindowStyle Normal\"\r"
           expect "*>*"
           send "exit\r"
           expect eof
