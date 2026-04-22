@@ -20,21 +20,29 @@ jobs:
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
           expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
           expect { "*>*" { send "schtasks /run /tn DeployRebootWrapper\r" } timeout { exit 1 } }
-          expect { "*>*" { send "exit\r" } timeout { exit 1 } }
+          expect {
+            "*SUCCESS*" { send "exit\r" }
+            "*ERROR*"   { puts "TASK TRIGGER FAILED"; exit 1 }
+            timeout     { puts "TRIGGER TIMEOUT"; exit 1 }
+          }
           expect eof
           EOF
           chmod +x /tmp/ssh_trigger.exp
           echo "Triggering pipeline via Task Scheduler..."
           /usr/bin/expect /tmp/ssh_trigger.exp
+          TRIGGER_EXIT=$?
           rm -f /tmp/ssh_trigger.exp
-          echo "Task triggered. Waiting for pipeline to start..."
+          if [ $TRIGGER_EXIT -ne 0 ]; then
+            echo "❌ FAILURE: Could not trigger Task Scheduler task"
+            exit 1
+          fi
+          echo "✅ Task triggered successfully. Waiting for pipeline to start..."
           sleep 15
 
       - name: Poll pipeline result
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
-          # Write the expect poll script to a file
           cat > /tmp/ssh_poll.exp << 'EOF'
           #!/usr/bin/expect -f
           set timeout 15
