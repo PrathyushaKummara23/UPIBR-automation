@@ -15,15 +15,16 @@ jobs:
         run: |
           cat > /tmp/ssh_trigger.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 30
+          set timeout 60
           set password $env(SRF_PASSWORD)
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
-          expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
-          expect { "*>*" { send "schtasks /run /tn DeployRebootWrapper\r" } timeout { exit 1 } }
+          expect { "*assword:*" { send "$password\r" } timeout { puts "TIMEOUT: password"; exit 1 } }
+          expect { "*>*" { send "schtasks /run /tn DeployRebootWrapper\r" } timeout { puts "TIMEOUT: prompt"; exit 1 } }
           expect {
-            "*SUCCESS*" { send "exit\r" }
-            "*ERROR*"   { puts "TASK TRIGGER FAILED"; exit 1 }
-            timeout     { puts "TRIGGER TIMEOUT"; exit 1 }
+            "*Attempted to run*" { send "exit\r" }
+            "*currently running*" { puts "TASK TRIGGER FAILED: already running"; send "exit\r"; exit 1 }
+            "*ERROR*"             { puts "TASK TRIGGER FAILED"; send "exit\r"; exit 1 }
+            timeout               { puts "TRIGGER TIMEOUT waiting for schtasks response"; exit 1 }
           }
           expect eof
           EOF
