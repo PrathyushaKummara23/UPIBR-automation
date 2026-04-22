@@ -1,56 +1,94 @@
-name: SRF Host Login (Windows)
+name: SRF SSH Login - Test
 
 on:
   workflow_dispatch:
 
 jobs:
-  srf-host-login:
-    name: SSH Login to SRF Host from Windows
-    runs-on: [self-hosted, X64, Windows]
+  srf-login:
+    name: SRF SSH Login
+    runs-on: [self-hosted, node16]
 
     steps:
-      - name: Install paramiko
-        shell: powershell
-        run: |
-          python -m pip install paramiko -q
-
-      - name: SSH into SRF Host and run commands
-        shell: powershell
+      - name: SSH into SRF host and run whoami
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
-          Write-Host "=============================================="
-          Write-Host "  SRF Host Login - Windows Runner"
-          Write-Host "=============================================="
+          echo "================================================="
+          echo "  SRF SSH Login - Post Build Auto Login"
+          echo "================================================="
 
-          # Write Python SSH script to file line by line
-          Set-Content  -Path ssh_script.py -Value "import paramiko, sys, os"
-          Add-Content  -Path ssh_script.py -Value "client = paramiko.SSHClient()"
-          Add-Content  -Path ssh_script.py -Value "client.set_missing_host_key_policy(paramiko.AutoAddPolicy())"
-          Add-Content  -Path ssh_script.py -Value "password = os.environ.get('SRF_PASSWORD')"
-          Add-Content  -Path ssh_script.py -Value "try:"
-          Add-Content  -Path ssh_script.py -Value "    client.connect('10.138.186.133', username='CEFLS_User', password=password, timeout=30)"
-          Add-Content  -Path ssh_script.py -Value "    print('Connected successfully!')"
-          Add-Content  -Path ssh_script.py -Value "    stdin,stdout,stderr = client.exec_command('whoami')"
-          Add-Content  -Path ssh_script.py -Value "    print('whoami:', stdout.read().decode().strip())"
-          Add-Content  -Path ssh_script.py -Value "    stdin,stdout,stderr = client.exec_command('dir C:\\Users\\CEFLS_User')"
-          Add-Content  -Path ssh_script.py -Value "    print(stdout.read().decode())"
-          Add-Content  -Path ssh_script.py -Value "    client.close()"
-          Add-Content  -Path ssh_script.py -Value "    sys.exit(0)"
-          Add-Content  -Path ssh_script.py -Value "except Exception as e:"
-          Add-Content  -Path ssh_script.py -Value "    print('FAILURE:', str(e))"
-          Add-Content  -Path ssh_script.py -Value "    sys.exit(1)"
+          # Write expect script
+          cat > /tmp/ssh_login.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 3000
+          set password $env(SRF_PASSWORD)
 
-          # Run the script
-          python ssh_script.py
-          $exitCode = $LASTEXITCODE
+          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
 
-          # Cleanup
-          Remove-Item -Path ssh_script.py -Force
-
-          if ($exitCode -eq 0) {
-            Write-Host "✅ SUCCESS: SRF host login completed!"
-          } else {
-            Write-Host "❌ FAILURE: SRF host login failed!"
-            exit 1
+          expect {
+            "*assword:*" {
+              send "$password\r"
+            }
+            timeout {
+              puts "FAILURE: Connection timed out"
+              exit 1
+            }
           }
+
+          expect {
+            "*>*" {
+              send "whoami\r"
+            }
+            timeout {
+              puts "FAILURE: Shell prompt not received"
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {
+              send "cd C:\\pkummara\\scripts\r"
+            }
+            timeout {
+              puts "FAILURE: whoami did not complete"
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {
+              send "C:\\Python310\\python.exe .\\deploy_reboot_wrapper.py\r"
+            }
+            timeout {
+              puts "FAILURE: cd to scripts directory did not complete"
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {
+              send "exit\r"
+            }
+            timeout {
+              puts "FAILURE: Python script did not complete"
+              exit 1
+            }
+          }
+
+          expect eof
+          EOF
+
+          chmod +x /tmp/ssh_login.exp
+
+          echo "Connecting to SRF host via SSH..."
+          /usr/bin/expect /tmp/ssh_login.exp
+          SSH_EXIT=$?
+
+          rm -f /tmp/ssh_login.exp
+
+          if [ $SSH_EXIT -eq 0 ]; then
+            echo "✅ SUCCESS: SSH login and command executed successfully!"
+          else
+            echo "❌ FAILURE: SSH connection failed with exit code: $SSH_EXIT"
+            exit $SSH_EXIT
+          fi
