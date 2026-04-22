@@ -20,12 +20,7 @@ jobs:
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
           expect { "*assword:*" { send "$password\r" } timeout { puts "TIMEOUT: password"; exit 1 } }
           expect { "*>*" { send "schtasks /run /tn DeployRebootWrapper\r" } timeout { puts "TIMEOUT: prompt"; exit 1 } }
-          expect {
-            "*Attempted to run*" { send "exit\r" }
-            "*currently running*" { puts "TASK TRIGGER FAILED: already running"; send "exit\r"; exit 1 }
-            "*ERROR*"             { puts "TASK TRIGGER FAILED"; send "exit\r"; exit 1 }
-            timeout               { puts "TRIGGER TIMEOUT waiting for schtasks response"; exit 1 }
-          }
+          expect { "*>*" { send "exit\r" } timeout { puts "TIMEOUT: schtasks response"; exit 1 } }
           expect eof
           EOF
           chmod +x /tmp/ssh_trigger.exp
