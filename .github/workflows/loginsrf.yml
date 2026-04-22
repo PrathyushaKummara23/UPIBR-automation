@@ -13,7 +13,6 @@ jobs:
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
-          # Step 1: Trigger the Task Scheduler task via SSH
           cat > /tmp/ssh_trigger.exp << 'EOF'
           #!/usr/bin/expect -f
           set timeout 30
@@ -31,10 +30,23 @@ jobs:
           echo "Task triggered. Waiting for pipeline to start..."
           sleep 15
 
-      - name: Poll pipeline_result.txt until done
+      - name: Poll pipeline result
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
+          # Write the expect poll script to a file
+          cat > /tmp/ssh_poll.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 15
+          set password $env(SRF_PASSWORD)
+          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+          expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
+          expect { "*>*" { send "type C:\\pkummara\\logs\\pipeline_result.txt\r" } timeout { exit 1 } }
+          expect { "*>*" { send "exit\r" } timeout { exit 1 } }
+          expect eof
+          EOF
+          chmod +x /tmp/ssh_poll.exp
+
           TIMEOUT=7200
           ELAPSED=0
           echo "Polling every 30s for result (max 2 hours)..."
@@ -43,34 +55,23 @@ jobs:
             sleep 30
             ELAPSED=$((ELAPSED + 30))
 
-            # Read result file via SSH
-            cat > /tmp/ssh_poll.exp << 'EXPEOF'
-            #!/usr/bin/expect -f
-            set timeout 15
-            set password $env(SRF_PASSWORD)
-            spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
-            expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
-            expect { "*>*" { send "type C:\\pkummara\\logs\\pipeline_result.txt\r" } timeout { exit 1 } }
-            expect { "*>*" { send "exit\r" } timeout { exit 1 } }
-            expect eof
-            EXPEOF
-            chmod +x /tmp/ssh_poll.exp
             RESULT=$(/usr/bin/expect /tmp/ssh_poll.exp 2>/dev/null)
-            rm -f /tmp/ssh_poll.exp
-
             echo "[$ELAPSED s] Raw result: $RESULT"
 
             if echo "$RESULT" | grep -q "PASSED"; then
               echo "✅ SUCCESS: Pipeline PASSED!"
+              rm -f /tmp/ssh_poll.exp
               exit 0
             elif echo "$RESULT" | grep -q "FAILED"; then
               REASON=$(echo "$RESULT" | grep "FAILED")
               echo "❌ FAILURE: $REASON"
+              rm -f /tmp/ssh_poll.exp
               exit 1
             else
               echo "[$ELAPSED s] Still running..."
             fi
           done
 
+          rm -f /tmp/ssh_poll.exp
           echo "❌ FAILURE: Timed out after 2 hours"
           exit 1
