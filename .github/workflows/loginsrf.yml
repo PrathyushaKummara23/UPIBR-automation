@@ -45,7 +45,8 @@ jobs:
           set password $env(SRF_PASSWORD)
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
           expect { "*assword:*" { send "$password\r" } timeout { exit 1 } }
-          expect { "*>*" { send "type C:\\pkummara\\logs\\pipeline_result.txt\r" } timeout { exit 1 } }
+          sleep 5
+          send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
           expect { "*>*" { send "exit\r" } timeout { exit 1 } }
           expect eof
           EOF
@@ -79,3 +80,4 @@ jobs:
           rm -f /tmp/ssh_poll.exp
           echo "❌ FAILURE: Timed out after 2 hours"
           exit 1
+
