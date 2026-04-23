@@ -9,83 +9,74 @@ jobs:
     runs-on: [self-hosted, node16]
 
     steps:
-      - name: Trigger pipeline via Start-Process
+      - name: SSH into SRF host and run whoami
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
-          cat > /tmp/ssh_trigger.exp << 'EOF'
+          echo "================================================="
+          echo "  SRF SSH Login - Post Build Auto Login"
+          echo "================================================="
+          # Write expect script
+          cat > /tmp/ssh_login.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 60
+          set timeout 3000
           set password $env(SRF_PASSWORD)
           spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
-          expect "*assword:*"
-          send "$password\r"
           expect {
-            "*assword:*" { puts "AUTH FAILED"; exit 1 }
-            "*>*"        { }
-          }
-          send "powershell -Command \"Start-Process cmd.exe -ArgumentList '/c C:\\pkummara\\scripts\\run_pipeline.bat' -WindowStyle Normal\"\r"
-          expect "*>*"
-          send "exit\r"
-          expect eof
-          EOF
-          chmod +x /tmp/ssh_trigger.exp
-          echo "Triggering pipeline..."
-          /usr/bin/expect /tmp/ssh_trigger.exp
-          TRIGGER_EXIT=$?
-          rm -f /tmp/ssh_trigger.exp
-          if [ $TRIGGER_EXIT -ne 0 ]; then
-            echo "❌ FAILURE: Could not trigger pipeline"
-            exit 1
-          fi
-          echo "✅ Pipeline triggered. Waiting for it to start..."
-          sleep 15
-
-      - name: Poll pipeline result
-        env:
-          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-        run: |
-          cat > /tmp/ssh_poll.exp << 'EOF'
-          #!/usr/bin/expect -f
-          set timeout 60
-          set password $env(SRF_PASSWORD)
-          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
-          expect "*assword:*"
-          send "$password\r"
-          expect {
-            "*assword:*" { puts "AUTH FAILED"; exit 1 }
-            "*>*"        { }
-          }
-          send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
-          expect "*>*"
-          send "exit\r"
-          expect eof
-          EOF
-          chmod +x /tmp/ssh_poll.exp
-
-          TIMEOUT=7200
-          ELAPSED=0
-          echo "Polling every 30s for result (max 2 hours)..."
-
-          while [ $ELAPSED -lt $TIMEOUT ]; do
-            sleep 30
-            ELAPSED=$((ELAPSED + 30))
-            RESULT=$(/usr/bin/expect /tmp/ssh_poll.exp 2>/dev/null)
-            echo "[$ELAPSED s] Raw result: $RESULT"
-            if echo "$RESULT" | grep -q "PASSED"; then
-              echo "✅ SUCCESS: Pipeline PASSED!"
-              rm -f /tmp/ssh_poll.exp
-              exit 0
-            elif echo "$RESULT" | grep -q "FAILED"; then
-              REASON=$(echo "$RESULT" | grep "FAILED")
-              echo "❌ FAILURE: $REASON"
-              rm -f /tmp/ssh_poll.exp
+            "*assword:*" {
+              send "$password\r"
+            }
+            timeout {
+              puts "FAILURE: Connection timed out"
               exit 1
-            else
-              echo "[$ELAPSED s] Still running..."
-            fi
-          done
-
-          rm -f /tmp/ssh_poll.exp
-          echo "❌ FAILURE: Timed out after 2 hours"
-          exit 1
+            }
+          }
+          expect {
+            "*>*" {
+              send "whoami\r"
+            }
+            timeout {
+              puts "FAILURE: Shell prompt not received"
+              exit 1
+            }
+          }
+          expect {
+            "*>*" {
+              send "cd C:\\pkummara\\scripts\r"
+            }
+            timeout {
+              puts "FAILURE: whoami did not complete"
+              exit 1
+            }
+          }
+          expect {
+            "*>*" {
+              send "C:\\Python310\\python.exe .\\deploy_reboot_wrapper.py\r"
+            }
+            timeout {
+              puts "FAILURE: cd to scripts directory did not complete"
+              exit 1
+            }
+          }
+          expect {
+            "*>*" {
+              send "exit\r"
+            }
+            timeout {
+              puts "FAILURE: Python script did not complete"
+              exit 1
+            }
+          }
+          expect eof
+          EOF
+          chmod +x /tmp/ssh_login.exp
+          echo "Connecting to SRF host via SSH..."
+          /usr/bin/expect /tmp/ssh_login.exp
+          SSH_EXIT=$?
+          rm -f /tmp/ssh_login.exp
+          if [ $SSH_EXIT -eq 0 ]; then
+            echo "✅ SUCCESS: SSH login and command executed successfully!"
+          else
+            echo "❌ FAILURE: SSH connection failed with exit code: $SSH_EXIT"
+            exit $SSH_EXIT
+          fi
