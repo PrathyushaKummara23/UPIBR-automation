@@ -1,0 +1,70 @@
+#!/usr/bin/expect -f
+set timeout 3000
+set password $env(SRF_PASSWORD)
+
+spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+
+expect {
+  "*assword:*" {
+    send "$password\r"
+  }
+  timeout {
+    puts "FAILURE: Connection timed out"
+    exit 1
+  }
+}
+
+expect {
+  "*>*" {
+    send "whoami\r"
+  }
+  timeout {
+    puts "FAILURE: Shell prompt not received"
+    exit 1
+  }
+}
+
+expect {
+  "*>*" {
+    send "cd C:\\pkummara\\scripts\r"
+  }
+  timeout {
+    puts "FAILURE: whoami did not complete"
+    exit 1
+  }
+}
+
+expect {
+  "*>*" {
+    send "C:\\Python310\\python.exe .\\ifwi_burn.py && echo __IFWI_DONE_SUCCESS__ || echo __IFWI_DONE_FAILURE__\r"
+  }
+  timeout {
+    puts "FAILURE: cd to scripts directory did not complete"
+    exit 1
+  }
+}
+
+expect {
+  "__IFWI_DONE_SUCCESS__" {
+    puts "SCRIPT_RESULT=0"
+  }
+  "__IFWI_DONE_FAILURE__" {
+    puts "SCRIPT_RESULT=1"
+  }
+  timeout {
+    puts "FAILURE: Python script did not complete within timeout"
+    exit 1
+  }
+}
+
+expect {
+  "*>*" {
+    send "exit\r"
+  }
+  timeout {
+    puts "FAILURE: Could not exit"
+    exit 1
+  }
+}
+
+expect eof
