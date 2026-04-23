@@ -1,0 +1,40 @@
+name: SRF SSH Login - Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  srf-login:
+    name: SRF SSH Login
+    runs-on: [self-hosted, node16]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: SSH into SRF host and run ifwi_burn.py
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        run: |
+          echo "================================================="
+          echo "  SRF SSH Login - Post Build Auto Login"
+          echo "================================================="
+
+          chmod +x .github/scripts/ssh_login.exp
+          echo "Connecting to SRF host via SSH..."
+
+          /usr/bin/expect .github/scripts/ssh_login.exp > /tmp/ssh_output.txt 2>&1
+
+          echo "========== SSH SESSION OUTPUT =========="
+          cat /tmp/ssh_output.txt
+          echo "========================================"
+
+          if grep -q "SCRIPT_RESULT=0" /tmp/ssh_output.txt; then
+            echo "✅ SUCCESS: ifwi_burn.py completed successfully!"
+          elif grep -q "SCRIPT_RESULT=1" /tmp/ssh_output.txt; then
+            echo "❌ FAILURE: ifwi_burn.py failed!"
+            exit 1
+          else
+            echo "❌ FAILURE: Could not determine script result"
+            exit 1
+          fi
