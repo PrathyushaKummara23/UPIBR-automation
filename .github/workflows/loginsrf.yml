@@ -51,7 +51,7 @@ jobs:
           }
           expect {
             "*>*" {
-              send "C:\\Python310\\python.exe .\\Stitch_flash_TTK.py\r"
+              send "C:\\Python310\\python.exe .\\ifwi_burn.py\r"
             }
             timeout {
               puts "FAILURE: cd to scripts directory did not complete"
