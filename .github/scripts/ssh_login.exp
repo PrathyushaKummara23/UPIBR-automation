@@ -34,16 +34,29 @@ expect {
   }
 }
 
+# ── Turn off CMD echo so command line is NOT echoed back ──────
+expect {
+  "*>*" {
+    send "@echo off\r"
+  }
+  timeout {
+    puts "FAILURE: cd did not complete"
+    exit 1
+  }
+}
+
+# ── Now run Python — marker only appears when script finishes ──
 expect {
   "*>*" {
     send "C:\\Python310\\python.exe .\\ifwi_burn.py && echo __IFWI_DONE_SUCCESS__ || echo __IFWI_DONE_FAILURE__\r"
   }
   timeout {
-    puts "FAILURE: cd to scripts directory did not complete"
+    puts "FAILURE: echo off did not complete"
     exit 1
   }
 }
 
+# ── Wait for real marker from script completion ────────────────
 expect {
   "__IFWI_DONE_SUCCESS__" {
     puts "SCRIPT_RESULT=0"
