@@ -2,6 +2,7 @@ name: SRF SSH Login - Test
 
 on:
   workflow_dispatch:
+  workflow_call:        # ← allows login.yml to call this workflow
 
 jobs:
   srf-login:
