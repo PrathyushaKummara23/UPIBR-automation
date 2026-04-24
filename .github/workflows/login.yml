@@ -1074,11 +1074,13 @@ jobs:
             FILENAME=$(basename "$INC_FILE")
             echo "  → Copying: $FILENAME"
 
-            sshpass -p "$SRF_PASSWORD" scp \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              "$INC_FILE" \
-              "${SRF_USER}@${SRF_HOST}:${WINDOWS_DEST}/${FILENAME}"
+            export SRC_FILE="$INC_FILE"
+            export FILENAME="$FILENAME"
+            export SRF_USER="$SRF_USER"
+            export SRF_HOST="$SRF_HOST"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+
+            /usr/bin/expect .github/scripts/scp_transfer.exp
 
             if [ $? -eq 0 ]; then
               echo "  ✅ Copied successfully: $FILENAME"
@@ -1096,11 +1098,13 @@ jobs:
             FILENAME=$(basename "$PDB_FILE")
             echo "  → Copying: $FILENAME"
 
-            sshpass -p "$SRF_PASSWORD" scp \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              "$PDB_FILE" \
-              "${SRF_USER}@${SRF_HOST}:${WINDOWS_DEST}/${FILENAME}"
+            export SRC_FILE="$PDB_FILE"
+            export FILENAME="$FILENAME"
+            export SRF_USER="$SRF_USER"
+            export SRF_HOST="$SRF_HOST"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+
+            /usr/bin/expect .github/scripts/scp_transfer.exp
 
             if [ $? -eq 0 ]; then
               echo "  ✅ Copied successfully: $FILENAME"
