@@ -1014,13 +1014,17 @@ jobs:
           SRF_HOST="10.138.186.133"
           SRF_USER="CEFLS_User"
 
+          # ── Convert version to lowercase for filename matching ────
+          CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
+
           echo "================================================="
           echo "  Copy Release Collaterals to SRF Host"
           echo "================================================="
-          echo "📁 Release Path : $RELEASE_PATH"
-          echo "🖥️  SRF Host     : $SRF_HOST"
-          echo "📂 Windows Dest : $WINDOWS_DEST"
-          echo "📋 Version      : $CURRENT_VERSION"
+          echo "📁 Release Path  : $RELEASE_PATH"
+          echo "🖥️  SRF Host      : $SRF_HOST"
+          echo "📂 Windows Dest  : $WINDOWS_DEST"
+          echo "📋 Version       : $CURRENT_VERSION"
+          echo "📋 Version Lower : $CURRENT_VERSION_LOWER"
           echo "================================================="
 
           # ── Step 1: Verify release directory exists ──────────────
@@ -1032,11 +1036,11 @@ jobs:
 
           # ── Step 2: Find .inc files ───────────────────────────────
           echo ""
-          echo "🔍 Searching for .inc files: m_*_*_${CURRENT_VERSION}.inc"
-          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION}.inc" -type f)
+          echo "🔍 Searching for .inc files: m_*_*_${CURRENT_VERSION_LOWER}.inc"
+          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f)
 
           if [ -z "$INC_FILES" ]; then
-            echo "❌ FAILURE: No .inc files found matching m_*_*_${CURRENT_VERSION}.inc"
+            echo "❌ FAILURE: No .inc files found matching m_*_*_${CURRENT_VERSION_LOWER}.inc"
             echo ""
             echo "📁 Files available in release directory:"
             ls -la "$RELEASE_PATH"
@@ -1048,11 +1052,11 @@ jobs:
 
           # ── Step 3: Find .pdb files ───────────────────────────────
           echo ""
-          echo "🔍 Searching for .pdb files: m_*_*_${CURRENT_VERSION}.pdb"
-          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION}.pdb" -type f)
+          echo "🔍 Searching for .pdb files: m_*_*_${CURRENT_VERSION_LOWER}.pdb"
+          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f)
 
           if [ -z "$PDB_FILES" ]; then
-            echo "❌ FAILURE: No .pdb files found matching m_*_*_${CURRENT_VERSION}.pdb"
+            echo "❌ FAILURE: No .pdb files found matching m_*_*_${CURRENT_VERSION_LOWER}.pdb"
             echo ""
             echo "📁 Files available in release directory:"
             ls -la "$RELEASE_PATH"
