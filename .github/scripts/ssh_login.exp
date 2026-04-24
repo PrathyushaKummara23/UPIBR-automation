@@ -48,7 +48,7 @@ expect {
 # ── Now run Python — marker only appears when script finishes ──
 expect {
   "*>*" {
-    send "C:\\Python310\\python.exe .\\ifwi_burn.py && echo __IFWI_DONE_SUCCESS__ || echo __IFWI_DONE_FAILURE__\r"
+    send "C:\\Python310\\python.exe .\\deploy_reboot_wrapper.py.py && echo __IFWI_DONE_SUCCESS__ || echo __IFWI_DONE_FAILURE__\r"
   }
   timeout {
     puts "FAILURE: echo off did not complete"
