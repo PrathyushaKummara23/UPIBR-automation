@@ -1130,5 +1130,5 @@ jobs:
   call-srf-login:
     needs: [copy-release-collaterals]
     if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/testing.yml@master
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/loginsrf.yml@master
     secrets: inherit
