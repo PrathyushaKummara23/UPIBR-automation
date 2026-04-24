@@ -1,5 +1,5 @@
 #!/usr/bin/expect -f
-set timeout 3000
+set timeout 60
 set password $env(SRF_PASSWORD)
 
 spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
