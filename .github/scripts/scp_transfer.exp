@@ -1,0 +1,17 @@
+#!/usr/bin/expect -f
+set timeout 60
+set src_file  $env(SRC_FILE)
+set srf_user  $env(SRF_USER)
+set srf_host  $env(SRF_HOST)
+set dest      $env(WINDOWS_DEST)
+set filename  $env(FILENAME)
+set password  $env(SRF_PASSWORD)
+
+spawn scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $src_file ${srf_user}@${srf_host}:${dest}/${filename}
+expect {
+  "*assword:*" { send "$password\r" }
+  timeout      { puts "FAILURE: SCP timed out"; exit 1 }
+}
+expect eof
+catch wait result
+exit [lindex $result 3]
