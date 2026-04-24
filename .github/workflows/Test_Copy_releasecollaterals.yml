@@ -13,6 +13,9 @@ jobs:
     runs-on: [self-hosted, node16]
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
       - name: Copy release collaterals (.inc and .pdb) to SRF host
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
@@ -31,6 +34,8 @@ jobs:
           echo "📂 Windows Dest : $WINDOWS_DEST"
           echo "📋 Version      : $CURRENT_VERSION"
           echo "================================================="
+
+          chmod +x .github/scripts/scp_transfer.exp
 
           # ── Step 1: Verify release directory exists ──────────────
           if [ ! -d "$RELEASE_PATH" ]; then
@@ -51,7 +56,6 @@ jobs:
             ls -la "$RELEASE_PATH"
             exit 1
           fi
-
           echo "✅ Found .inc files:"
           echo "$INC_FILES"
 
@@ -67,7 +71,6 @@ jobs:
             ls -la "$RELEASE_PATH"
             exit 1
           fi
-
           echo "✅ Found .pdb files:"
           echo "$PDB_FILES"
 
@@ -79,17 +82,13 @@ jobs:
             FILENAME=$(basename "$INC_FILE")
             echo "  → Copying: $FILENAME"
 
-            /usr/bin/expect << EOF
-set timeout 60
-spawn scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$INC_FILE" ${SRF_USER}@${SRF_HOST}:${WINDOWS_DEST}/${FILENAME}
-expect {
-  "*assword:*" { send "${SRF_PASSWORD}\r" }
-  timeout      { puts "FAILURE: SCP timed out"; exit 1 }
-}
-expect eof
-catch wait result
-exit [lindex \$result 3]
-EOF
+            export SRC_FILE="$INC_FILE"
+            export FILENAME="$FILENAME"
+            export SRF_USER="$SRF_USER"
+            export SRF_HOST="$SRF_HOST"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+
+            /usr/bin/expect .github/scripts/scp_transfer.exp
 
             if [ $? -eq 0 ]; then
               echo "  ✅ Copied successfully: $FILENAME"
@@ -107,17 +106,13 @@ EOF
             FILENAME=$(basename "$PDB_FILE")
             echo "  → Copying: $FILENAME"
 
-            /usr/bin/expect << EOF
-set timeout 60
-spawn scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$PDB_FILE" ${SRF_USER}@${SRF_HOST}:${WINDOWS_DEST}/${FILENAME}
-expect {
-  "*assword:*" { send "${SRF_PASSWORD}\r" }
-  timeout      { puts "FAILURE: SCP timed out"; exit 1 }
-}
-expect eof
-catch wait result
-exit [lindex \$result 3]
-EOF
+            export SRC_FILE="$PDB_FILE"
+            export FILENAME="$FILENAME"
+            export SRF_USER="$SRF_USER"
+            export SRF_HOST="$SRF_HOST"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+
+            /usr/bin/expect .github/scripts/scp_transfer.exp
 
             if [ $? -eq 0 ]; then
               echo "  ✅ Copied successfully: $FILENAME"
