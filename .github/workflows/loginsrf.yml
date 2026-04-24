@@ -51,7 +51,7 @@ jobs:
           }
           expect {
             "*>*" {
-              send "C:\\Python310\\python.exe .\\deploy_reboot_wrapper.py.py\r"
+              send "C:\\Python310\\python.exe .\\deploy_reboot_wrapper.py\r"
             }
             timeout {
               puts "FAILURE: cd to scripts directory did not complete"
