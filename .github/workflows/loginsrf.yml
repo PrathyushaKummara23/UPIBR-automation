@@ -26,7 +26,6 @@ jobs:
           set timeout 60
           set password $env(SRF_PASSWORD)
 
-          # ── Use -T (no PTY) — avoids ANSI escape code flooding ──
           spawn ssh -T \
             -o StrictHostKeyChecking=no \
             -o ForwardX11=no \
@@ -48,11 +47,7 @@ jobs:
             timeout { puts "FAILURE: cd did not complete"; exit 1 }
           }
 
-          send "@echo off\r"
-          expect {
-            "*>*" { }
-            timeout { puts "FAILURE: echo off did not complete"; exit 1 }
-          }
+          # ── NO @echo off — skipped to avoid prompt suppression ───
 
           # ── Run Python with Tee-Object + result markers ──────────
           send "powershell -Command \"C:/Python310/python.exe -u C:/pkummara/scripts/deploy_reboot_wrapper.py 2>&1 | Tee-Object -FilePath ('C:/pkummara/logs/full_run_' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss') + '.log'); if ($LASTEXITCODE -eq 0) { echo '__DEPLOY_SUCCESS__' } else { echo '__DEPLOY_FAILURE__' }\"\r"
