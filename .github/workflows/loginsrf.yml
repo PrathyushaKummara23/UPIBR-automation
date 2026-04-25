@@ -26,20 +26,17 @@ jobs:
           set timeout 60
           set password $env(SRF_PASSWORD)
 
-          log_user 0
-          spawn ssh -tt \
+          # ── Use -T (no PTY) — avoids ANSI escape code flooding ──
+          spawn ssh -T \
             -o StrictHostKeyChecking=no \
             -o ForwardX11=no \
-            -o ForwardX11Trusted=no \
             CEFLS_User@10.138.186.133
-          log_user 1
 
           expect {
             "*assword:*" { send "$password\r" }
             timeout      { puts "FAILURE: Connection timed out"; exit 1 }
           }
 
-          # ── Use glob "*>*" — tolerates escape codes ──────────────
           expect {
             "*>*" { }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
@@ -47,7 +44,7 @@ jobs:
 
           send "cd C:\\pkummara\\scripts\r"
           expect {
-            "*scripts*>*" { }
+            "*>*" { }
             timeout { puts "FAILURE: cd did not complete"; exit 1 }
           }
 
