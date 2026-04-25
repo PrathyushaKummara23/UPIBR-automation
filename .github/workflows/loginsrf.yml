@@ -47,9 +47,9 @@ jobs:
             timeout { puts "FAILURE: cd did not complete"; exit 1 }
           }
 
-          # ── $ErrorActionPreference='Continue' prevents NativeCommandError
-          # ── from killing the pipeline when Python writes to stderr ────────
-          send "powershell -Command \"\$ErrorActionPreference = 'Continue'; C:/Python310/python.exe -u C:/pkummara/scripts/deploy_reboot_wrapper.py 2>&1 | Tee-Object -FilePath ('C:/pkummara/logs/full_run_' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss') + '.log'); if (\$LASTEXITCODE -eq 0) { echo '__DEPLOY_SUCCESS__' } else { echo '__DEPLOY_FAILURE__' }\"\r"
+          # ── Use Start-Process so Python stderr never touches PowerShell pipeline
+          # ── stdout+stderr both go to log file, no NativeCommandError possible ──
+          send "powershell -Command \"\$ts = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'; \$log = 'C:/pkummara/logs/full_run_' + \$ts + '.log'; \$err = 'C:/pkummara/logs/full_run_' + \$ts + '_err.log'; \$proc = Start-Process -FilePath 'C:/Python310/python.exe' -ArgumentList '-u','C:/pkummara/scripts/deploy_reboot_wrapper.py' -RedirectStandardOutput \$log -RedirectStandardError \$err -Wait -PassThru -NoNewWindow; if (\$proc.ExitCode -eq 0) { Write-Host '__DEPLOY_SUCCESS__' } else { Write-Host '__DEPLOY_FAILURE__' }\"\r"
 
           # ── Wait up to 50 min for script to finish ───────────────
           set timeout 3000
