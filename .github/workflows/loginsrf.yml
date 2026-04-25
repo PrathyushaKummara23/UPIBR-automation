@@ -47,8 +47,7 @@ jobs:
             timeout { puts "FAILURE: cd did not complete"; exit 1 }
           }
 
-          # ── Use Start-Process so Python stderr never touches PowerShell pipeline
-          # ── stdout+stderr both go to log file, no NativeCommandError possible ──
+          # ── Start-Process: Python stderr never touches PowerShell pipeline ─
           send "powershell -Command \"\$ts = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'; \$log = 'C:/pkummara/logs/full_run_' + \$ts + '.log'; \$err = 'C:/pkummara/logs/full_run_' + \$ts + '_err.log'; \$proc = Start-Process -FilePath 'C:/Python310/python.exe' -ArgumentList '-u','C:/pkummara/scripts/deploy_reboot_wrapper.py' -RedirectStandardOutput \$log -RedirectStandardError \$err -Wait -PassThru -NoNewWindow; if (\$proc.ExitCode -eq 0) { Write-Host '__DEPLOY_SUCCESS__' } else { Write-Host '__DEPLOY_FAILURE__' }\"\r"
 
           # ── Wait up to 50 min for script to finish ───────────────
@@ -58,13 +57,9 @@ jobs:
             "__DEPLOY_FAILURE__" { puts "SCRIPT_RESULT=1" }
             timeout { puts "FAILURE: deploy_reboot_wrapper.py timed out"; exit 1 }
           }
-          set timeout 60
 
-          expect {
-            "*>*" { send "exit\r" }
-            timeout { puts "FAILURE: Could not exit"; exit 1 }
-          }
-
+          # ── Send exit immediately — no prompt wait ───────────────
+          send "exit\r"
           expect eof
           EOF
 
