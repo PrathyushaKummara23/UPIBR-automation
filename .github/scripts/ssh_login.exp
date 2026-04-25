@@ -2,82 +2,40 @@
 set timeout 60
 set password $env(SRF_PASSWORD)
 
-spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+spawn ssh -tt -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
 
 expect {
-  "*assword:*" {
-    send "$password\r"
-  }
-  timeout {
-    puts "FAILURE: Connection timed out"
-    exit 1
-  }
+  "*assword:*" { send "$password\r" }
+  timeout      { puts "FAILURE: Connection timed out"; exit 1 }
 }
-
 expect {
-  "*>*" {
-    send "whoami\r"
-  }
-  timeout {
-    puts "FAILURE: Shell prompt not received"
-    exit 1
-  }
+  "*>*" { send "cd C:\\pkummara\\scripts\r" }
+  timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+}
+expect {
+  "*>*" { send "@echo off\r" }
+  timeout { puts "FAILURE: cd did not complete"; exit 1 }
 }
 
+# ── Run Python with Tee-Object to capture full log ──────────────
 expect {
   "*>*" {
-    send "cd C:\\pkummara\\scripts\r"
+    send "powershell -Command \"C:/Python310/python.exe C:/pkummara/scripts/deploy_reboot_wrapper.py 2>&1 | Tee-Object -FilePath ('C:/pkummara/logs/full_run_' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss') + '.log') && echo __BURN_SUCCESS__ || echo __BURN_FAILURE__\"\r"
   }
-  timeout {
-    puts "FAILURE: whoami did not complete"
-    exit 1
-  }
+  timeout { puts "FAILURE: echo off did not complete"; exit 1 }
 }
 
-# ── Turn off CMD echo so command line is NOT echoed back ──────
+# ── Wait up to 50 minutes for script to finish ──────────────────
+set timeout 3000
 expect {
-  "*>*" {
-    send "@echo off\r"
-  }
-  timeout {
-    puts "FAILURE: cd did not complete"
-    exit 1
-  }
+  "__BURN_SUCCESS__" { puts "SCRIPT_RESULT=0" }
+  "__BURN_FAILURE__"  { puts "SCRIPT_RESULT=1" }
+  timeout { puts "FAILURE: deploy_reboot_wrapper.py timed out"; exit 1 }
 }
-
-# ── Now run Python — marker only appears when script finishes ──
-expect {
-  "*>*" {
-    send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py && echo __IFWI_DONE_SUCCESS__ || echo __IFWI_DONE_FAILURE__\r"
-  }
-  timeout {
-    puts "FAILURE: echo off did not complete"
-    exit 1
-  }
-}
-
-# ── Wait for real marker from script completion ────────────────
-expect {
-  "__IFWI_DONE_SUCCESS__" {
-    puts "SCRIPT_RESULT=0"
-  }
-  "__IFWI_DONE_FAILURE__" {
-    puts "SCRIPT_RESULT=1"
-  }
-  timeout {
-    puts "FAILURE: Python script did not complete within timeout"
-    exit 1
-  }
-}
+set timeout 60
 
 expect {
-  "*>*" {
-    send "exit\r"
-  }
-  timeout {
-    puts "FAILURE: Could not exit"
-    exit 1
-  }
+  "*>*" { send "exit\r" }
+  timeout { puts "FAILURE: Could not exit"; exit 1 }
 }
-
 expect eof
