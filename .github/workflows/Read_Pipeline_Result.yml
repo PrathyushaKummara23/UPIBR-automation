@@ -1,8 +1,8 @@
 name: Read Pipeline Result
 
 on:
-  workflow_dispatch:    # ← manual trigger
-  workflow_call:        # ← called from login.yml
+  workflow_dispatch:
+  workflow_call:
     secrets:
       SRF_PASSWORD:
         required: true
@@ -26,15 +26,12 @@ jobs:
           set timeout 60
           set password $env(SRF_PASSWORD)
 
-          # ── Suppress terminal escape codes from output ───────────
           log_user 0
-
           spawn ssh -tt \
             -o StrictHostKeyChecking=no \
             -o ForwardX11=no \
             -o ForwardX11Trusted=no \
             CEFLS_User@10.138.186.133
-
           log_user 1
 
           expect {
@@ -42,7 +39,7 @@ jobs:
             timeout      { puts "FAILURE: Connection timed out"; exit 1 }
           }
 
-          # ── Absorb any banner/escape noise before prompt ─────────
+          # absorb banner + escape noise
           expect {
             -re {[>$#%\]]} { }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
@@ -57,7 +54,7 @@ jobs:
 
           send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
 
-          # ── Capture the file content ─────────────────────────────
+          # capture result
           expect {
             -re {(PASSED|FAILED[^\r\n]*|RUNNING)} {
               puts "FILE_CONTENT=$expect_out(0,string)"
@@ -65,11 +62,8 @@ jobs:
             timeout { puts "FAILURE: Could not read result file"; exit 1 }
           }
 
-          expect {
-            -re {[>$#%\]]} { send "exit\r" }
-            timeout { puts "FAILURE: Could not exit"; exit 1 }
-          }
-
+          # ── No prompt wait — send exit immediately ───────────────
+          send "exit\r"
           expect eof
           EOF
 
@@ -84,7 +78,6 @@ jobs:
           cat /tmp/result_output_${{ github.run_id }}.txt
           echo "==================================================="
 
-          # ── Parse result ─────────────────────────────────────────
           if grep -q "PASSED" /tmp/result_output_${{ github.run_id }}.txt; then
             echo ""
             echo "✅ PIPELINE RESULT: PASSED"
@@ -96,17 +89,16 @@ jobs:
             PIPELINE_STATUS="FAILED"
           elif grep -q "RUNNING" /tmp/result_output_${{ github.run_id }}.txt; then
             echo ""
-            echo "⚠️  PIPELINE RESULT: Still RUNNING — script may not have finished"
+            echo "⚠️  PIPELINE RESULT: Still RUNNING"
             PIPELINE_STATUS="RUNNING"
           else
             echo ""
-            echo "❓ PIPELINE RESULT: Unknown — could not parse result file"
+            echo "❓ PIPELINE RESULT: Unknown"
             PIPELINE_STATUS="UNKNOWN"
           fi
 
           rm -f /tmp/result_output_${{ github.run_id }}.txt
 
-          # ── GitHub Step Summary ──────────────────────────────────
           {
             echo "## 📄 Pipeline Result"
             echo "| Field | Value |"
@@ -116,7 +108,6 @@ jobs:
             echo "| Windows Host | \`10.138.186.133\` |"
           } >> $GITHUB_STEP_SUMMARY
 
-          # ── Fail job if not PASSED ───────────────────────────────
           if [ "$PIPELINE_STATUS" != "PASSED" ]; then
             exit 1
           fi
