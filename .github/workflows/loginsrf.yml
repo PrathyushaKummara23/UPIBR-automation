@@ -26,7 +26,6 @@ jobs:
           set timeout 60
           set password $env(SRF_PASSWORD)
 
-          # suppress escape codes during connect
           log_user 0
           spawn ssh -tt \
             -o StrictHostKeyChecking=no \
@@ -40,21 +39,21 @@ jobs:
             timeout      { puts "FAILURE: Connection timed out"; exit 1 }
           }
 
-          # absorb banner + escape noise
+          # ── Use glob "*>*" — tolerates escape codes ──────────────
           expect {
-            -re {[>]} { }
+            "*>*" { }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
           }
 
           send "cd C:\\pkummara\\scripts\r"
           expect {
-            -re {[>]} { }
+            "*scripts*>*" { }
             timeout { puts "FAILURE: cd did not complete"; exit 1 }
           }
 
           send "@echo off\r"
           expect {
-            -re {[>]} { }
+            "*>*" { }
             timeout { puts "FAILURE: echo off did not complete"; exit 1 }
           }
 
@@ -71,7 +70,7 @@ jobs:
           set timeout 60
 
           expect {
-            -re {[>]} { send "exit\r" }
+            "*>*" { send "exit\r" }
             timeout { puts "FAILURE: Could not exit"; exit 1 }
           }
 
