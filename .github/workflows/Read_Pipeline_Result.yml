@@ -1,0 +1,122 @@
+name: Read Pipeline Result
+
+on:
+  workflow_dispatch:    # ← manual trigger
+  workflow_call:        # ← called from login.yml
+    secrets:
+      SRF_PASSWORD:
+        required: true
+
+jobs:
+  read-pipeline-result:
+    name: Read Pipeline Result
+    runs-on: [self-hosted, node16]
+
+    steps:
+      - name: Read pipeline_result.txt from Windows host
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        run: |
+          echo "================================================="
+          echo "  Reading pipeline_result.txt from Windows Host"
+          echo "================================================="
+
+          cat > /tmp/read_result_${{ github.run_id }}.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 60
+          set password $env(SRF_PASSWORD)
+
+          # ── Suppress terminal escape codes from output ───────────
+          log_user 0
+
+          spawn ssh -tt \
+            -o StrictHostKeyChecking=no \
+            -o ForwardX11=no \
+            -o ForwardX11Trusted=no \
+            CEFLS_User@10.138.186.133
+
+          log_user 1
+
+          expect {
+            "*assword:*" { send "$password\r" }
+            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
+          }
+
+          # ── Absorb any banner/escape noise before prompt ─────────
+          expect {
+            -re {[>$#%\]]} { }
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+          }
+
+          send "@echo off\r"
+
+          expect {
+            -re {[>$#%\]]} { }
+            timeout { puts "FAILURE: echo off did not complete"; exit 1 }
+          }
+
+          send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
+
+          # ── Capture the file content ─────────────────────────────
+          expect {
+            -re {(PASSED|FAILED[^\r\n]*|RUNNING)} {
+              puts "FILE_CONTENT=$expect_out(0,string)"
+            }
+            timeout { puts "FAILURE: Could not read result file"; exit 1 }
+          }
+
+          expect {
+            -re {[>$#%\]]} { send "exit\r" }
+            timeout { puts "FAILURE: Could not exit"; exit 1 }
+          }
+
+          expect eof
+          EOF
+
+          chmod +x /tmp/read_result_${{ github.run_id }}.exp
+
+          /usr/bin/expect /tmp/read_result_${{ github.run_id }}.exp \
+            > /tmp/result_output_${{ github.run_id }}.txt 2>&1 || true
+
+          rm -f /tmp/read_result_${{ github.run_id }}.exp
+
+          echo "========== pipeline_result.txt CONTENTS =========="
+          cat /tmp/result_output_${{ github.run_id }}.txt
+          echo "==================================================="
+
+          # ── Parse result ─────────────────────────────────────────
+          if grep -q "PASSED" /tmp/result_output_${{ github.run_id }}.txt; then
+            echo ""
+            echo "✅ PIPELINE RESULT: PASSED"
+            PIPELINE_STATUS="PASSED"
+          elif grep -q "FAILED" /tmp/result_output_${{ github.run_id }}.txt; then
+            FAILED_REASON=$(grep "FAILED" /tmp/result_output_${{ github.run_id }}.txt | head -1)
+            echo ""
+            echo "❌ PIPELINE RESULT: $FAILED_REASON"
+            PIPELINE_STATUS="FAILED"
+          elif grep -q "RUNNING" /tmp/result_output_${{ github.run_id }}.txt; then
+            echo ""
+            echo "⚠️  PIPELINE RESULT: Still RUNNING — script may not have finished"
+            PIPELINE_STATUS="RUNNING"
+          else
+            echo ""
+            echo "❓ PIPELINE RESULT: Unknown — could not parse result file"
+            PIPELINE_STATUS="UNKNOWN"
+          fi
+
+          rm -f /tmp/result_output_${{ github.run_id }}.txt
+
+          # ── GitHub Step Summary ──────────────────────────────────
+          {
+            echo "## 📄 Pipeline Result"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Result File | \`C:\pkummara\logs\pipeline_result.txt\` |"
+            echo "| Status | **${PIPELINE_STATUS}** |"
+            echo "| Windows Host | \`10.138.186.133\` |"
+          } >> $GITHUB_STEP_SUMMARY
+
+          # ── Fail job if not PASSED ───────────────────────────────
+          if [ "$PIPELINE_STATUS" != "PASSED" ]; then
+            exit 1
+          fi
