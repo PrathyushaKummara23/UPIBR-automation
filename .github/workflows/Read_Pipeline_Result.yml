@@ -62,7 +62,6 @@ jobs:
             timeout { puts "FAILURE: Could not read result file"; exit 1 }
           }
 
-          # ── No prompt wait — send exit immediately ───────────────
           send "exit\r"
           expect eof
           EOF
@@ -78,7 +77,6 @@ jobs:
           cat /tmp/result_output_${{ github.run_id }}.txt
           echo "==================================================="
 
-          # Determine pipeline status
           if grep -q "PASSED" /tmp/result_output_${{ github.run_id }}.txt; then
             echo ""
             echo "✅ PIPELINE RESULT: PASSED"
@@ -100,10 +98,6 @@ jobs:
 
           rm -f /tmp/result_output_${{ github.run_id }}.txt
 
-          # ═══════════════════════════════════════════════════════════
-          # 📄 ECHO PIPELINE RESULT SUMMARY TO CONSOLE
-          # ═══════════════════════════════════════════════════════════
-          
           echo ""
           echo "================================================="
           echo "           📄 PIPELINE RESULT SUMMARY"
@@ -120,14 +114,10 @@ jobs:
           echo "         📄 SUMMARY ECHOED TO CONSOLE LOGS"
           echo "================================================="
 
-          # ═══════════════════════════════════════════════════════════
-          # 💾 CREATE pipeline_result.txt OUTPUT FILE
-          # ═══════════════════════════════════════════════════════════
-          
           OUTPUT_FILE="pipeline_result.txt"
-          
+
           echo "📁 Creating output file: $OUTPUT_FILE"
-          
+
           cat > "$OUTPUT_FILE" << OUTPUT_EOF
 ## 📄 Pipeline Result
 
@@ -165,10 +155,6 @@ OUTPUT_EOF
           cat "$OUTPUT_FILE"
           echo "========================================================"
 
-          # ═══════════════════════════════════════════════════════════
-          # 📊 ADD TO GITHUB STEP SUMMARY (Original)
-          # ═══════════════════════════════════════════════════════════
-          
           {
             echo "## 📄 Pipeline Result"
             echo "| Field | Value |"
@@ -186,15 +172,11 @@ OUTPUT_EOF
             echo "| Created | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
           } >> $GITHUB_STEP_SUMMARY
 
-          # ═══════════════════════════════════════════════════════════
-          # 🎯 FINAL STATUS CHECK
-          # ═══════════════════════════════════════════════════════════
-          
           echo ""
           echo "================================================="
           echo "              🎯 WORKFLOW COMPLETION"
           echo "================================================="
-          
+
           if [ "$PIPELINE_STATUS" != "PASSED" ]; then
             echo "💥 WORKFLOW FAILED: Pipeline status is $PIPELINE_STATUS"
             echo "📄 Check the pipeline_result.txt file for details"
@@ -206,13 +188,9 @@ OUTPUT_EOF
             echo "================================================="
           fi
 
-      # ═══════════════════════════════════════════════════════════
-      # 📤 UPLOAD ARTIFACT (Optional - for easy download)
-      # ═══════════════════════════════════════════════════════════
-      
       - name: Upload pipeline_result.txt as artifact
         uses: actions/upload-artifact@v3
-        if: always()  # Upload even if previous step failed
+        if: always()
         with:
           name: pipeline-result
           path: pipeline_result.txt
