@@ -116,6 +116,14 @@ jobs:
             echo "========== $OUTPUT_STATUS_FILE CONTENTS =========="
             cat "$OUTPUT_STATUS_FILE"
             echo "================================================="
+            
+            # Copy to a persistent shared location for access
+            SHARED_DIR="/nfs/site/disks/dcsg_0729/users/pkummara/pipeline-results"
+            mkdir -p "$SHARED_DIR" 2>/dev/null || true
+            if [ -d "$SHARED_DIR" ]; then
+              cp "$OUTPUT_STATUS_FILE" "$SHARED_DIR/pipeline-status-${{ github.run_id }}.txt"
+              echo "File also copied to: $SHARED_DIR/pipeline-status-${{ github.run_id }}.txt"
+            fi
           else
             echo "ERROR: Failed to create output file!"
             exit 1
@@ -125,33 +133,8 @@ jobs:
           echo "Status: $PIPELINE_STATUS" >> $GITHUB_STEP_SUMMARY
           echo "Output File: $OUTPUT_STATUS_FILE" >> $GITHUB_STEP_SUMMARY
           echo "File Size: $(wc -c < "$OUTPUT_STATUS_FILE") bytes" >> $GITHUB_STEP_SUMMARY
+          echo "File Location: $(pwd)/$OUTPUT_STATUS_FILE" >> $GITHUB_STEP_SUMMARY
 
           if [ "$PIPELINE_STATUS" != "PASSED" ]; then
             exit 1
           fi
-
-      - name: Verify output file exists
-        run: |
-          echo "Verifying output file before upload..."
-          if [ -f "Output_pipeline_Status.txt" ]; then
-            echo "File exists: Output_pipeline_Status.txt"
-            echo "File size: $(stat -c%s Output_pipeline_Status.txt) bytes"
-            echo "File content:"
-            cat Output_pipeline_Status.txt
-            echo "Working directory: $(pwd)"
-            echo "All files in directory:"
-            ls -la
-          else
-            echo "ERROR: Output_pipeline_Status.txt not found!"
-            echo "Current directory: $(pwd)"
-            echo "Files in directory:"
-            ls -la
-            exit 1
-          fi
-
-      - name: Upload Output_pipeline_Status.txt as artifact
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: pipeline-status
-          path: Output_pipeline_Status.txt
