@@ -39,6 +39,7 @@ jobs:
             timeout      { puts "FAILURE: Connection timed out"; exit 1 }
           }
 
+          # absorb banner + escape noise
           expect {
             -re {[>$#%\]]} { }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
@@ -53,6 +54,7 @@ jobs:
 
           send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
 
+          # capture result
           expect {
             -re {(PASSED|FAILED[^\r\n]*|RUNNING)} {
               puts "FILE_CONTENT=$expect_out(0,string)"
@@ -60,13 +62,15 @@ jobs:
             timeout { puts "FAILURE: Could not read result file"; exit 1 }
           }
 
+          # ── No prompt wait — send exit immediately ───────────────
           send "exit\r"
           expect eof
           EOF
 
           chmod +x /tmp/read_result_${{ github.run_id }}.exp
 
-          /usr/bin/expect /tmp/read_result_${{ github.run_id }}.exp > /tmp/result_output_${{ github.run_id }}.txt 2>&1 || true
+          /usr/bin/expect /tmp/read_result_${{ github.run_id }}.exp \
+            > /tmp/result_output_${{ github.run_id }}.txt 2>&1 || true
 
           rm -f /tmp/read_result_${{ github.run_id }}.exp
 
@@ -75,63 +79,82 @@ jobs:
           echo "==================================================="
 
           if grep -q "PASSED" /tmp/result_output_${{ github.run_id }}.txt; then
-            echo "PIPELINE RESULT: PASSED"
+            echo ""
+            echo "✅ PIPELINE RESULT: PASSED"
             PIPELINE_STATUS="PASSED"
           elif grep -q "FAILED" /tmp/result_output_${{ github.run_id }}.txt; then
             FAILED_REASON=$(grep "FAILED" /tmp/result_output_${{ github.run_id }}.txt | head -1)
-            echo "PIPELINE RESULT: $FAILED_REASON"
+            echo ""
+            echo "❌ PIPELINE RESULT: $FAILED_REASON"
             PIPELINE_STATUS="FAILED"
           elif grep -q "RUNNING" /tmp/result_output_${{ github.run_id }}.txt; then
-            echo "PIPELINE RESULT: Still RUNNING"
+            echo ""
+            echo "⚠️  PIPELINE RESULT: Still RUNNING"
             PIPELINE_STATUS="RUNNING"
           else
-            echo "PIPELINE RESULT: Unknown"
+            echo ""
+            echo "❓ PIPELINE RESULT: Unknown"
             PIPELINE_STATUS="UNKNOWN"
           fi
 
           rm -f /tmp/result_output_${{ github.run_id }}.txt
 
-          echo "PIPELINE RESULT SUMMARY"
-          echo "Status: ${PIPELINE_STATUS}"
-          echo "Host: 10.138.186.133"
-
-          OUTPUT_FILE="pipeline_result.txt"
-          echo "Creating output file: $OUTPUT_FILE"
-
-          echo "Pipeline Result Summary" > "$OUTPUT_FILE"
-          echo "Status: ${PIPELINE_STATUS}" >> "$OUTPUT_FILE"
-          echo "Host: 10.138.186.133" >> "$OUTPUT_FILE"
-          echo "Run ID: ${{ github.run_id }}" >> "$OUTPUT_FILE"
-          echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$OUTPUT_FILE"
-          echo "Repository: ${{ github.repository }}" >> "$OUTPUT_FILE"
-          echo "User: ${{ github.actor }}" >> "$OUTPUT_FILE"
-
-          echo "Output file created successfully"
-          echo "File: $OUTPUT_FILE"
-          echo "Size: $(wc -c < "$OUTPUT_FILE") bytes"
-
-          if [ -f "$OUTPUT_FILE" ]; then
-            echo "File verification passed"
-            ls -la "$OUTPUT_FILE"
+          # ═══════════════════════════════════════════════════════════
+          # 📄 CREATE OUTPUT FILE WITH PIPELINE STATUS
+          # ═══════════════════════════════════════════════════════════
+          
+          OUTPUT_STATUS_FILE="Output_pipeline_Status.txt"
+          
+          echo "================================================="
+          echo "        📄 CREATING OUTPUT STATUS FILE"
+          echo "================================================="
+          echo "📁 Creating file: $OUTPUT_STATUS_FILE"
+          echo "📊 Pipeline Status: $PIPELINE_STATUS"
+          
+          # Create the output file with pipeline status
+          echo "$PIPELINE_STATUS" > "$OUTPUT_STATUS_FILE"
+          
+          # Verify file creation
+          if [ -f "$OUTPUT_STATUS_FILE" ]; then
+            echo "✅ SUCCESS: Output file created successfully!"
+            echo "📄 File: $OUTPUT_STATUS_FILE"
+            echo "📁 Location: $(pwd)/$OUTPUT_STATUS_FILE"
+            echo "📊 File size: $(wc -c < "$OUTPUT_STATUS_FILE") bytes"
+            echo ""
+            echo "========== $OUTPUT_STATUS_FILE CONTENTS =========="
+            cat "$OUTPUT_STATUS_FILE"
+            echo "================================================="
           else
-            echo "File verification failed"
+            echo "❌ ERROR: Failed to create output file!"
             exit 1
           fi
 
-          echo "File contents:"
-          cat "$OUTPUT_FILE"
+          {
+            echo "## 📄 Pipeline Result"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Result File | \`C:\pkummara\logs\pipeline_result.txt\` |"
+            echo "| Status | **${PIPELINE_STATUS}** |"
+            echo "| Windows Host | \`10.138.186.133\` |"
+            echo ""
+            echo "## 📁 Output Status File"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Output File | \`$OUTPUT_STATUS_FILE\` |"
+            echo "| Content | \`$PIPELINE_STATUS\` |"
+            echo "| Size | $(wc -c < "$OUTPUT_STATUS_FILE") bytes |"
+            echo "| Location | \`$(pwd)/$OUTPUT_STATUS_FILE\` |"
+          } >> $GITHUB_STEP_SUMMARY
 
           if [ "$PIPELINE_STATUS" != "PASSED" ]; then
-            echo "WORKFLOW FAILED: Pipeline status is $PIPELINE_STATUS"
             exit 1
-          else
-            echo "WORKFLOW SUCCESS: Pipeline status is PASSED"
           fi
 
-      - name: Upload pipeline_result.txt as artifact
+      - name: Upload Output_pipeline_Status.txt as artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pipeline-result-${{ github.run_id }}
-          path: pipeline_result.txt
+          name: pipeline-status-output-${{ github.run_id }}
+          path: Output_pipeline_Status.txt
           retention-days: 30
+          if-no-files-found: error
