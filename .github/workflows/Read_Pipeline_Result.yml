@@ -144,7 +144,6 @@ jobs:
 **File: pipeline_result.txt (Fixed Filename)**
 FILEEOF
 
-          # Replace placeholders with actual values
           sed -i "s/PIPELINE_STATUS_PLACEHOLDER/${PIPELINE_STATUS}/g" "$OUTPUT_FILE"
           sed -i "s/WORKFLOW_RUN_ID_PLACEHOLDER/${{ github.run_id }}/g" "$OUTPUT_FILE"
           sed -i "s/TIMESTAMP_PLACEHOLDER/$(date -u '+%Y-%m-%d %H:%M:%S UTC')/g" "$OUTPUT_FILE"
@@ -162,7 +161,6 @@ FILEEOF
           echo "📁 Location: $(pwd)/$OUTPUT_FILE"
           echo "📊 File size: $(wc -c < "$OUTPUT_FILE") bytes"
           
-          # Verify file exists and is readable
           if [ -f "$OUTPUT_FILE" ]; then
             echo "✅ File verification: $OUTPUT_FILE exists and is readable"
             ls -la "$OUTPUT_FILE"
