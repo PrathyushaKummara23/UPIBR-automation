@@ -39,6 +39,7 @@ jobs:
             timeout      { puts "FAILURE: Connection timed out"; exit 1 }
           }
 
+          # absorb banner + escape noise
           expect {
             -re {[>$#%\]]} { }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
@@ -53,6 +54,7 @@ jobs:
 
           send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
 
+          # capture result
           expect {
             -re {(PASSED|FAILED[^\r\n]*|RUNNING)} {
               puts "FILE_CONTENT=$expect_out(0,string)"
@@ -60,6 +62,7 @@ jobs:
             timeout { puts "FAILURE: Could not read result file"; exit 1 }
           }
 
+          # ── No prompt wait — send exit immediately ───────────────
           send "exit\r"
           expect eof
           EOF
@@ -77,64 +80,62 @@ jobs:
 
           if grep -q "PASSED" /tmp/result_output_${{ github.run_id }}.txt; then
             echo ""
-            echo "PIPELINE RESULT: PASSED"
+            echo "✅ PIPELINE RESULT: PASSED"
             PIPELINE_STATUS="PASSED"
           elif grep -q "FAILED" /tmp/result_output_${{ github.run_id }}.txt; then
             FAILED_REASON=$(grep "FAILED" /tmp/result_output_${{ github.run_id }}.txt | head -1)
             echo ""
-            echo "PIPELINE RESULT: $FAILED_REASON"
+            echo "❌ PIPELINE RESULT: $FAILED_REASON"
             PIPELINE_STATUS="FAILED"
           elif grep -q "RUNNING" /tmp/result_output_${{ github.run_id }}.txt; then
             echo ""
-            echo "PIPELINE RESULT: Still RUNNING"
+            echo "⚠️  PIPELINE RESULT: Still RUNNING"
             PIPELINE_STATUS="RUNNING"
           else
             echo ""
-            echo "PIPELINE RESULT: Unknown"
+            echo "❓ PIPELINE RESULT: Unknown"
             PIPELINE_STATUS="UNKNOWN"
           fi
 
           rm -f /tmp/result_output_${{ github.run_id }}.txt
 
-          OUTPUT_STATUS_FILE="Output_pipeline_Status.txt"
+          # Create output file with pipeline status
+          echo "$PIPELINE_STATUS" > Output_pipeline_Status.txt
           
           echo "================================================="
-          echo "        CREATING OUTPUT STATUS FILE"
+          echo "        OUTPUT FILE CREATED FOR ARTIFACT"
           echo "================================================="
-          echo "Creating file: $OUTPUT_STATUS_FILE"
-          echo "Pipeline Status: $PIPELINE_STATUS"
-          
-          echo "$PIPELINE_STATUS" > "$OUTPUT_STATUS_FILE"
-          
-          if [ -f "$OUTPUT_STATUS_FILE" ]; then
-            echo "SUCCESS: Output file created successfully!"
-            echo "File: $OUTPUT_STATUS_FILE"
-            echo "Location: $(pwd)/$OUTPUT_STATUS_FILE"
-            echo "File size: $(wc -c < "$OUTPUT_STATUS_FILE") bytes"
-            echo "File permissions: $(ls -la "$OUTPUT_STATUS_FILE")"
-            echo ""
-            echo "========== $OUTPUT_STATUS_FILE CONTENTS =========="
-            cat "$OUTPUT_STATUS_FILE"
-            echo "================================================="
-            
-            # Copy to a persistent shared location for access
-            SHARED_DIR="/nfs/site/disks/dcsg_0729/users/pkummara/pipeline-results"
-            mkdir -p "$SHARED_DIR" 2>/dev/null || true
-            if [ -d "$SHARED_DIR" ]; then
-              cp "$OUTPUT_STATUS_FILE" "$SHARED_DIR/pipeline-status-${{ github.run_id }}.txt"
-              echo "File also copied to: $SHARED_DIR/pipeline-status-${{ github.run_id }}.txt"
-            fi
-          else
-            echo "ERROR: Failed to create output file!"
-            exit 1
-          fi
+          echo "File: Output_pipeline_Status.txt"
+          echo "Content: $PIPELINE_STATUS"
+          echo "Will be uploaded as GitHub Actions artifact"
+          echo ""
+          echo "========== Output_pipeline_Status.txt CONTENTS =========="
+          cat Output_pipeline_Status.txt
+          echo "========================================================"
 
-          echo "Pipeline Result Summary" >> $GITHUB_STEP_SUMMARY
-          echo "Status: $PIPELINE_STATUS" >> $GITHUB_STEP_SUMMARY
-          echo "Output File: $OUTPUT_STATUS_FILE" >> $GITHUB_STEP_SUMMARY
-          echo "File Size: $(wc -c < "$OUTPUT_STATUS_FILE") bytes" >> $GITHUB_STEP_SUMMARY
-          echo "File Location: $(pwd)/$OUTPUT_STATUS_FILE" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 📄 Pipeline Result"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Result File | \`C:\pkummara\logs\pipeline_result.txt\` |"
+            echo "| Status | **${PIPELINE_STATUS}** |"
+            echo "| Windows Host | \`10.138.186.133\` |"
+            echo ""
+            echo "## 📁 Output File"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Output File | \`Output_pipeline_Status.txt\` |"
+            echo "| Content | \`${PIPELINE_STATUS}\` |"
+            echo "| Available As | GitHub Actions Artifact |"
+          } >> $GITHUB_STEP_SUMMARY
 
           if [ "$PIPELINE_STATUS" != "PASSED" ]; then
             exit 1
           fi
+
+      - name: Upload Output_pipeline_Status.txt as artifact
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: pipeline-status
+          path: Output_pipeline_Status.txt
