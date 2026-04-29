@@ -1123,21 +1123,3 @@ jobs:
           echo "📋 Files copied to ${SRF_HOST}:${WINDOWS_DEST}:"
           for INC_FILE in $INC_FILES; do echo "  ✅ $(basename $INC_FILE)"; done
           for PDB_FILE in $PDB_FILES; do echo "  ✅ $(basename $PDB_FILE)"; done
-
-  # ─────────────────────────────────────────────────────────────────
-  # JOB: SSH Login — calls testing.yml after copy-release-collaterals
-  # ─────────────────────────────────────────────────────────────────
-  call-srf-login:
-    needs: [copy-release-collaterals]
-    if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/loginsrf.yml@master
-    secrets: inherit
-
-   # ─────────────────────────────────────────────────────────────────
-  # JOB: Read pipeline result — calls Read_Pipeline_Result.yml
-  # ─────────────────────────────────────────────────────────────────
-  call-read-pipeline-result:
-    needs: [call-srf-login]
-    if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/Read_Pipeline_Result.yml@master
-    secrets: inherit
