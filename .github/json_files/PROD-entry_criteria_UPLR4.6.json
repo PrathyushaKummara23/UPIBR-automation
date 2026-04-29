@@ -1,0 +1,609 @@
+{
+    "section_1": [
+        {
+            "sr_no": 1,
+            "check_list_item": "Milestone",
+            "entry": "UPLR4.6"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "patch_description",
+            "entry": " "
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "version",
+            "entry": "0xF23336d3"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "svn",
+            "entry": "0x09"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "se_svn",
+            "entry": "0x7"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "min_svn",
+            "entry": "3"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "min_runtime_id",
+            "entry": " "
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "patch_rollback_flags",
+            "entry": " "    
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "prev_version",
+            "entry": "0x830003A3"
+        }
+    ],
+    "ucode": [
+        {
+            "sr_no": 1,
+            "check_list_item": "ucode Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/uCode/main/m_01_a06f3_e200102b"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "ucode SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "ucode TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "ucode SVN",
+            "selection": "Yes",
+            "entry": "0x08"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "ucode SE_SVN",
+            "selection": "Yes",
+            "entry": "9"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "ucode Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/25ww47/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "ucode Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww47/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "ucode SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww47/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "ucode CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww47/CTE_pre_si_val/"
+        }
+    ],
+    "xucode": [
+        {
+            "sr_no": 1,
+            "check_list_item": "xucode Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_XuCode/main/xucode-cmt-c0--0.22.00.235/patch.xusection.inc"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "xucode SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "xucode TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "xucode SVN",
+            "selection": "Yes",
+            "entry": "0x89"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "xucode SE_SVN",
+            "selection": "Yes",
+            "entry": "10"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "xucode Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/25ww41/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "xucode Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww41/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "xucode SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww41/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "xucode CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww41/CTE_pre_si_val/"
+        }
+    ],
+    "mcheck": [
+        {
+            "sr_no": 1,
+            "check_list_item": "mcheck Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Mcheck/main/26ww04/MCHECK_SECTION.inc"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "mcheck SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "mcheck TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "mcheck SVN",
+            "selection": "Yes",
+            "entry": "0x90"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "mcheck SE_SVN",
+            "selection": "Yes",
+            "entry": "11"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "mcheck Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/26ww01/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "mcheck Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww01/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "mcheck SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww01/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "mcheck CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww01/CTE_pre_si_val/"
+        }
+    ],
+    "tcode": [
+        {
+            "sr_no": 1,
+            "check_list_item": "tcode Post Binary Staging Area",
+            "selection": "No",
+            "entry": ""
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "tcode SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "tcode TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "tcode SVN",
+            "selection": "Yes",
+            "entry": "0x91"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "tcode SE_SVN",
+            "selection": "Yes",
+            "entry": "12"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "tcode Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/24ww55/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "tcode Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/24ww55/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "tcode SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/24ww55/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "tcode CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/24ww55/CTE_pre_si_val/"
+        }
+    ],
+    "acode": [
+        {
+            "sr_no": 1,
+            "check_list_item": "acode Post Binary Staging Area",
+            "selection": "No",
+            "entry": ""
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "acode SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "acode TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "acode SVN",
+            "selection": "Yes",
+            "entry": "0x92"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "acode SE_SVN",
+            "selection": "Yes",
+            "entry": "13"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "acode Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/26ww02/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "acode Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww02/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "acode SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww02/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "acode CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww02/CTE_pre_si_val/"
+        }
+    ],
+    "icode": [
+        {
+            "sr_no": 1,
+            "check_list_item": "icode Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/build_area_0x83000392/C0_iCode/main/0x24164200/icode_enc_dbug.bin"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "icode SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "icode TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "icode SVN",
+            "selection": "Yes",
+            "entry": "0x93"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "icode SE_SVN",
+            "selection": "Yes",
+            "entry": "14"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "icode Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/26ww03/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "icode Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww03/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "icode SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww03/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "icode CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww03/CTE_pre_si_val/"
+        }
+    ],
+    "oobmsm": [
+        {
+            "sr_no": 1,
+            "check_list_item": "oobmsm Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/OOBMSM/main/26ww7.3a/OCODE_SRF_C0_2.8.1.39_patchlet_enc_dbug.bin"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "oobmsm SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "oobmsm TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "oobmsm SVN",
+            "selection": "Yes",
+            "entry": "0x94"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "oobmsm SE_SVN",
+            "selection": "Yes",
+            "entry": "15"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "oobmsm Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/24ww55/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "oobmsm Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/24ww55/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "oobmsm SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/24ww55/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "oobmsm CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/24ww55/CTE_pre_si_val/"
+        }
+    ],
+    "pcode-io": [
+        {
+            "sr_no": 1,
+            "check_list_item": "pcode-io Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_io_c0/pcode-io_enc_dbug.bin"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "pcode-io SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "pcode-io TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "pcode-io SVN",
+            "selection": "Yes",
+            "entry": "0x95"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "pcode-io SE_SVN",
+            "selection": "Yes",
+            "entry": "16"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "pcode-io Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/25ww55/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "pcode-io Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "pcode-io SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "pcode-io CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/CTE_pre_si_val/"
+        }
+    ],
+    "pcode-c": [
+        {
+            "sr_no": 1,
+            "check_list_item": "pcode-c Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww08_UPLR4/gnr_atom_b0/pcode-c_enc_dbug.bin"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "pcode-c SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "pcode-c TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "pcode-c SVN",
+            "selection": "Yes",
+            "entry": "0x95"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "pcode-c SE_SVN",
+            "selection": "Yes",
+            "entry": "16"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "pcode-c Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/25ww55/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "pcode-c Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "pcode-c SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "pcode-c CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/25ww55/CTE_pre_si_val/"
+        }
+    ],
+    "s3m": [
+        {
+            "sr_no": 1,
+            "check_list_item": "s3m Post Binary Staging Area",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/S3M/main/26ww08/26ww08.4_T6104_s3m_fw_SESVN0_SVN1_REVID2.0.0.00171_C0/S3M_1_0_2.0.0.00171_enc_dbug.IP_0100.bin"
+        },
+        {
+            "sr_no": 2,
+            "check_list_item": "s3m SGX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/article/22021608849"
+        },
+        {
+            "sr_no": 3,
+            "check_list_item": "s3m TDX",
+            "selection": "Yes",
+            "entry": "https://hsdes.intel.com/appstore/article-one/#/14026479172"
+        },
+        {
+            "sr_no": 4,
+            "check_list_item": "s3m SVN",
+            "selection": "Yes",
+            "entry": "0x96"
+        },
+        {
+            "sr_no": 5,
+            "check_list_item": "s3m SE_SVN",
+            "selection": "Yes",
+            "entry": "17"
+        },
+        {
+            "sr_no": 6,
+            "check_list_item": "s3m Unit Test Checking",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/UNIT_TEST_CHECKING/26ww02/"
+        },
+        {
+            "sr_no": 7,
+            "check_list_item": "s3m Sanity Test",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww02/"
+        },
+        {
+            "sr_no": 8,
+            "check_list_item": "s3m SDLE process",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww02/SDLE/"
+        },
+        {
+            "sr_no": 9,
+            "check_list_item": "s3m CTE PRE Si Val",
+            "selection": "Yes",
+            "entry": "/nfs/site/disks/dcsg_0729/SANITY_TEST/26ww02/CTE_pre_si_val/"
+        }
+    ]
+}
