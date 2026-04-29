@@ -1,4 +1,4 @@
-name: SRF Debug UP Build - Complete Pipeline
+name: SRF SED UP Build - Complete Pipeline
 
 on:
   push:                    # Keep existing triggers if any
