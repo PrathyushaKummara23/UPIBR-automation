@@ -16,6 +16,16 @@ on:
         required: false
         type: string
         default: 'SRF SED UP Automated Build'
+      sign_type:
+        description: 'Sign type for soc_sign and fit1_sign'
+        required: true
+        type: choice
+        options:
+          - css-debug
+          - css-prod
+          - css-sed
+          - manual
+          
       #environment:
         #description: 'Environment'
         #required: false
@@ -506,9 +516,15 @@ jobs:
         fi
         
         # Ensure sign types are css-debug
-        sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
-        sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
-        echo "✅ Updated sign types to css-debug"
+        #sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
+        #sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
+        #echo "✅ Updated sign types to css-debug"
+        
+        # Update sign types from workflow input
+        SIGN_TYPE="${{ github.event.inputs.sign_type }}"
+        sed -i "s/^soc_sign = .*/soc_sign = $SIGN_TYPE/" "$CONFIG_FILE"
+        sed -i "s/^fit1_sign = .*/fit1_sign = $SIGN_TYPE/" "$CONFIG_FILE"
+        echo "✅ Updated sign types to $SIGN_TYPE"
         
         echo ""
         echo "✅ Config file update completed successfully!"
@@ -521,7 +537,8 @@ jobs:
         echo "✅ Updated version: $version"
         echo "✅ Updated patch description: $patch_desc"
         echo "✅ Updated SVN values and paths"
-        echo "✅ Ensured css-debug signing"
+        #echo "✅ Ensured css-debug signing"
+        echo "✅ Sign type set to: $SIGN_TYPE"
         echo "✅ Operation Status: SUCCESS"
 
   upload-config:
