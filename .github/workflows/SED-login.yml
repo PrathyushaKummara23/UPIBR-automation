@@ -32,7 +32,6 @@ env:
   KCRON_PATH: /usr/intel/bin/kcron
   PYTHON_PATH: /usr/intel/bin/python3.7.4
   FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxtMuppt.py
-  EXPECT_PATH: /usr/bin/expect
 
 jobs:
   read-json:
@@ -692,18 +691,9 @@ jobs:
             exit 1
           fi
 
-          if [[ -f "${{ env.EXPECT_PATH }}" ]]; then
-            echo "✅ expect found: ${{ env.EXPECT_PATH }}"
-          else
-            echo "❌ expect not found: ${{ env.EXPECT_PATH }}"
-            exit 1
-          fi
-
           echo "All build tools verified successfully"
 
       - name: Execute SRF Debug UP automated build
-        env:
-          CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
         run: |
           echo "Starting SRF Debug UP automated build..."
 
@@ -723,36 +713,14 @@ jobs:
           cd "${{ env.BUILD_BASE_PATH }}"
           echo "Current directory: $(pwd)"
 
-          cat > automated_build_expect.exp << 'EOF'
-          #!/usr/bin/expect -f
-          set timeout 1800
-          set css_password $env(CSS_PASSWORD)
-          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
-          expect {
-            "Enter your CSS password:" { send "$css_password\r"; exp_continue }
-            "Enter your CSS password: " { send "$css_password\r"; exp_continue }
-            -re ".*assword.*" { send "$css_password\r"; exp_continue }
-            eof { catch wait result; exit [lindex $result 3] }
-            timeout { puts "Automated build timed out after 30 minutes"; exit 124 }
-          }
-          EOF
-
-          chmod +x automated_build_expect.exp
-          echo "Starting SRF Debug UP automated build with expect script..."
-
-          export CSS_PASSWORD="${CSS_PASSWORD}"
-          ./automated_build_expect.exp 2>&1
+          echo "Starting SRF Debug UP automated build..."
+          ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE 2>&1
           BUILD_EXIT_CODE=$?
-
-          rm -f automated_build_expect.exp
 
           echo "Automated build exit code: $BUILD_EXIT_CODE"
 
           if [[ $BUILD_EXIT_CODE -eq 0 ]]; then
             echo "✅ SUCCESS: SRF Debug UP automated build completed successfully"
-          elif [[ $BUILD_EXIT_CODE -eq 124 ]]; then
-            echo "⏰ TIMEOUT: Automated build timed out after 30 minutes"
-            exit $BUILD_EXIT_CODE
           else
             echo "❌ FAILURE: Automated build failed with exit code: $BUILD_EXIT_CODE"
             exit $BUILD_EXIT_CODE
