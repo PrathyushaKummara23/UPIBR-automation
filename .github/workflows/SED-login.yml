@@ -8,19 +8,19 @@ on:
   workflow_dispatch:      # ← ADD THIS BLOCK for Python triggering
     inputs:
       json_filename:
-        description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
+        description: 'JSON filename (e.g., SED-entry_criteria_UPLR4.6.json)'
         required: true
         type: string
       build_description:
         description: 'Build description'
         required: false
         type: string
-        default: 'SRF Debug UP Automated Build'
-      environment:
-        description: 'Environment'
-        required: false
-        type: string
-        default: 'production'
+        default: 'SRF SED UP Automated Build'
+      #environment:
+        #description: 'Environment'
+        #required: false
+        #type: string
+        #default: 'production'
 
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
