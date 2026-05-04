@@ -634,11 +634,11 @@ jobs:
 
       - name: Initialize Kerberos Ticket (ktab)
         env:
-          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+          USER_PASSWORD: ${{ secrets.USER_PASSWORD }}
         run: |
           echo "Initializing Kerberos Ticket with ktab for automated build..."
 
-          KTAB_RESULT=$(echo "$FA_PASSWORD" | ${{ env.KTAB_PATH }} -i 2>&1)
+          KTAB_RESULT=$(echo "$USER_PASSWORD" | ${{ env.KTAB_PATH }} -i 2>&1)
 
           echo "ktab output: $KTAB_RESULT"
 
