@@ -117,21 +117,15 @@ jobs:
           SESSION_ID="${{ inputs.session_id }}"
 
           if [ -n "$CALLBACK_URL" ]; then
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"10.138.186.133","user":"CEFLS_User","login_timestamp":"%s"}}' \
+              "$SESSION_ID" \
+              "${{ github.run_id }}" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "${{ inputs.trigger_source }}" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
             curl -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
-              -d '{
-                "session_id": "'$SESSION_ID'",
-                "status": "srf_login_completed",
-                "message": "SRF login process completed",
-                "workflow_run_id": "${{ github.run_id }}",
-                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-                "trigger_source": "${{ inputs.trigger_source }}",
-                "srf_login_details": {
-                  "host": "10.138.186.133",
-                  "user": "CEFLS_User",
-                  "login_timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
-                }
-              }' || echo "Failed to send SRF login notification"
+              -d "$PAYLOAD" || echo "Failed to send SRF login notification"
           else
             echo "ℹ️  No callback URL provided, skipping notification"
           fi
