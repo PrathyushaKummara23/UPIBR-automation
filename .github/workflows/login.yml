@@ -1321,7 +1321,7 @@ jobs:
   # NEW JOB: Final Callback Notification
   # ─────────────────────────────────────────────────────────────────
   notify-final-result:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, node16]
     needs: [session-management, read-json, patch-build, copy-release-collaterals, call-read-pipeline-result]
     if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
     
@@ -1376,31 +1376,27 @@ jobs:
           echo "📝 Final Message: $BUILD_MESSAGE"
           
           if [ -n "$CALLBACK_URL" ]; then
+            PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","pipeline_status":"%s","build_results":{"patch_build":"%s","copy_collaterals":"%s","srf_login":"%s","pipeline_result":"%s"},"final_summary":{"json_filename":"%s","build_description":"%s","config_file":"%s","github_repository":"%s","workflow_url":"%s"}}' \
+              "$SESSION_ID" \
+              "$BUILD_STATUS" \
+              "$BUILD_MESSAGE" \
+              "${{ github.run_id }}" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "${{ needs.read-json.outputs.current_version }}" \
+              "${{ needs.session-management.outputs.trigger_source }}" \
+              "$PIPELINE_STATUS" \
+              "${{ needs.patch-build.result }}" \
+              "${{ needs.copy-release-collaterals.result }}" \
+              "${{ needs.call-srf-login.result }}" \
+              "${{ needs.call-read-pipeline-result.result }}" \
+              "${{ github.event.inputs.json_filename }}" \
+              "${{ github.event.inputs.build_description }}" \
+              "config_${{ needs.read-json.outputs.current_version }}.ini" \
+              "${{ github.repository }}" \
+              "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
             curl -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
-              -d '{
-                "session_id": "'$SESSION_ID'",
-                "status": "'$BUILD_STATUS'",
-                "message": "'$BUILD_MESSAGE'",
-                "workflow_run_id": "${{ github.run_id }}",
-                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-                "version": "${{ needs.read-json.outputs.current_version }}",
-                "trigger_source": "${{ needs.session-management.outputs.trigger_source }}",
-                "pipeline_status": "'$PIPELINE_STATUS'",
-                "build_results": {
-                  "patch_build": "${{ needs.patch-build.result }}",
-                  "copy_collaterals": "${{ needs.copy-release-collaterals.result }}",
-                  "srf_login": "${{ needs.call-srf-login.result }}",
-                  "pipeline_result": "${{ needs.call-read-pipeline-result.result }}"
-                },
-                "final_summary": {
-                  "json_filename": "${{ github.event.inputs.json_filename }}",
-                  "build_description": "${{ github.event.inputs.build_description }}",
-                  "config_file": "config_${{ needs.read-json.outputs.current_version }}.ini",
-                  "github_repository": "${{ github.repository }}",
-                  "workflow_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                }
-              }' || echo "Failed to send final notification"
+              -d "$PAYLOAD" || echo "Failed to send final notification"
           else
             echo "ℹ️  No callback URL provided, skipping notification"
           fi
