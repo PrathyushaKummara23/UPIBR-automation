@@ -279,19 +279,17 @@ jobs:
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
           
           if [ -n "$CALLBACK_URL" ]; then
-            curl -X POST "$CALLBACK_URL" \
+            START_PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"SRF Debug UP build has started","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","json_filename":"%s","build_description":"%s"}' \
+              "$SESSION_ID" \
+              "${{ github.run_id }}" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "${{ needs.read-json.outputs.current_version }}" \
+              "${{ needs.session-management.outputs.trigger_source }}" \
+              "${{ github.event.inputs.json_filename }}" \
+              "${{ github.event.inputs.build_description }}")
+            curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
-              -d '{
-                "session_id": "'$SESSION_ID'",
-                "status": "build_started",
-                "message": "SRF Debug UP build has started",
-                "workflow_run_id": "${{ github.run_id }}",
-                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-                "version": "${{ needs.read-json.outputs.current_version }}",
-                "trigger_source": "${{ needs.session-management.outputs.trigger_source }}",
-                "json_filename": "${{ github.event.inputs.json_filename }}",
-                "build_description": "${{ github.event.inputs.build_description }}"
-              }' || echo "Failed to send start notification"
+              -d "$START_PAYLOAD" || echo "Failed to send start notification"
           fi
 
   copy-config:
@@ -1394,7 +1392,7 @@ jobs:
               "config_${{ needs.read-json.outputs.current_version }}.ini" \
               "${{ github.repository }}" \
               "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
-            curl -X POST "$CALLBACK_URL" \
+            curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" || echo "Failed to send final notification"
           else
