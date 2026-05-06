@@ -123,7 +123,7 @@ jobs:
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               "${{ inputs.trigger_source }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
-            curl -X POST "$CALLBACK_URL" \
+            curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" || echo "Failed to send SRF login notification"
           else
