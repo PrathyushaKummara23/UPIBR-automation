@@ -8,7 +8,8 @@ jobs:
     runs-on: [self-hosted, Windows, X64]
 
     steps:
-      - name: Run run_build.ps1
+      - name: Run run_build.ps1 via Task Scheduler
         shell: powershell
         run: |
-          & "C:\Users\pkummara\run_build.ps1"
+          schtasks /create /tn "RunBuild" /tr "powershell -WindowStyle Normal -File C:\Users\pkummara\run_build.ps1" /sc once /st 00:00 /rl HIGHEST /f
+          schtasks /run /tn "RunBuild"
