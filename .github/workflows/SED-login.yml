@@ -1,4 +1,4 @@
-  name: Run SRF SED Build on Windows
+name: Run SRF SED Build on Windows
 
 on:
   workflow_dispatch:
