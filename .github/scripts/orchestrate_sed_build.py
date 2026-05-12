@@ -18,15 +18,29 @@ STAGE_DONE_TIMEOUT_SECONDS = 24 * 60 * 60
 
 def log(msg):
     print(msg, flush=True)
-    
+
+
+def read_token(path):
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        log(f"[WARN] Failed to read token from {path}: {e}")
+        return ""
+
+
 def send_workflow_dispatch(repo, workflow_file, github_token, inputs):
-    ref = os.environ.get("GITHUB_REF_NAME", "main")
+    ref = os.environ.get("GITHUB_REF_NAME", "master")
     url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/dispatches"
 
     payload = json.dumps({
         "ref": ref,
         "inputs": inputs
     })
+
+    response_file = "/tmp/github_dispatch_response.txt"
 
     cmd = [
         "curl",
@@ -37,7 +51,7 @@ def send_workflow_dispatch(repo, workflow_file, github_token, inputs):
         "-H", f"Authorization: Bearer {github_token}",
         "-H", "Content-Type: application/json",
         "-d", payload,
-        "-o", "/tmp/dispatch_response.txt",
+        "-o", response_file,
         "-w", "%{http_code}",
     ]
 
@@ -45,8 +59,8 @@ def send_workflow_dispatch(repo, workflow_file, github_token, inputs):
 
     http_code = result.stdout.strip()
     response_body = ""
-    if os.path.exists("/tmp/dispatch_response.txt"):
-        with open("/tmp/dispatch_response.txt", "r", encoding="utf-8", errors="ignore") as f:
+    if os.path.exists(response_file):
+        with open(response_file, "r", encoding="utf-8", errors="ignore") as f:
             response_body = f.read()
 
     if result.returncode != 0:
@@ -55,13 +69,14 @@ def send_workflow_dispatch(repo, workflow_file, github_token, inputs):
             f"returncode={result.returncode}, stderr={result.stderr}"
         )
 
-    if http_code not in ("204", "201"):
+    if http_code not in ("201", "204"):
         raise RuntimeError(
             f"Workflow dispatch failed for {workflow_file}. "
             f"http_code={http_code}, response={response_body}"
         )
 
     log(f"[OK] Workflow dispatch accepted for {workflow_file} (HTTP {http_code})")
+
 
 def wait_for_done(done_path, label, timeout_seconds=STAGE_DONE_TIMEOUT_SECONDS):
     log(f"[INFO] Waiting for {label} done file: {done_path}")
@@ -104,6 +119,12 @@ def main():
     fit1_trigger_path = os.path.join(args.shared_dir, FIT1_TRIGGER)
     fit1_done_path = os.path.join(args.shared_dir, FIT1_DONE)
 
+    initial_soc_token = read_token(soc_trigger_path)
+    initial_fit1_token = read_token(fit1_trigger_path)
+
+    last_soc_token = initial_soc_token
+    last_fit1_token = initial_fit1_token
+
     soc_dispatched = args.resume_from in ("soc", "fit1")
     fit1_dispatched = args.resume_from == "fit1"
 
@@ -115,25 +136,23 @@ def main():
     log(f"[INFO] Build command: {' '.join(build_cmd)}")
     log(f"[INFO] Shared dir: {args.shared_dir}")
     log(f"[INFO] Resume mode: {args.resume_from or 'normal'}")
+    log(f"[INFO] Initial SOC trigger token : {initial_soc_token or '<none>'}")
+    log(f"[INFO] Initial FIT1 trigger token: {initial_fit1_token or '<none>'}")
 
-    process = subprocess.Popen(
-        build_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
+    process = subprocess.Popen(build_cmd)
 
     try:
         while True:
-            line = process.stdout.readline()
-            if line:
-                print(line, end="", flush=True)
+            current_soc_token = read_token(soc_trigger_path)
+            current_fit1_token = read_token(fit1_trigger_path)
 
-            if (not soc_dispatched) and os.path.exists(soc_trigger_path):
-                token = open(soc_trigger_path, "r", encoding="utf-8").read().strip()
-                log(f"[INFO] SOC trigger detected: {token}")
-
+            if (
+                not soc_dispatched
+                and current_soc_token
+                and current_soc_token != initial_soc_token
+                and current_soc_token != last_soc_token
+            ):
+                log(f"[INFO] New SOC trigger detected: {current_soc_token}")
                 send_workflow_dispatch(
                     repo=args.repo,
                     workflow_file=args.workflow_soc,
@@ -145,15 +164,16 @@ def main():
                     },
                 )
                 soc_dispatched = True
+                last_soc_token = current_soc_token
                 log("[OK] SOC workflow dispatched")
 
-            if soc_dispatched and os.path.exists(soc_trigger_path) and not os.path.exists(soc_done_path):
-                pass
-
-            if (not fit1_dispatched) and os.path.exists(fit1_trigger_path):
-                token = open(fit1_trigger_path, "r", encoding="utf-8").read().strip()
-                log(f"[INFO] FIT1 trigger detected: {token}")
-
+            if (
+                not fit1_dispatched
+                and current_fit1_token
+                and current_fit1_token != initial_fit1_token
+                and current_fit1_token != last_fit1_token
+            ):
+                log(f"[INFO] New FIT1 trigger detected: {current_fit1_token}")
                 send_workflow_dispatch(
                     repo=args.repo,
                     workflow_file=args.workflow_fit1,
@@ -165,12 +185,10 @@ def main():
                     },
                 )
                 fit1_dispatched = True
+                last_fit1_token = current_fit1_token
                 log("[OK] FIT1 workflow dispatched")
 
             if process.poll() is not None:
-                remaining = process.stdout.read()
-                if remaining:
-                    print(remaining, end="", flush=True)
                 break
 
             time.sleep(POLL_SECONDS)
