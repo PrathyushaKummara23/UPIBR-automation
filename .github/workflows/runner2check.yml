@@ -1,0 +1,14 @@
+name: Test runner2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: [self-hosted, Linux, X64, label-2]
+    steps:
+      - name: Check machine
+        run: |
+          hostname
+          pwd
+          nproc
