@@ -18,7 +18,7 @@ on:
 
 jobs:
   soc-sign:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: [self-hosted, Windows, X64, label-2]
     timeout-minutes: 1440
 
     steps:
