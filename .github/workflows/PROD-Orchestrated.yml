@@ -108,7 +108,34 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          REPO="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          WORKDIR="${GITHUB_WORKSPACE}"
+          PARENT_DIR="$(dirname "$WORKDIR")"
+          REPO_DIR="$(basename "$WORKDIR")"
+          BRANCH="${{ github.ref_name }}"
+
+          mkdir -p "$PARENT_DIR"
+          cd "$PARENT_DIR"
+      
+          if [ -d "$WORKDIR/.git" ]; then
+            cd "$WORKDIR"
+            git remote set-url origin "$REPO"
+            git fetch --depth=1 origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          else
+            rm -rf "$WORKDIR"
+            git clone --depth=1 --branch "$BRANCH" "$REPO" "$REPO_DIR"
+            cd "$WORKDIR"
+          fi
+
+          git config --global --add safe.directory "$WORKDIR"
 
       - name: Display session information
         shell: bash
