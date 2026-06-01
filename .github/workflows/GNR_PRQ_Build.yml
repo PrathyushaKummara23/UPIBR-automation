@@ -1,0 +1,82 @@
+name: GNR PRQ BIT SET Debug Patch Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_version:
+        description: Baseline version
+        required: true
+        type: string
+      new_version:
+        description: New debug patch version
+        required: true
+        type: string
+      icode:
+        description: ICODE path
+        required: false
+        type: string
+      oobmsm:
+        description: OOBMSM path
+        required: false
+        type: string
+      s3m:
+        description: S3M path
+        required: false
+        type: string
+      pcode_io:
+        description: PCODE-IO path
+        required: false
+        type: string
+      pcode_c:
+        description: PCODE-C path
+        required: false
+        type: string
+      ucode:
+        description: UCODE path
+        required: false
+        type: string
+      xucode:
+        description: XUCODE path
+        required: false
+        type: string
+      mcheck:
+        description: MCHECK path
+        required: false
+        type: string
+      tcode:
+        description: TCODE path
+        required: false
+        type: string
+      acode:
+        description: ACODE path
+        required: false
+        type: string
+
+env:
+  WORK_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
+  PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/GNR/B0
+  CONFIG_BUILD_PATH: /nfs/site/disks/dcsg_0729/patches/GNR/B0/build
+  KTAB_PATH: /usr/intel/bin/ktab
+  KCRON_PATH: /usr/intel/bin/kcron
+  PYTHON_PATH: /usr/intel/bin/python3.7.4
+  MUPPET_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools/MUPPET/fxtMuppet.py
+  EXPECT_PATH: /usr/intel/bin/expect
+  FACELESS_USER: grp_gnr_fit1_build
+  FACELESS_PRINCIPAL: amr/grp_gnr_fit1_build
+
+jobs:
+  prepare-config:
+    runs-on: [self-hosted, node16]
+    outputs:
+      config_file: ${{ steps.generate-config.outputs.config_file }}
+      config_path: ${{ steps.generate-config.outputs.config_path }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Switch to faceless account and verify
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        run: |
+          echo "Switching to faceless account for path validation..."
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u ${{ env.FACELESS_USER }} whoami)
