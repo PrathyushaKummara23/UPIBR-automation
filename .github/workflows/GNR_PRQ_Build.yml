@@ -73,12 +73,12 @@ jobs:
       - name: Verify faceless account
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
           CURRENT_USER=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" whoami
           )
 
@@ -109,7 +109,7 @@ jobs:
         id: validate-baseline
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -119,7 +119,7 @@ jobs:
           echo "Checking baseline config: $SOURCE_CONFIG"
 
           CONFIG_CHECK=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               if [[ -f '$SOURCE_CONFIG' ]]; then
                 echo EXISTS
@@ -136,7 +136,7 @@ jobs:
       - name: Validate optional input paths
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -152,7 +152,7 @@ jobs:
 
             local result
             result=$(
-              (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+              (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
               sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
                 if [[ -f '$path' ]]; then
                   echo EXISTS
@@ -180,7 +180,7 @@ jobs:
         id: generate-config
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -192,7 +192,7 @@ jobs:
           echo "Source config: $SOURCE_CONFIG"
           echo "New config: $NEW_CONFIG"
 
-          (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env \
+          (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env \
             BASELINE_CLEAN="$BASELINE_CLEAN" \
             NEW_CLEAN="$NEW_CLEAN" \
             SOURCE_CONFIG="$SOURCE_CONFIG" \
@@ -276,19 +276,19 @@ jobs:
       - name: Verify kerberos tools exist
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
           KTAB_CHECK=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               [[ -f '${{ env.KTAB_PATH }}' ]] && echo EXISTS || echo NOT_FOUND
             "
           )
 
           KCRON_CHECK=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               [[ -f '${{ env.KCRON_PATH }}' ]] && echo EXISTS || echo NOT_FOUND
             "
@@ -300,13 +300,13 @@ jobs:
       - name: Initialize kerberos ticket
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
           FA_PASSWORD: ${{ secrets.GNR_FA_PASSWORD }}
         run: |
           set -euo pipefail
 
           KTAB_RESULT=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" env FA_PASSWORD="$FA_PASSWORD" bash -c '
               printf "%s\n" "$FA_PASSWORD" | '"${{ env.KTAB_PATH }}"' -i 2>&1
             '
@@ -322,12 +322,12 @@ jobs:
       - name: Initialize kerberos cron
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
           KCRON_RESULT=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               printf 'y\n' | '${{ env.KCRON_PATH }}' -i 2>&1
             "
@@ -347,7 +347,7 @@ jobs:
       - name: Verify build prerequisites
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -356,28 +356,28 @@ jobs:
           CONFIG_PATH="${{ env.WORK_BASE_PATH }}/config_${NEW_CLEAN}.ini"
 
           PYTHON_CHECK=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               [[ -f '${{ env.PYTHON_PATH }}' ]] && echo EXISTS || echo NOT_FOUND
             "
           )
 
           MUPPET_CHECK=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               [[ -f '${{ env.MUPPET_TOOL_PATH }}' ]] && echo EXISTS || echo NOT_FOUND
             "
           )
 
           EXPECT_CHECK=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               [[ -f '${{ env.EXPECT_PATH }}' ]] && echo EXISTS || echo NOT_FOUND
             "
           )
 
           CONFIG_CHECK=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
               [[ -f '$CONFIG_PATH' ]] && echo EXISTS || echo NOT_FOUND
             "
@@ -391,7 +391,7 @@ jobs:
       - name: Execute build
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
           CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
@@ -437,7 +437,7 @@ jobs:
 
           set +e
           BUILD_RESULT=$(
-            (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) |
+            (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) |
             sudo -S -u "${{ env.FACELESS_USER }}" env CSS_PASSWORD="$CSS_PASSWORD" bash -c "
               set -euo pipefail
               cd '${{ env.WORK_BASE_PATH }}'
@@ -462,14 +462,14 @@ jobs:
       - name: Verify build output
         shell: bash
         env:
-          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          GNR_CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
         run: |
           set -euo pipefail
 
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
 
-          (printf '%s\n' "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
+          (printf '%s\n' "$GNR_CSS_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             set -euo pipefail
             cd '${{ env.WORK_BASE_PATH }}'
             echo 'Recent files:'
