@@ -200,8 +200,8 @@ jobs:
           sed -i "s/^fiv_crawler = .*/fiv_crawler = no/" "$NEW_CONFIG"
           sed -i "s/^release_notes = .*/release_notes = no/" "$NEW_CONFIG"
           sed -i "s/^patch_description = .*/patch_description = GNR PRQ BIT SET Debug Patch/" "$NEW_CONFIG"
-          sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$NEW_CONFIG"
-          sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$NEW_CONFIG"
+          sed -i "s/^fit1_sign = .*/fit1_sign = manual/" "$NEW_CONFIG"
+          sed -i "s/^soc_sign = .*/soc_sign = manual/" "$NEW_CONFIG"
           if [[ -n "$ICODE_INPUT" ]]; then
             sed -i "s|^icode = .*|icode = $(escape_sed_replacement "$ICODE_INPUT")|" "$NEW_CONFIG"
           fi
