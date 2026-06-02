@@ -32,3 +32,96 @@ jobs:
             --workflow-fit1 GNRPRQFIT1.yml \
             --session-id "${GITHUB_RUN_ID}" \
             --build-command /nfs/site/disks/dcsg_0729/users/pkummara/patch_build_wrapper_gnr_prq_debug_gha.sh
+
+  validate-prq-report:
+    runs-on: [self-hosted, Linux, X64, gnr-patch-build]
+    needs: run-gnr-prq-build
+    steps:
+      - name: Validate PRQ debug report
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JSON_FILE="/nfs/site/disks/dcsg_0729/users/pkummara/GNR_PRQ_DEBUG_entry.json"
+
+          VERSION_RAW=$(/usr/intel/pkgs/python3/3.12.3/bin/python3 -c "import json; print(json.load(open('$JSON_FILE', 'r', encoding='utf-8'))['version'])")
+
+          VERSION_CLEAN="${VERSION_RAW#0x}"
+          VERSION_LOWER="$(printf '%s' "$VERSION_CLEAN" | tr '[:upper:]' '[:lower:]')"
+
+          RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/${VERSION_CLEAN}/release"
+          REPORT_FILE="${RELEASE_DIR}/m_95_a06d1_${VERSION_LOWER}_report.txt"
+
+          echo "JSON file   : $JSON_FILE"
+          echo "Release dir : $RELEASE_DIR"
+          echo "Report file : $REPORT_FILE"
+
+          if [[ ! -f "$REPORT_FILE" ]]; then
+            echo "[ERROR] Report file not found: $REPORT_FILE"
+            exit 1
+          fi
+
+          echo "===== Report Head (first 30 lines) ====="
+          head -30 "$REPORT_FILE"
+
+          grep -Eq 'PRQ Bit = 1.*Signed = PRQDBG' "$REPORT_FILE" || {
+            echo "[ERROR] Missing top-level PRQ markers: PRQ Bit = 1 and Signed = PRQDBG"
+            exit 1
+          }
+
+          grep -Eq '^Num Sub-Patches = 6$' "$REPORT_FILE" || {
+            echo "[ERROR] Num Sub-Patches is not 6"
+            exit 1
+          }
+
+          grep -Eq '^[[:space:]]+SoC[[:space:]]*:.*PRQ Bit = 1.*Debug = 1' "$REPORT_FILE" || {
+            echo "[ERROR] SoC line does not show PRQ Bit = 1 and Debug = 1"
+            exit 1
+          }
+
+          grep -Eq '^[[:space:]]+icode[[:space:]]*:.*Debug = 1' "$REPORT_FILE" || {
+            echo "[ERROR] icode line does not show Debug = 1"
+            exit 1
+          }
+
+          grep -Eq '^[[:space:]]+oobmsm[[:space:]]*:.*Debug = 1' "$REPORT_FILE" || {
+            echo "[ERROR] oobmsm line does not show Debug = 1"
+            exit 1
+          }
+
+          grep -Eq '^[[:space:]]+pcode-io[[:space:]]*:.*Debug = 1' "$REPORT_FILE" || {
+            echo "[ERROR] pcode-io line does not show Debug = 1"
+            exit 1
+          }
+
+          grep -Eq '^[[:space:]]+pcode-c[[:space:]]*:.*Debug = 1' "$REPORT_FILE" || {
+            echo "[ERROR] pcode-c line does not show Debug = 1"
+            exit 1
+          }
+
+          grep -Eq '^[[:space:]]+s3m[[:space:]]*:.*Debug = 1' "$REPORT_FILE" || {
+            echo "[ERROR] s3m line does not show Debug = 1"
+            exit 1
+          }
+
+          echo "[OK] PRQ debug patch report validation passed"
+
+      - name: Add validation summary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JSON_FILE="/nfs/site/disks/dcsg_0729/users/pkummara/GNR_PRQ_DEBUG_entry.json"
+
+          VERSION_RAW=$(/usr/intel/pkgs/python3/3.12.3/bin/python3 -c "import json; print(json.load(open('$JSON_FILE', 'r', encoding='utf-8'))['version'])")
+
+          VERSION_CLEAN="${VERSION_RAW#0x}"
+          VERSION_LOWER="$(printf '%s' "$VERSION_CLEAN" | tr '[:upper:]' '[:lower:]')"
+          REPORT_FILE="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/${VERSION_CLEAN}/release/m_95_a06d1_${VERSION_LOWER}_report.txt"
+
+          echo "## GNR PRQ Report Validation" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Report: $REPORT_FILE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checked top-level markers: PRQ Bit = 1, Signed = PRQDBG" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checked sub-patch count: 6" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checked SoC: PRQ Bit = 1, Debug = 1" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checked icode/oobmsm/pcode-io/pcode-c/s3m: Debug = 1" >> "$GITHUB_STEP_SUMMARY"
