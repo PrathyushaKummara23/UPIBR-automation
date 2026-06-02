@@ -13,7 +13,7 @@ jobs:
       - name: Run orchestrated build
         shell: bash
         run: |
-          /usr/intel/pkgs/python3/3.12.3/bin/python3 .github/scripts/orchestrate_gnr_prq_debug_build.py \
+          /usr/intel/pkgs/python3/3.12.3/bin/python3 .github/scripts/orchestrate_prqdebug_build.py \
             --repo PrathyushaKummara23/UPIBR-automation \
             --shared-dir /nfs/site/disks/dcsg_0729/users/pkummara \
             --workflow-soc GNRPRQSOC.yml \
