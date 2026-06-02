@@ -1,0 +1,27 @@
+name: GNR Debug Patch PRQ FIT1 Signing
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_id:
+        description: Session ID
+        required: false
+        type: string
+
+jobs:
+  fit1-sign:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 1440
+    env:
+      CSS_DEBUG_PASSWORD: ${{ secrets.CSS_DEBUG_PASSWORD }}
+      SAMBA_PASSWORD: ${{ secrets.SAMBA_PASSWORD }}
+    steps:
+      - name: Display session information
+        shell: powershell
+        run: |
+          Write-Host "Session ID: ${{ github.event.inputs.session_id }}"
+
+      - name: Run GNR FIT1 debug signing
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File "C:\Users\pkummara\watch_and_sign_fit1_GNR_DEBUG_PRQ.ps1"
