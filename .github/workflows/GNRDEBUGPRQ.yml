@@ -10,10 +10,22 @@ jobs:
       BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Clone repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_dir="${RUNNER_TEMP}/UPIBR-automation"
+
+          rm -rf "$repo_dir"
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/PrathyushaKummara23/UPIBR-automation.git" "$repo_dir"
+
       - name: Run orchestrated build
         shell: bash
         run: |
-          /usr/intel/pkgs/python3/3.12.3/bin/python3 .github/scripts/orchestrate_prqdebug_build.py \
+          set -euo pipefail
+          repo_dir="${RUNNER_TEMP}/UPIBR-automation"
+
+          /usr/intel/pkgs/python3/3.12.3/bin/python3 "$repo_dir/.github/scripts/orchestrate_prqdebug_build.py" \
             --repo PrathyushaKummara23/UPIBR-automation \
             --shared-dir /nfs/site/disks/dcsg_0729/users/pkummara \
             --workflow-soc GNRPRQSOC.yml \
