@@ -187,12 +187,6 @@ def main():
         if exit_code != 0:
             sys.exit(exit_code)
 
-        if soc_dispatched and not os.path.exists(soc_done_path):
-            wait_for_done(soc_done_path, "SOC")
-
-        if fit1_dispatched and not os.path.exists(fit1_done_path):
-            wait_for_done(fit1_done_path, "FIT1")
-
         log("[OK] GNR PRQ debug orchestrated build completed successfully")
 
     finally:
