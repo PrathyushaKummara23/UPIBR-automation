@@ -1,4 +1,5 @@
 name: GNR Debug Patch PRQ Build
+
 on:
   workflow_dispatch:
 
@@ -7,9 +8,15 @@ jobs:
     runs-on: [self-hosted, Linux, X64, gnr-patch-build]
     env:
       BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Run wrapper
+      - name: Run orchestrated build
         shell: bash
         run: |
-          chmod +x /nfs/site/disks/dcsg_0729/users/pkummara/patch_build_wrapper_gnr_prq_debug_gha.sh
-          /nfs/site/disks/dcsg_0729/users/pkummara/patch_build_wrapper_gnr_prq_debug_gha.sh
+          /usr/intel/pkgs/python3/3.12.3/bin/python3 .github/scripts/orchestrate_gnr_prq_debug_build.py \
+            --repo PrathyushaKummara23/UPIBR-automation \
+            --shared-dir /nfs/site/disks/dcsg_0729/users/pkummara \
+            --workflow-soc GNRPRQSOC.yml \
+            --workflow-fit1 GNRPRQFIT1.yml \
+            --session-id "${GITHUB_RUN_ID}" \
+            --build-command /nfs/site/disks/dcsg_0729/users/pkummara/patch_build_wrapper_gnr_prq_debug_gha.sh
