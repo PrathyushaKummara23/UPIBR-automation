@@ -499,8 +499,7 @@
             "sr_no": 1,
             "check_list_item": "pcode-c Post Binary Staging Area",
             "selection": "Yes",
-            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww23_UPLR5_RC3/gnr_atom_b0/pcode-c_enc_dbug.bin
-"
+            "entry": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww23_UPLR5_RC3/gnr_atom_b0/pcode-c_enc_dbug.bin"
         },
         {
             "sr_no": 2,
