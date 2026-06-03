@@ -444,6 +444,8 @@ jobs:
 
       - name: Upload Config File to Repository
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
 
@@ -452,18 +454,22 @@ jobs:
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
           REPO_OUTPUT_DIR="output_paths"
           REPO_CONFIG_FILE="$REPO_OUTPUT_DIR/config_${CURRENT_VERSION}.ini"
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
 
           [ -f "$CONFIG_FILE" ] || { echo "Config file not found: $CONFIG_FILE"; exit 1; }
 
           mkdir -p "$REPO_OUTPUT_DIR"
           cp "$CONFIG_FILE" "$REPO_CONFIG_FILE"
 
+          git remote set-url origin "$REPO_URL"
           git add "$REPO_CONFIG_FILE"
 
           if git diff --staged --quiet; then
             echo "No changes to commit"
-          else
-            git commit -m "Add prepared config file: config_${CURRENT_VERSION}.ini
+            exit 0
+          fi
+
+          git commit -m "Add prepared config file: config_${CURRENT_VERSION}.ini
 
           - Session ID: ${{ needs.session-management.outputs.session_id }}
           - Trigger Source: ${{ needs.session-management.outputs.trigger_source }}
@@ -471,8 +477,6 @@ jobs:
           - Version: 0x${CURRENT_VERSION}
           - Automated by GitHub Actions workflow
           - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            git push origin "${{ github.ref_name }}"
-          fi
 
   validate-config:
     runs-on: [self-hosted, Linux, X64]
