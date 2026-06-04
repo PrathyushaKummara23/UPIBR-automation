@@ -66,19 +66,23 @@ jobs:
         id: session
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           if [ -n "${{ github.event.inputs.session_id }}" ]; then
             SESSION_ID="${{ github.event.inputs.session_id }}"
           else
             SESSION_ID="session_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
           fi
+
           TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
           CALLBACK_URL="${{ github.event.inputs.callback_url }}"
           REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
+
           echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
           echo "trigger_source=$TRIGGER_SOURCE" >> "$GITHUB_OUTPUT"
           echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
           echo "requester_info=$REQUESTER_INFO" >> "$GITHUB_OUTPUT"
+
           SESSION_FILE="/tmp/build_session_${SESSION_ID}.json"
           cat > "$SESSION_FILE" <<EOF
           {
@@ -103,48 +107,28 @@ jobs:
 
     steps:
       - name: Checkout repository
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          REPO="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          WORKDIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "$WORKDIR")"
-          REPO_DIR="$(basename "$WORKDIR")"
-          BRANCH="${{ github.ref_name }}"
-          mkdir -p "$PARENT_DIR"
-          cd "$PARENT_DIR"
-          if [ -d "$WORKDIR/.git" ]; then
-            cd "$WORKDIR"
-            git remote set-url origin "$REPO"
-            git fetch --depth=1 origin "$BRANCH"
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-          else
-            rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO" "$REPO_DIR"
-            cd "$WORKDIR"
-          fi
-          git config --global --add safe.directory "$WORKDIR"
+        uses: actions/checkout@v3
 
       - name: Validate JSON file exists
         id: validate
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
           if [ ! -f "$JSON_FILE" ]; then
             echo "Error: JSON file '${{ github.event.inputs.json_filename }}' not found"
             exit 1
           fi
+
           echo "json_path=$JSON_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Extract and Display Values
         id: extract_version
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           JSON_FILE="${{ steps.validate.outputs.json_path }}"
 
           extract_section1_value() {
@@ -178,7 +162,8 @@ jobs:
       - name: Create Summary
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           JSON_FILE="${{ steps.validate.outputs.json_path }}"
           {
             echo "# SRF Debug UP Build Pipeline"
@@ -202,8 +187,11 @@ jobs:
       - name: Send Build Start Notification
         shell: bash
         run: |
+          set -euo pipefail
+
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
+
           START_PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"SRF Debug UP build has started","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","json_filename":"%s","build_description":"%s"}' \
             "$SESSION_ID" \
             "${{ github.run_id }}" \
@@ -212,6 +200,7 @@ jobs:
             "${{ needs.session-management.outputs.trigger_source }}" \
             "${{ github.event.inputs.json_filename }}" \
             "${{ github.event.inputs.build_description }}")
+
           curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
             -d "$START_PAYLOAD" || echo "Failed to send start notification"
@@ -222,10 +211,11 @@ jobs:
     if: ${{ needs.read-json.outputs.previous_version != '' }}
 
     steps:
-      - name: Copy Config File, Set Permissions and rename config file with current version
+      - name: Copy Config File, Set Permissions and Rename Config File
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           BUILD_PATH="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build"
@@ -245,6 +235,7 @@ jobs:
           cp "$SOURCE_CONFIG" "$DEST_CONFIG"
           chmod 777 "$DEST_CONFIG"
           mv "$DEST_CONFIG" "$FINAL_CONFIG"
+
           [ -f "$FINAL_CONFIG" ] || { echo "Missing final config: $FINAL_CONFIG"; exit 1; }
 
   prepare-config:
@@ -254,35 +245,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          REPO="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          WORKDIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "$WORKDIR")"
-          REPO_DIR="$(basename "$WORKDIR")"
-          BRANCH="${{ github.ref_name }}"
-          mkdir -p "$PARENT_DIR"
-          cd "$PARENT_DIR"
-          if [ -d "$WORKDIR/.git" ]; then
-            cd "$WORKDIR"
-            git remote set-url origin "$REPO"
-            git fetch --depth=1 origin "$BRANCH"
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-          else
-            rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO" "$REPO_DIR"
-            cd "$WORKDIR"
-          fi
-          git config --global --add safe.directory "$WORKDIR"
+        uses: actions/checkout@v3
 
       - name: Update Config File with JSON Values
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           JSON_FILE="${{ needs.read-json.outputs.json_path }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
@@ -371,10 +340,11 @@ jobs:
           sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
           sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
 
-      - name: Display final prepared config
+      - name: Display Final Prepared Config
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="/nfs/site/disks/dcsg_0729/users/pkummara/config_${CURRENT_VERSION}.ini"
           echo "Prepared config:"
@@ -386,35 +356,7 @@ jobs:
     if: ${{ needs.read-json.outputs.current_version != '' }}
 
     steps:
-      - name: Checkout repository
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          REPO="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          WORKDIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "$WORKDIR")"
-          REPO_DIR="$(basename "$WORKDIR")"
-          BRANCH="${{ github.ref_name }}"
-          mkdir -p "$PARENT_DIR"
-          cd "$PARENT_DIR"
-          if [ -d "$WORKDIR/.git" ]; then
-            cd "$WORKDIR"
-            git remote set-url origin "$REPO"
-            git fetch --depth=1 origin "$BRANCH"
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-          else
-            rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO" "$REPO_DIR"
-            cd "$WORKDIR"
-          fi
-          git config --global --add safe.directory "$WORKDIR"
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: Upload Config File to Repository
+      - name: Upload Config File via GitHub API
         shell: bash
         env:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
@@ -429,47 +371,84 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
-          REPO_OUTPUT_DIR="output_paths"
-          REPO_CONFIG_FILE="$REPO_OUTPUT_DIR/config_${CURRENT_VERSION}.ini"
-          REPO_URL="https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
-          BRANCH="${{ github.ref_name }}"
+          TARGET_PATH="output_paths/config_${CURRENT_VERSION}.ini"
+          API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
 
           [ -f "$CONFIG_FILE" ] || { echo "Config file not found: $CONFIG_FILE"; exit 1; }
 
-          mkdir -p "$REPO_OUTPUT_DIR"
-          cp "$CONFIG_FILE" "$REPO_CONFIG_FILE"
-
-          git remote set-url origin "$REPO_URL"
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-          curl -fsS \
-            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}" > /dev/null || {
-              echo "PAT cannot access repository ${{ github.repository }}"
-              exit 1
-            }
-
-          REPO_URL="https://PrathyushaKummara23:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
-          git remote set-url origin "$REPO_URL"
-
-          git add "$REPO_CONFIG_FILE"
-
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
+          if command -v base64 >/dev/null 2>&1; then
+            CONTENT_B64=$(base64 -w 0 "$CONFIG_FILE" 2>/dev/null || base64 "$CONFIG_FILE" | tr -d '\n')
+          else
+            echo "base64 command not found"
+            exit 1
           fi
 
-          git commit -m "Add prepared config file: config_${CURRENT_VERSION}.ini
-          - Session ID: ${{ needs.session-management.outputs.session_id }}
-          - Trigger Source: ${{ needs.session-management.outputs.trigger_source }}
-          - Generated from JSON: ${{ github.event.inputs.json_filename }}
-          - Version: 0x${CURRENT_VERSION}
-          - Automated by GitHub Actions workflow
-          - Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          COMMIT_MESSAGE="Add prepared config file: config_${CURRENT_VERSION}.ini"
 
-          git push origin "HEAD:${BRANCH}"
+          HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            FILE_SHA=$(jq -r '.sha' existing_file.json)
+
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg sha "$FILE_SHA" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                sha: $sha,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          elif [ "$HTTP_CODE" = "404" ]; then
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          else
+            echo "Failed to query existing file. HTTP status: $HTTP_CODE"
+            cat existing_file.json || true
+            exit 1
+          fi
+
+          RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -d @payload.json \
+            "$API_URL")
+
+          if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+            echo "Config file uploaded successfully to ${TARGET_PATH}"
+            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
+          else
+            echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
+            cat api_response.json || true
+            exit 1
+          fi
+
+          rm -f existing_file.json payload.json api_response.json
 
   validate-config:
     runs-on: [self-hosted, Linux, X64]
@@ -479,16 +458,18 @@ jobs:
       config_path: ${{ steps.validate.outputs.config_path }}
 
     steps:
-      - name: Validate prepared config file exists
+      - name: Validate Prepared Config File Exists
         id: validate
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
           CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
+
           CONFIG_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '$CONFIG_PATH' ]]; then
               echo 'EXISTS'
@@ -496,6 +477,7 @@ jobs:
               echo 'NOT_FOUND'
             fi
           " )
+
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
             echo "config_validated=true" >> "$GITHUB_OUTPUT"
             echo "config_path=$CONFIG_PATH" >> "$GITHUB_OUTPUT"
@@ -504,16 +486,18 @@ jobs:
             exit 1
           fi
 
-      - name: Display prepared config file contents
+      - name: Display Prepared Config File Contents
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
           CONFIG_CONTENTS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cat '$CONFIG_PATH'
           " )
+
           echo "$CONFIG_CONTENTS"
 
   kerberos-setup:
@@ -522,40 +506,47 @@ jobs:
     if: ${{ needs.validate-config.outputs.config_validated == 'true' }}
 
     steps:
-      - name: Switch to build account for Kerberos setup
+      - name: Switch to Build Account for Kerberos Setup
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
           [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
 
-      - name: Initialize Kerberos Ticket (ktab)
+      - name: Initialize Kerberos Ticket
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
           FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
           " )
+
           echo "$KTAB_RESULT"
+
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
 
-      - name: Initialize Kerberos Cron (kcron)
+      - name: Initialize Kerberos Cron
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           KCRON_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
           " )
+
           echo "$KCRON_RESULT"
+
           if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
@@ -566,21 +557,23 @@ jobs:
     if: ${{ needs.validate-config.outputs.config_validated == 'true' }}
 
     steps:
-      - name: Switch to faceless account for build
+      - name: Switch to Faceless Account for Build
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
           [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
 
-      - name: Verify build tools exist
+      - name: Verify Build Tools Exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           PYTHON_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           " )
@@ -590,26 +583,32 @@ jobs:
           EXPECT_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           " )
+
           [[ "$PYTHON_CHECK" == "EXISTS" ]] || exit 1
           [[ "$FXT_CHECK" == "EXISTS" ]] || exit 1
           [[ "$EXPECT_CHECK" == "EXISTS" ]] || exit 1
 
-      - name: Execute SRF Debug UP automated build
+      - name: Execute SRF Debug UP Automated Build
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
           CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
+
           BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
+
             cat > automated_build_expect.exp <<'EOF'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
           set css_password \$env(CSS_PASSWORD)
+
           spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
+
           expect {
             \"Enter your CSS password:\" {
               send \"\$css_password\r\"
@@ -633,6 +632,7 @@ jobs:
             }
           }
           EOF
+
             chmod +x automated_build_expect.exp
             export CSS_PASSWORD='$CSS_PASSWORD'
             ./automated_build_expect.exp 2>&1
@@ -640,16 +640,18 @@ jobs:
             rm -f automated_build_expect.exp
             exit \$BUILD_EXIT
           " )
+
           BUILD_EXIT_CODE=$?
           echo "$BUILD_RESULT"
-          [ $BUILD_EXIT_CODE -eq 0 ] || exit $BUILD_EXIT_CODE
+          [ "$BUILD_EXIT_CODE" -eq 0 ] || exit "$BUILD_EXIT_CODE"
 
-      - name: Verify automated build results
+      - name: Verify Automated Build Results
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           VERIFICATION_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
@@ -658,6 +660,7 @@ jobs:
             find . -name '*debug*' -o -name '*css-debug*' 2>/dev/null | head -10 || true
             find . -name '*${CURRENT_VERSION}*' 2>/dev/null | head -10 || true
           " )
+
           echo "$VERIFICATION_RESULT"
 
   copy-release-collaterals:
@@ -667,37 +670,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          REPO="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          WORKDIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "$WORKDIR")"
-          REPO_DIR="$(basename "$WORKDIR")"
-          BRANCH="${{ github.ref_name }}"
-          mkdir -p "$PARENT_DIR"
-          cd "$PARENT_DIR"
-          if [ -d "$WORKDIR/.git" ]; then
-            cd "$WORKDIR"
-            git remote set-url origin "$REPO"
-            git fetch --depth=1 origin "$BRANCH"
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-          else
-            rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO" "$REPO_DIR"
-            cd "$WORKDIR"
-          fi
-          git config --global --add safe.directory "$WORKDIR"
+        uses: actions/checkout@v3
 
-      - name: Copy release collaterals (.inc and .pdb) to SRF host
+      - name: Copy Release Collaterals to SRF Host
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           RELEASE_PATH="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
           WINDOWS_DEST="C:/pkummara/IFWI_INC_PDB/Test"
@@ -762,7 +743,8 @@ jobs:
       - name: Send Final Result Notification
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
           PIPELINE_STATUS="UNKNOWN"
