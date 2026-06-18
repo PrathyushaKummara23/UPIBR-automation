@@ -60,18 +60,15 @@ jobs:
         shell: bash
         run: |
           echo "Initializing session management"
-
           if [ -n "${{ github.event.inputs.session_id }}" ]; then
             SESSION_ID="${{ github.event.inputs.session_id }}"
           else
             SESSION_ID="gnr_sed_session_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
           fi
-
           TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
           CALLBACK_URL="${{ github.event.inputs.callback_url }}"
           REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
           RESUME_FROM="${{ github.event.inputs.resume_from }}"
-
           echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
           echo "trigger_source=$TRIGGER_SOURCE" >> "$GITHUB_OUTPUT"
           echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
@@ -89,14 +86,12 @@ jobs:
         run: |
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
           PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"GNR SED orchestrated build started","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","resume_from":"%s"}' \
             "$SESSION_ID" \
             "${{ github.run_id }}" \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             "${{ needs.session-management.outputs.trigger_source }}" \
             "${{ needs.session-management.outputs.resume_from }}")
-
           curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" || echo "Failed to send start notification"
@@ -107,8 +102,19 @@ jobs:
     timeout-minutes: 4320
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Manual clone repository
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO_DIR="$RUNNER_TEMP/gnr_sed_repo"
+          rm -rf "$REPO_DIR"
+          mkdir -p "$REPO_DIR"
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPO_DIR"
+          cd "$REPO_DIR"
+          git checkout "${{ github.ref_name }}"
+
       - name: Display session information
         shell: bash
         run: |
@@ -121,7 +127,6 @@ jobs:
         shell: bash
         run: |
           cd "${SHARED_DIR}"
-
           rm -f gnr_sed_soc_sign_trigger.txt
           rm -f gnr_sed_soc_sign_done.txt
           rm -f gnr_sed_fit1_sign_trigger.txt
@@ -129,19 +134,22 @@ jobs:
           rm -f gnr_sed_soc_css_id.txt
           rm -f gnr_sed_fit1_rsa_css_id.txt
           rm -f gnr_sed_fit1_xmss_css_id.txt
-
           echo "Stale files cleaned"
 
       - name: Run orchestrated GNR SED build
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
           SESSION_ID: ${{ needs.session-management.outputs.session_id }}
           TRIGGER_SOURCE: ${{ needs.session-management.outputs.trigger_source }}
           CALLBACK_URL: ${{ needs.session-management.outputs.callback_url }}
           REQUESTER_INFO: ${{ needs.session-management.outputs.requester_info }}
           RESUME_FROM: ${{ needs.session-management.outputs.resume_from }}
         run: |
+          set -euo pipefail
+          REPO_DIR="$RUNNER_TEMP/gnr_sed_repo"
+          cd "$REPO_DIR"
           python3 .github/scripts/orchestrate_gnr_sed_build.py \
             --repo "${REPO_NAME}" \
             --shared-dir "${SHARED_DIR}" \
@@ -177,15 +185,12 @@ jobs:
         run: |
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
           BUILD_STATUS="success"
           BUILD_MESSAGE="GNR SED orchestrated build completed successfully"
-
           if [ "${{ needs.run-orchestrated-build.result }}" != "success" ]; then
             BUILD_STATUS="build_failed"
             BUILD_MESSAGE="GNR SED orchestrated build failed"
           fi
-
           PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","resume_from":"%s","workflow_url":"%s"}' \
             "$SESSION_ID" \
             "$BUILD_STATUS" \
@@ -195,7 +200,6 @@ jobs:
             "${{ needs.session-management.outputs.trigger_source }}" \
             "${{ needs.session-management.outputs.resume_from }}" \
             "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
-
           curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" || echo "Failed to send final notification"
