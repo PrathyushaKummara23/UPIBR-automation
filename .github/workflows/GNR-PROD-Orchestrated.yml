@@ -1,0 +1,205 @@
+name: GNR PROD Orchestrated Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      resume_from:
+        description: "Optional: enter soc or fit1 for resume builds"
+        required: false
+        type: choice
+        options:
+          - ""
+          - soc
+          - fit1
+      trigger_source:
+        description: "Source that triggered this workflow"
+        required: true
+        type: choice
+        options:
+          - python_script
+          - web_gui
+          - api_call
+          - manual
+        default: manual
+      callback_url:
+        description: "Callback URL for sending results back to trigger source"
+        required: false
+        type: string
+      session_id:
+        description: "Session ID for tracking this build request"
+        required: false
+        type: string
+      requester_info:
+        description: "Information about who/what requested this build (JSON format)"
+        required: false
+        type: string
+        default: '{"user":"unknown","timestamp":""}'
+
+permissions:
+  actions: write
+  contents: read
+
+env:
+  SHARED_DIR: /nfs/site/disks/dcsg_0729/users/pkummara
+  BUILD_WRAPPER: /nfs/site/disks/dcsg_0729/users/pkummara/patch_build_wrapper_gnr_prod_gha.sh
+  REPO_NAME: ${{ github.repository }}
+
+jobs:
+  session-management:
+    runs-on: [self-hosted, Linux, X64, gnr-prod-runner]
+    outputs:
+      session_id: ${{ steps.session.outputs.session_id }}
+      trigger_source: ${{ steps.session.outputs.trigger_source }}
+      callback_url: ${{ steps.session.outputs.callback_url }}
+      requester_info: ${{ steps.session.outputs.requester_info }}
+      resume_from: ${{ steps.session.outputs.resume_from }}
+
+    steps:
+      - name: Initialize Session Information
+        id: session
+        shell: bash
+        run: |
+          echo "Initializing session management"
+          if [ -n "${{ github.event.inputs.session_id }}" ]; then
+            SESSION_ID="${{ github.event.inputs.session_id }}"
+          else
+            SESSION_ID="gnr_prod_session_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
+          fi
+          TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
+          CALLBACK_URL="${{ github.event.inputs.callback_url }}"
+          REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
+          RESUME_FROM="${{ github.event.inputs.resume_from }}"
+          echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
+          echo "trigger_source=$TRIGGER_SOURCE" >> "$GITHUB_OUTPUT"
+          echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
+          echo "requester_info=$REQUESTER_INFO" >> "$GITHUB_OUTPUT"
+          echo "resume_from=$RESUME_FROM" >> "$GITHUB_OUTPUT"
+
+  notify-build-start:
+    runs-on: [self-hosted, Linux, X64, gnr-prod-runner]
+    needs: [session-management]
+    if: ${{ needs.session-management.outputs.callback_url != '' }}
+
+    steps:
+      - name: Send Build Start Notification
+        shell: bash
+        run: |
+          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
+          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
+          PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"GNR PROD orchestrated build started","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","resume_from":"%s"}' \
+            "$SESSION_ID" \
+            "${{ github.run_id }}" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${{ needs.session-management.outputs.trigger_source }}" \
+            "${{ needs.session-management.outputs.resume_from }}")
+          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || echo "Failed to send start notification"
+
+  run-orchestrated-build:
+    runs-on: [self-hosted, Linux, X64, gnr-prod-runner]
+    needs: [session-management]
+    timeout-minutes: 4320
+
+    steps:
+      - name: Manual clone repository
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO_DIR="$RUNNER_TEMP/gnr_prod_repo"
+          rm -rf "$REPO_DIR"
+          mkdir -p "$REPO_DIR"
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPO_DIR"
+          cd "$REPO_DIR"
+          git checkout "${{ github.ref_name }}"
+
+      - name: Display session information
+        shell: bash
+        run: |
+          echo "Session ID     : ${{ needs.session-management.outputs.session_id }}"
+          echo "Trigger Source : ${{ needs.session-management.outputs.trigger_source }}"
+          echo "Resume From    : ${{ needs.session-management.outputs.resume_from }}"
+          echo "Repository     : ${{ github.repository }}"
+
+      - name: Clean stale trigger and state files
+        shell: bash
+        run: |
+          cd "${SHARED_DIR}"
+          rm -f gnr_prod_soc_sign_trigger.txt
+          rm -f gnr_prod_soc_sign_done.txt
+          rm -f gnr_prod_fit1_sign_trigger.txt
+          rm -f gnr_prod_fit1_sign_done.txt
+          rm -f gnr_prod_soc_css_id.txt
+          rm -f gnr_prod_fit1_rsa_css_id.txt
+          rm -f gnr_prod_fit1_xmss_css_id.txt
+          echo "Stale files cleaned"
+
+      - name: Run orchestrated GNR PROD build
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          SESSION_ID: ${{ needs.session-management.outputs.session_id }}
+          TRIGGER_SOURCE: ${{ needs.session-management.outputs.trigger_source }}
+          CALLBACK_URL: ${{ needs.session-management.outputs.callback_url }}
+          REQUESTER_INFO: ${{ needs.session-management.outputs.requester_info }}
+          RESUME_FROM: ${{ needs.session-management.outputs.resume_from }}
+        run: |
+          set -euo pipefail
+          REPO_DIR="$RUNNER_TEMP/gnr_prod_repo"
+          cd "$REPO_DIR"
+          python3 .github/scripts/orchestrate_gnr_prod_build.py \
+            --repo "${REPO_NAME}" \
+            --shared-dir "${SHARED_DIR}" \
+            --workflow-soc "GNR-PROD-sign-soc.yml" \
+            --workflow-fit1 "GNR-PROD-sign-fit1.yml" \
+            --session-id "${SESSION_ID}" \
+            --trigger-source "${TRIGGER_SOURCE}" \
+            --callback-url "${CALLBACK_URL}" \
+            --resume-from "${RESUME_FROM}" \
+            --build-command "${BUILD_WRAPPER}"
+
+      - name: Build summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          {
+            echo "# GNR PROD Orchestrated Build Summary"
+            echo ""
+            echo "- Session ID: \`${{ needs.session-management.outputs.session_id }}\`"
+            echo "- Trigger Source: \`${{ needs.session-management.outputs.trigger_source }}\`"
+            echo "- Resume From: \`${{ needs.session-management.outputs.resume_from }}\`"
+            echo "- Workflow Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  notify-final-result:
+    runs-on: [self-hosted, Linux, X64, gnr-prod-runner]
+    needs: [session-management, run-orchestrated-build]
+    if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
+
+    steps:
+      - name: Send Final Result Notification
+        shell: bash
+        run: |
+          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
+          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
+          BUILD_STATUS="success"
+          BUILD_MESSAGE="GNR PROD orchestrated build completed successfully"
+          if [ "${{ needs.run-orchestrated-build.result }}" != "success" ]; then
+            BUILD_STATUS="build_failed"
+            BUILD_MESSAGE="GNR PROD orchestrated build failed"
+          fi
+          PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","resume_from":"%s","workflow_url":"%s"}' \
+            "$SESSION_ID" \
+            "$BUILD_STATUS" \
+            "$BUILD_MESSAGE" \
+            "${{ github.run_id }}" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${{ needs.session-management.outputs.trigger_source }}" \
+            "${{ needs.session-management.outputs.resume_from }}" \
+            "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || echo "Failed to send final notification"
