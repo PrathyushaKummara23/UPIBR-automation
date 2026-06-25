@@ -31,4 +31,4 @@ jobs:
       - name: Run SOC signing
         shell: powershell
         run: |
-          powershell -ExecutionPolicy Bypass -File "C:\Users\pkummara\GNR_soc_sign.ps1"
+          powershell -ExecutionPolicy Bypass -File "C:\Users\pkummara\GNR_SED_soc_sign.ps1"
