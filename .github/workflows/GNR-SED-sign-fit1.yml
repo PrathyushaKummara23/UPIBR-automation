@@ -31,4 +31,4 @@ jobs:
       - name: Run FIT1 signing
         shell: powershell
         run: |
-          powershell -ExecutionPolicy Bypass -File "C:\Users\pkummara\GNR_fit1_sign.ps1"
+          powershell -ExecutionPolicy Bypass -File "C:\Users\pkummara\GNR_SED_fit1_sign.ps1"
