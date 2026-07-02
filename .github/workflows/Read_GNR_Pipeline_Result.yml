@@ -1,0 +1,184 @@
+name: Read GNR Pipeline Result
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      session_id:
+        description: 'Session ID for tracking'
+        required: false
+        type: string
+      trigger_source:
+        description: 'Source that triggered the workflow'
+        required: false
+        type: string
+      callback_url:
+        description: 'Callback URL for notifications'
+        required: false
+        type: string
+    secrets:
+      GNR_PASSWORD:
+        required: true
+
+jobs:
+  read-pipeline-result:
+    name: Read GNR Pipeline Result
+    runs-on: ubuntu-latest
+    outputs:
+      pipeline_status: ${{ steps.read-result.outputs.pipeline_status }}
+
+    steps:
+      - name: Session Info Display
+        if: ${{ inputs.session_id != '' }}
+        run: |
+          echo "🔄 Session ID: ${{ inputs.session_id }}"
+          echo "📡 Triggered by: ${{ inputs.trigger_source }}"
+          echo "🔗 Callback URL: ${{ inputs.callback_url }}"
+
+      - name: Read pipeline_result.txt from Windows host
+        id: read-result
+        env:
+          GNR_PASSWORD: ${{ secrets.GNR_PASSWORD }}
+        run: |
+          echo "================================================="
+          echo "  Reading GNR pipeline_result.txt from Windows Host"
+          echo "================================================="
+
+          cat > /tmp/read_result_${{ github.run_id }}.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 60
+          set password $env(GNR_PASSWORD)
+
+          log_user 0
+          spawn ssh -tt \
+            -o StrictHostKeyChecking=no \
+            -o ForwardX11=no \
+            -o ForwardX11Trusted=no \
+            .\\CEFLS_User@10.138.186.168
+          log_user 1
+
+          expect {
+            "*assword:*" { send "$password\r" }
+            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
+          }
+
+          expect {
+            -re {[>$#%\]]} { }
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+          }
+
+          send "@echo off\r"
+
+          expect {
+            -re {[>$#%\]]} { }
+            timeout { puts "FAILURE: echo off did not complete"; exit 1 }
+          }
+
+          send "type C:\\pkummara\\logs\\pipeline_result.txt\r"
+
+          expect {
+            -re {(PASSED|FAILED[^\r\n]*|RUNNING)} {
+              puts "FILE_CONTENT=$expect_out(0,string)"
+            }
+            timeout { puts "FAILURE: Could not read result file"; exit 1 }
+          }
+
+          send "exit\r"
+          expect eof
+          EOF
+
+          chmod +x /tmp/read_result_${{ github.run_id }}.exp
+
+          /usr/bin/expect /tmp/read_result_${{ github.run_id }}.exp > /tmp/result_output_${{ github.run_id }}.txt 2>&1 || true
+
+          rm -f /tmp/read_result_${{ github.run_id }}.exp
+
+          echo "========== pipeline_result.txt CONTENTS =========="
+          cat /tmp/result_output_${{ github.run_id }}.txt
+          echo "==================================================="
+
+          if grep -q "PASSED" /tmp/result_output_${{ github.run_id }}.txt; then
+            echo "PIPELINE RESULT: PASSED"
+            PIPELINE_STATUS="PASSED"
+          elif grep -q "FAILED" /tmp/result_output_${{ github.run_id }}.txt; then
+            FAILED_REASON=$(grep "FAILED" /tmp/result_output_${{ github.run_id }}.txt | head -1)
+            echo "PIPELINE RESULT: $FAILED_REASON"
+            PIPELINE_STATUS="FAILED"
+          elif grep -q "RUNNING" /tmp/result_output_${{ github.run_id }}.txt; then
+            echo "PIPELINE RESULT: Still RUNNING"
+            PIPELINE_STATUS="RUNNING"
+          else
+            echo "PIPELINE RESULT: Unknown"
+            PIPELINE_STATUS="UNKNOWN"
+          fi
+
+          rm -f /tmp/result_output_${{ github.run_id }}.txt
+
+          echo "$PIPELINE_STATUS" > Output_pipeline_Status.txt
+
+          echo "================================================="
+          echo "Output file created with content: $PIPELINE_STATUS"
+          echo "File will be uploaded as GitHub Actions artifact"
+          echo "================================================="
+
+          echo "Pipeline Status: $PIPELINE_STATUS" >> $GITHUB_STEP_SUMMARY
+          echo "Output File: Output_pipeline_Status.txt" >> $GITHUB_STEP_SUMMARY
+          echo "Available as: GitHub Actions Artifact" >> $GITHUB_STEP_SUMMARY
+
+          echo "pipeline_status=$PIPELINE_STATUS" >> $GITHUB_OUTPUT
+
+      - name: Send Pipeline Status Notification
+        if: ${{ inputs.callback_url != '' }}
+        run: |
+          echo "📡 Sending pipeline status notification..."
+
+          CALLBACK_URL="${{ inputs.callback_url }}"
+          SESSION_ID="${{ inputs.session_id }}"
+          PIPELINE_STATUS="${{ steps.read-result.outputs.pipeline_status }}"
+
+          if [ -n "$CALLBACK_URL" ]; then
+            curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "session_id": "'$SESSION_ID'",
+                "status": "pipeline_result_available",
+                "message": "GNR pipeline result has been read",
+                "workflow_run_id": "${{ github.run_id }}",
+                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+                "trigger_source": "${{ inputs.trigger_source }}",
+                "pipeline_status": "'$PIPELINE_STATUS'",
+                "pipeline_details": {
+                  "status": "'$PIPELINE_STATUS'",
+                  "result_file": "C:\\pkummara\\logs\\pipeline_result.txt",
+                  "read_timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+                }
+              }' || echo "Failed to send pipeline status notification"
+          else
+            echo "ℹ️  No callback URL provided, skipping notification"
+
+      - name: Upload Output_pipeline_Status.txt as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gnr-pipeline-status
+          path: Output_pipeline_Status.txt
+
+      - name: Handle pipeline status
+        run: |
+          PIPELINE_STATUS=$(cat Output_pipeline_Status.txt)
+          echo "Final Pipeline Status: $PIPELINE_STATUS"
+
+          if [ "$PIPELINE_STATUS" = "PASSED" ]; then
+            echo "SUCCESS: Pipeline completed successfully"
+            exit 0
+          elif [ "$PIPELINE_STATUS" = "FAILED" ]; then
+            echo "WARNING: Pipeline failed but workflow completed"
+            echo "Check the pipeline_result.txt for failure details"
+            exit 0
+          elif [ "$PIPELINE_STATUS" = "RUNNING" ]; then
+            echo "INFO: Pipeline is still running"
+            exit 0
+          else
+            echo "INFO: Pipeline status is unknown"
+            exit 0
+          fi
