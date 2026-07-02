@@ -45,7 +45,7 @@ permissions:
   contents: write
 
 env:
-  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
+  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/GNR/B0/build
   GNR_BUILD_PATH: /nfs/site/disks/dcsg_0729/patches/GNR/B0/build
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
