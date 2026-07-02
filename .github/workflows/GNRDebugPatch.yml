@@ -328,9 +328,9 @@ jobs:
 
           has_value() {
             local value="$1"
-            [ -n "$value" ] && [ "$value" != "null" ] && [ "$value" != "" ]
+            value="$(echo "$value" | xargs)"
+            [ -n "$value" ] && [ "$value" != "null" ]
           }
-
           milestone=$(extract_section1_value "Milestone")
           patch_desc=$(extract_section1_value "patch_description")
           version=$(extract_section1_value "version")
