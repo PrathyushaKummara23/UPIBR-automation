@@ -128,13 +128,14 @@ jobs:
         run: |
           set -euo pipefail
           whoami
+          echo "uid=$(id -u)"
           echo "KRB5CCNAME=${KRB5CCNAME:-}"
           echo "SSL_CERT_FILE=${SSL_CERT_FILE:-}"
           echo "REQUESTS_CA_BUNDLE=${REQUESTS_CA_BUNDLE:-}"
           echo "NO_PROXY=${NO_PROXY:-}"
           env | egrep 'HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|REQUESTS_CA_BUNDLE|SSL_CERT_FILE|KRB5' || true
-          klist || true
           ls -l /tmp/krb5cc_* || true
+          klist || true
 
       - name: Run reusable ingredient registration
         shell: bash
@@ -147,12 +148,13 @@ jobs:
           export REQUESTS_CA_BUNDLE="${{ env.REQUESTS_CA_BUNDLE }}"
 
           if [ -z "${KRB5CCNAME:-}" ]; then
-            KRB_CACHE=$(ls /tmp/krb5cc_* 2>/dev/null | head -1 || true)
-            if [ -n "$KRB_CACHE" ]; then
-              export KRB5CCNAME="FILE:$KRB_CACHE"
+            USER_KRB_CACHE="/tmp/krb5cc_$(id -u)"
+            if [ -r "$USER_KRB_CACHE" ]; then
+              export KRB5CCNAME="FILE:$USER_KRB_CACHE"
             fi
           fi
 
+          echo "uid=$(id -u)"
           echo "Using KRB5CCNAME=${KRB5CCNAME:-unset}"
           klist || true
 
@@ -174,12 +176,13 @@ jobs:
           export REQUESTS_CA_BUNDLE="${{ env.REQUESTS_CA_BUNDLE }}"
 
           if [ -z "${KRB5CCNAME:-}" ]; then
-            KRB_CACHE=$(ls /tmp/krb5cc_* 2>/dev/null | head -1 || true)
-            if [ -n "$KRB_CACHE" ]; then
-              export KRB5CCNAME="FILE:$KRB_CACHE"
+            USER_KRB_CACHE="/tmp/krb5cc_$(id -u)"
+            if [ -r "$USER_KRB_CACHE" ]; then
+              export KRB5CCNAME="FILE:$USER_KRB_CACHE"
             fi
           fi
 
+          echo "uid=$(id -u)"
           echo "Using KRB5CCNAME=${KRB5CCNAME:-unset}"
           klist || true
 
