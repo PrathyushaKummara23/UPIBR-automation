@@ -692,9 +692,107 @@ jobs:
 
           echo "$VERIFICATION_RESULT"
 
-  notify-final-result:
+  copy-release-collaterals:
     runs-on: [self-hosted, Linux, X64, gnrdebugbuild]
     needs: [session-management, read-json, patch-build]
+    if: ${{ success() }}
+
+    steps:
+      - name: Checkout repository
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          WORKDIR="${GITHUB_WORKSPACE}"
+          PARENT_DIR="$(dirname "$WORKDIR")"
+          REPO_DIR="$(basename "$WORKDIR")"
+          BRANCH="${{ github.ref_name }}"
+
+          mkdir -p "$PARENT_DIR"
+          cd "$PARENT_DIR"
+
+          if [ -d "$WORKDIR/.git" ]; then
+            cd "$WORKDIR"
+            git remote set-url origin "$REPO_URL"
+            git fetch --depth=1 origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          else
+            rm -rf "$WORKDIR"
+            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+            cd "$WORKDIR"
+          fi
+
+          git config --global --add safe.directory "$WORKDIR"
+
+      - name: Copy Release Collaterals to GNR Host
+        env:
+          GNR_PASSWORD: ${{ secrets.GNR_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          RELEASE_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/${CURRENT_VERSION}/release"
+          WINDOWS_DEST='C:\Users\CEFLS_User\Desktop\sunith\pkummara\pkummara\IFWI_INC_PDB\test'
+          GNR_HOST="10.138.186.168"
+          GNR_USER=".\CEFLS_User"
+          CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
+
+          [ -d "$RELEASE_PATH" ] || { echo "Release path not found: $RELEASE_PATH"; exit 1; }
+
+          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f)
+          [ -n "$INC_FILES" ] || { echo "No .inc files found in $RELEASE_PATH"; exit 1; }
+
+          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f)
+          [ -n "$PDB_FILES" ] || { echo "No .pdb files found in $RELEASE_PATH"; exit 1; }
+
+          for INC_FILE in $INC_FILES; do
+            FILENAME=$(basename "$INC_FILE")
+            export SRC_FILE="$INC_FILE"
+            export FILENAME="$FILENAME"
+            export GNR_USER="$GNR_USER"
+            export GNR_HOST="$GNR_HOST"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+            /usr/bin/expect .github/scripts/scp_transfer_gnr.exp || exit 1
+          done
+
+          for PDB_FILE in $PDB_FILES; do
+            FILENAME=$(basename "$PDB_FILE")
+            export SRC_FILE="$PDB_FILE"
+            export FILENAME="$FILENAME"
+            export GNR_USER="$GNR_USER"
+            export GNR_HOST="$GNR_HOST"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+            /usr/bin/expect .github/scripts/scp_transfer_gnr.exp || exit 1
+          done
+
+  call-gnr-login:
+    needs: [session-management, copy-release-collaterals]
+    if: ${{ success() }}
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/logingnr.yml@master
+    secrets: inherit
+    with:
+      session_id: ${{ needs.session-management.outputs.session_id }}
+      trigger_source: ${{ needs.session-management.outputs.trigger_source }}
+      callback_url: ${{ needs.session-management.outputs.callback_url }}
+
+  call-read-gnr-pipeline-result:
+    needs: [session-management, call-gnr-login]
+    if: ${{ success() }}
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/Read_GNR_Pipeline_Result.yml@master
+    secrets: inherit
+    with:
+      session_id: ${{ needs.session-management.outputs.session_id }}
+      trigger_source: ${{ needs.session-management.outputs.trigger_source }}
+      callback_url: ${{ needs.session-management.outputs.callback_url }}
+
+  notify-final-result:
+    runs-on: [self-hosted, Linux, X64, gnrdebugbuild]
+    needs: [session-management, read-json, patch-build, copy-release-collaterals, call-gnr-login, call-read-gnr-pipeline-result]
     if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
 
     steps:
@@ -705,22 +803,39 @@ jobs:
 
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
+          PIPELINE_STATUS="UNKNOWN"
+
+          if [ "${{ needs.call-read-gnr-pipeline-result.result }}" = "success" ]; then
+            PIPELINE_STATUS="PASSED"
+          elif [ "${{ needs.call-read-gnr-pipeline-result.result }}" = "failure" ]; then
+            PIPELINE_STATUS="FAILED"
+          elif [ "${{ needs.call-read-gnr-pipeline-result.result }}" = "cancelled" ]; then
+            PIPELINE_STATUS="CANCELLED"
+          fi
 
           BUILD_STATUS="unknown"
           BUILD_MESSAGE="Build completed with unknown status"
 
-          if [ "${{ needs.patch-build.result }}" = "success" ]; then
-            BUILD_STATUS="success"
-            BUILD_MESSAGE="GNR Debug patch build completed successfully"
-          elif [ "${{ needs.patch-build.result }}" = "failure" ]; then
+          if [ "${{ needs.patch-build.result }}" = "success" ] && [ "${{ needs.copy-release-collaterals.result }}" = "success" ]; then
+            if [ "$PIPELINE_STATUS" = "PASSED" ]; then
+              BUILD_STATUS="success"
+              BUILD_MESSAGE="GNR Debug patch build and pipeline completed successfully"
+            elif [ "$PIPELINE_STATUS" = "FAILED" ]; then
+              BUILD_STATUS="pipeline_failed"
+              BUILD_MESSAGE="GNR Debug patch build completed but pipeline failed"
+            elif [ "$PIPELINE_STATUS" = "CANCELLED" ]; then
+              BUILD_STATUS="pipeline_cancelled"
+              BUILD_MESSAGE="GNR Debug patch build completed but pipeline was cancelled"
+            else
+              BUILD_STATUS="build_success_pipeline_unknown"
+              BUILD_MESSAGE="GNR Debug patch build completed successfully, pipeline status unknown"
+            fi
+          else
             BUILD_STATUS="build_failed"
             BUILD_MESSAGE="GNR Debug patch build failed"
-          elif [ "${{ needs.patch-build.result }}" = "cancelled" ]; then
-            BUILD_STATUS="build_cancelled"
-            BUILD_MESSAGE="GNR Debug patch build was cancelled"
           fi
 
-          PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","build_results":{"patch_build":"%s"},"final_summary":{"json_filename":"%s","build_description":"%s","config_file":"%s","github_repository":"%s","workflow_url":"%s"}}' \
+          PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","pipeline_status":"%s","build_results":{"patch_build":"%s","copy_collaterals":"%s","gnr_login":"%s","pipeline_result":"%s"},"final_summary":{"json_filename":"%s","build_description":"%s","config_file":"%s","github_repository":"%s","workflow_url":"%s"}}' \
             "$SESSION_ID" \
             "$BUILD_STATUS" \
             "$BUILD_MESSAGE" \
@@ -728,7 +843,11 @@ jobs:
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             "${{ needs.read-json.outputs.current_version }}" \
             "${{ needs.session-management.outputs.trigger_source }}" \
+            "$PIPELINE_STATUS" \
             "${{ needs.patch-build.result }}" \
+            "${{ needs.copy-release-collaterals.result }}" \
+            "${{ needs.call-gnr-login.result }}" \
+            "${{ needs.call-read-gnr-pipeline-result.result }}" \
             "${{ github.event.inputs.json_filename }}" \
             "${{ github.event.inputs.build_description }}" \
             "config_${{ needs.read-json.outputs.current_version }}.ini" \
