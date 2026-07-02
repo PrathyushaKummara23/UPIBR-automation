@@ -331,7 +331,6 @@ jobs:
             value="$(echo "$value" | xargs)"
             [ -n "$value" ] && [ "$value" != "null" ]
           }
-
           milestone=$(extract_section1_value "Milestone")
           patch_desc=$(extract_section1_value "patch_description")
           version=$(extract_section1_value "version")
@@ -631,23 +630,16 @@ jobs:
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
-          OUTPUT_FILE="/tmp/gnr_build_output_${CURRENT_VERSION}_${{ github.run_id }}.log"
-
-          rm -f "$OUTPUT_FILE" || true
 
           set +e
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env OUTPUT_FILE="$OUTPUT_FILE" CSS_PASSWORD="$CSS_PASSWORD" bash -c "
-            set -uo pipefail
+          BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
 
             cat > automated_build_expect.exp <<'EOF'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
           set css_password \$env(CSS_PASSWORD)
-          set output_file \$env(OUTPUT_FILE)
 
-          log_user 0
-          log_file -noappend \$output_file
           spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
 
           expect {
@@ -675,27 +667,24 @@ jobs:
           EOF
 
             chmod +x automated_build_expect.exp
-
-            set +e
-            ./automated_build_expect.exp
+            export CSS_PASSWORD='$CSS_PASSWORD'
+            ./automated_build_expect.exp 2>&1
             BUILD_EXIT=\$?
-            set -e
-
             rm -f automated_build_expect.exp
             exit \$BUILD_EXIT
-          "
+          " )
           BUILD_EXIT_CODE=$?
           set -e
 
-          if grep -q "FAILURE --" "$OUTPUT_FILE"; then
+          echo "$BUILD_RESULT"
+
+          if echo "$BUILD_RESULT" | grep -q "FAILURE --"; then
             echo "Detected failure text in build output"
-            grep -E "FAILURE --|Error Occurred|Refer to the file" "$OUTPUT_FILE" || true
             exit 1
           fi
 
           if [ "$BUILD_EXIT_CODE" -ne 0 ]; then
             echo "GNR debug build failed with exit code: $BUILD_EXIT_CODE"
-            tail -50 "$OUTPUT_FILE" || true
             exit "$BUILD_EXIT_CODE"
           fi
 
