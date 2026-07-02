@@ -9,11 +9,11 @@ on:
         type: string
       pcode_path:
         description: 'Pcode drop path for GNR_R1S registration'
-        required: true
+        required: false
         type: string
       stepping:
         description: 'Stepping'
-        required: true
+        required: false
         type: choice
         options:
           - B0
@@ -52,7 +52,7 @@ env:
 
 jobs:
   session-management:
-    runs-on: [self-hosted, Linux, X64, gnrr1sregistration]
+    runs-on: [self-hosted, Linux, X64, gnrr1sregister]
     outputs:
       session_id: ${{ steps.session.outputs.session_id }}
       trigger_source: ${{ steps.session.outputs.trigger_source }}
@@ -98,7 +98,7 @@ jobs:
           EOF
 
   validate-inputs:
-    runs-on: [self-hosted, Linux, X64, gnrr1sregistration]
+    runs-on: [self-hosted, Linux, X64, gnrr1sregister]
     needs: session-management
     outputs:
       parent_config_ini: ${{ steps.validate.outputs.parent_config_ini }}
@@ -154,7 +154,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   notify-registration-start:
-    runs-on: [self-hosted, Linux, X64, gnrr1sregistration]
+    runs-on: [self-hosted, Linux, X64, gnrr1sregister]
     needs: [session-management, validate-inputs]
     if: ${{ needs.session-management.outputs.callback_url != '' }}
 
@@ -181,7 +181,7 @@ jobs:
             -d "$START_PAYLOAD" || echo "Failed to send start notification"
 
   register-ingredients:
-    runs-on: [self-hosted, Linux, X64, gnrr1sregistration]
+    runs-on: [self-hosted, Linux, X64, gnrr1sregister]
     needs: [session-management, validate-inputs]
     outputs:
       registration_status: ${{ steps.result.outputs.registration_status }}
@@ -225,7 +225,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   notify-final-result:
-    runs-on: [self-hosted, Linux, X64, gnrr1sregistration]
+    runs-on: [self-hosted, Linux, X64, gnrr1sregister]
     needs: [session-management, validate-inputs, register-ingredients]
     if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
 
