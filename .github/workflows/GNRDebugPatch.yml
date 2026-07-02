@@ -632,7 +632,8 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
 
-          BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env CSS_PASSWORD="$CSS_PASSWORD" bash -c "
+            set -euo pipefail
             cd '${{ env.BUILD_BASE_PATH }}'
 
             cat > automated_build_expect.exp <<'EOF'
@@ -667,16 +668,11 @@ jobs:
           EOF
 
             chmod +x automated_build_expect.exp
-            export CSS_PASSWORD='$CSS_PASSWORD'
-            ./automated_build_expect.exp 2>&1
+            ./automated_build_expect.exp
             BUILD_EXIT=\$?
             rm -f automated_build_expect.exp
             exit \$BUILD_EXIT
-          " )
-
-          BUILD_EXIT_CODE=$?
-          echo "$BUILD_RESULT"
-          [ "$BUILD_EXIT_CODE" -eq 0 ] || exit "$BUILD_EXIT_CODE"
+          " 
 
       - name: Verify Automated Build Results
         env:
