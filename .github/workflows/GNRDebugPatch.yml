@@ -331,6 +331,7 @@ jobs:
             value="$(echo "$value" | xargs)"
             [ -n "$value" ] && [ "$value" != "null" ]
           }
+
           milestone=$(extract_section1_value "Milestone")
           patch_desc=$(extract_section1_value "patch_description")
           version=$(extract_section1_value "version")
@@ -351,8 +352,11 @@ jobs:
           pcode_c_path=$(extract_staging_area "pcode-c")
           s3m_path=$(extract_staging_area "s3m")
 
-          if [ -z "$patch_desc" ] || [ "$patch_desc" = "null" ] || [ "$patch_desc" = " " ]; then
+          trimmed_patch_desc="$(echo "$patch_desc" | xargs)"
+          if [ -z "$trimmed_patch_desc" ] || [ "$trimmed_patch_desc" = "null" ]; then
             patch_desc="GNR Debug patch $milestone"
+          else
+            patch_desc="$trimmed_patch_desc"
           fi
 
           sed -i "s/^version = .*/version = $version/" "$CONFIG_FILE"
@@ -642,6 +646,7 @@ jobs:
           set css_password \$env(CSS_PASSWORD)
           set output_file \$env(OUTPUT_FILE)
 
+          log_user 0
           log_file -noappend \$output_file
           spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
 
@@ -682,15 +687,15 @@ jobs:
           BUILD_EXIT_CODE=$?
           set -e
 
-          cat "$OUTPUT_FILE" || true
-
           if grep -q "FAILURE --" "$OUTPUT_FILE"; then
             echo "Detected failure text in build output"
+            grep -E "FAILURE --|Error Occurred|Refer to the file" "$OUTPUT_FILE" || true
             exit 1
           fi
 
           if [ "$BUILD_EXIT_CODE" -ne 0 ]; then
             echo "GNR debug build failed with exit code: $BUILD_EXIT_CODE"
+            tail -50 "$OUTPUT_FILE" || true
             exit "$BUILD_EXIT_CODE"
           fi
 
