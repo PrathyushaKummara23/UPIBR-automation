@@ -52,7 +52,6 @@ env:
   SSL_CERT_FILE: /var/lib/ca-certificates/ca-bundle.pem
   REQUESTS_CA_BUNDLE: /var/lib/ca-certificates/ca-bundle.pem
   NO_PROXY: localhost,127.0.0.1,.intel.com,fiv-ifwi.intel.com,af01p-sc.devtools.intel.com
-  no_proxy: localhost,127.0.0.1,.intel.com,fiv-ifwi.intel.com,af01p-sc.devtools.intel.com
 
 jobs:
   session-management:
@@ -123,6 +122,7 @@ jobs:
           echo "KRB5CCNAME=${KRB5CCNAME:-}"
           echo "SSL_CERT_FILE=${SSL_CERT_FILE:-}"
           echo "REQUESTS_CA_BUNDLE=${REQUESTS_CA_BUNDLE:-}"
+          echo "NO_PROXY=${NO_PROXY:-}"
           env | egrep 'HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|REQUESTS_CA_BUNDLE|SSL_CERT_FILE|KRB5' || true
           klist || true
           ls -l /tmp/krb5cc_* || true
@@ -134,7 +134,7 @@ jobs:
 
           unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
           export NO_PROXY="${{ env.NO_PROXY }}"
-          export no_proxy="${{ env.no_proxy }}"
+          export no_proxy="$NO_PROXY"
           export SSL_CERT_FILE="${{ env.SSL_CERT_FILE }}"
           export REQUESTS_CA_BUNDLE="${{ env.REQUESTS_CA_BUNDLE }}"
 
