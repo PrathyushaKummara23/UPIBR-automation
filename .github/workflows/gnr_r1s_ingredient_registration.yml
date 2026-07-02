@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       parent_config_ini:
-        description: 'Parent GNR config ini path (example: /nfs/site/disks/dcsg_0729/patches/GNR/B0/build/81000360/release/config_81000360.ini)'
+        description: 'Parent GNR config ini path'
         required: true
         type: string
       pcode_path:
@@ -19,7 +19,7 @@ on:
           - B0
         default: B0
       trigger_source:
-        description: 'Source that triggered this workflow (python_script, web_gui, api_call, manual)'
+        description: 'Source that triggered this workflow'
         required: true
         type: choice
         options:
@@ -29,15 +29,15 @@ on:
           - manual
         default: manual
       callback_url:
-        description: 'Callback URL for sending results back to trigger source'
+        description: 'Callback URL'
         required: false
         type: string
       session_id:
-        description: 'Session ID for tracking this registration request'
+        description: 'Session ID'
         required: false
         type: string
       requester_info:
-        description: 'Information about who/what requested this registration (JSON format)'
+        description: 'Requester info JSON'
         required: false
         type: string
         default: '{"user": "unknown", "timestamp": ""}'
@@ -49,6 +49,10 @@ env:
   PYTHON_PATH: /usr/intel/bin/python3.7.4
   COPYINGR_CLI_PATH: /nfs/site/disks/dcsg_0729/fxt-tools/MUPPT_GNRWS/ManageIngredients/copyIngr_cli.py
   PROGRAM: GNR_R1S
+  SSL_CERT_FILE: /var/lib/ca-certificates/ca-bundle.pem
+  REQUESTS_CA_BUNDLE: /var/lib/ca-certificates/ca-bundle.pem
+  NO_PROXY: localhost,127.0.0.1,.intel.com,fiv-ifwi.intel.com,af01p-sc.devtools.intel.com
+  no_proxy: localhost,127.0.0.1,.intel.com,fiv-ifwi.intel.com,af01p-sc.devtools.intel.com
 
 jobs:
   session-management:
@@ -58,44 +62,21 @@ jobs:
       trigger_source: ${{ steps.session.outputs.trigger_source }}
       callback_url: ${{ steps.session.outputs.callback_url }}
       requester_info: ${{ steps.session.outputs.requester_info }}
-
     steps:
       - name: Initialize Session Information
         id: session
         shell: bash
         run: |
           set -euo pipefail
-
           if [ -n "${{ github.event.inputs.session_id }}" ]; then
             SESSION_ID="${{ github.event.inputs.session_id }}"
           else
             SESSION_ID="gnr_r1s_reg_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
           fi
-
-          TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
-          CALLBACK_URL="${{ github.event.inputs.callback_url }}"
-          REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
-
           echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
-          echo "trigger_source=$TRIGGER_SOURCE" >> "$GITHUB_OUTPUT"
-          echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
-          echo "requester_info=$REQUESTER_INFO" >> "$GITHUB_OUTPUT"
-
-          SESSION_FILE="/tmp/gnr_r1s_registration_${SESSION_ID}.json"
-          cat > "$SESSION_FILE" <<EOF
-          {
-            "session_id": "$SESSION_ID",
-            "trigger_source": "$TRIGGER_SOURCE",
-            "callback_url": "$CALLBACK_URL",
-            "requester_info": $REQUESTER_INFO,
-            "workflow_run_id": "${{ github.run_id }}",
-            "repository": "${{ github.repository }}",
-            "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "parent_config_ini": "${{ github.event.inputs.parent_config_ini }}",
-            "pcode_path": "${{ github.event.inputs.pcode_path }}",
-            "stepping": "${{ github.event.inputs.stepping }}"
-          }
-          EOF
+          echo "trigger_source=${{ github.event.inputs.trigger_source }}" >> "$GITHUB_OUTPUT"
+          echo "callback_url=${{ github.event.inputs.callback_url }}" >> "$GITHUB_OUTPUT"
+          echo "requester_info=${{ github.event.inputs.requester_info }}" >> "$GITHUB_OUTPUT"
 
   validate-inputs:
     runs-on: [self-hosted, Linux, X64, gnrr1sregister]
@@ -104,25 +85,19 @@ jobs:
       parent_config_ini: ${{ steps.validate.outputs.parent_config_ini }}
       pcode_path: ${{ steps.validate.outputs.pcode_path }}
       stepping: ${{ steps.validate.outputs.stepping }}
-
     steps:
       - name: Validate required paths and tools
         id: validate
         shell: bash
         run: |
           set -euo pipefail
-
           PARENT_CONFIG="${{ github.event.inputs.parent_config_ini }}"
           PCODE_PATH="${{ github.event.inputs.pcode_path }}"
           STEPPING="${{ github.event.inputs.stepping }}"
-          PYTHON_BIN="${{ env.PYTHON_PATH }}"
-          CLI_SCRIPT="${{ env.COPYINGR_CLI_PATH }}"
-
-          [ -f "$PYTHON_BIN" ] || { echo "Python not found: $PYTHON_BIN"; exit 1; }
-          [ -f "$CLI_SCRIPT" ] || { echo "CLI script not found: $CLI_SCRIPT"; exit 1; }
+          [ -f "${{ env.PYTHON_PATH }}" ] || { echo "Python not found: ${{ env.PYTHON_PATH }}"; exit 1; }
+          [ -f "${{ env.COPYINGR_CLI_PATH }}" ] || { echo "CLI script not found: ${{ env.COPYINGR_CLI_PATH }}"; exit 1; }
           [ -f "$PARENT_CONFIG" ] || { echo "Parent config not found: $PARENT_CONFIG"; exit 1; }
           [ -d "$PCODE_PATH" ] || { echo "Pcode path not found: $PCODE_PATH"; exit 1; }
-
           echo "parent_config_ini=$PARENT_CONFIG" >> "$GITHUB_OUTPUT"
           echo "pcode_path=$PCODE_PATH" >> "$GITHUB_OUTPUT"
           echo "stepping=$STEPPING" >> "$GITHUB_OUTPUT"
@@ -131,67 +106,47 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           "${{ env.PYTHON_PATH }}" "${{ env.COPYINGR_CLI_PATH }}" \
             --config "${{ steps.validate.outputs.parent_config_ini }}" \
             --program "${{ env.PROGRAM }}" \
             --dry-run
 
-      - name: Create Summary
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          {
-            echo "# GNR_R1S Ingredient Registration"
-            echo ""
-            echo "**Session ID:** \`${{ needs.session-management.outputs.session_id }}\`"
-            echo "**Trigger Source:** \`${{ needs.session-management.outputs.trigger_source }}\`"
-            echo "**Parent Config:** \`${{ steps.validate.outputs.parent_config_ini }}\`"
-            echo "**Pcode Path:** \`${{ steps.validate.outputs.pcode_path }}\`"
-            echo "**Stepping:** \`${{ steps.validate.outputs.stepping }}\`"
-            echo "**Program:** \`${{ env.PROGRAM }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  notify-registration-start:
-    runs-on: [self-hosted, Linux, X64, gnrr1sregister]
-    needs: [session-management, validate-inputs]
-    if: ${{ needs.session-management.outputs.callback_url != '' }}
-
-    steps:
-      - name: Send Registration Start Notification
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
-          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
-          START_PAYLOAD=$(printf '{"session_id":"%s","status":"registration_started","message":"GNR_R1S ingredient registration has started","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","parent_config_ini":"%s","pcode_path":"%s","stepping":"%s"}' \
-            "$SESSION_ID" \
-            "${{ github.run_id }}" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "${{ needs.session-management.outputs.trigger_source }}" \
-            "${{ needs.validate-inputs.outputs.parent_config_ini }}" \
-            "${{ needs.validate-inputs.outputs.pcode_path }}" \
-            "${{ needs.validate-inputs.outputs.stepping }}")
-
-          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$START_PAYLOAD" || echo "Failed to send start notification"
-
   register-ingredients:
     runs-on: [self-hosted, Linux, X64, gnrr1sregister]
     needs: [session-management, validate-inputs]
-    outputs:
-      registration_status: ${{ steps.result.outputs.registration_status }}
-
     steps:
-      - name: Run GNR_R1S Ingredient Registration
-        id: register
+      - name: Debug auth and env
         shell: bash
         run: |
           set -euo pipefail
+          whoami
+          echo "KRB5CCNAME=${KRB5CCNAME:-}"
+          echo "SSL_CERT_FILE=${SSL_CERT_FILE:-}"
+          echo "REQUESTS_CA_BUNDLE=${REQUESTS_CA_BUNDLE:-}"
+          env | egrep 'HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|REQUESTS_CA_BUNDLE|SSL_CERT_FILE|KRB5' || true
+          klist || true
+          ls -l /tmp/krb5cc_* || true
+
+      - name: Run GNR_R1S Ingredient Registration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+          export NO_PROXY="${{ env.NO_PROXY }}"
+          export no_proxy="${{ env.no_proxy }}"
+          export SSL_CERT_FILE="${{ env.SSL_CERT_FILE }}"
+          export REQUESTS_CA_BUNDLE="${{ env.REQUESTS_CA_BUNDLE }}"
+
+          if [ -z "${KRB5CCNAME:-}" ]; then
+            KRB_CACHE=$(ls /tmp/krb5cc_* 2>/dev/null | head -1 || true)
+            if [ -n "$KRB_CACHE" ]; then
+              export KRB5CCNAME="FILE:$KRB_CACHE"
+            fi
+          fi
+
+          echo "Using KRB5CCNAME=${KRB5CCNAME:-unset}"
+          klist || true
 
           "${{ env.PYTHON_PATH }}" "${{ env.COPYINGR_CLI_PATH }}" \
             --config "${{ needs.validate-inputs.outputs.parent_config_ini }}" \
@@ -202,71 +157,14 @@ jobs:
             --pcode-path "${{ needs.validate-inputs.outputs.pcode_path }}" \
             --stepping "${{ needs.validate-inputs.outputs.stepping }}"
 
-      - name: Mark Registration Success
-        id: result
-        if: ${{ success() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "registration_status=success" >> "$GITHUB_OUTPUT"
-
       - name: Append Success Summary
         if: ${{ success() }}
         shell: bash
         run: |
-          set -euo pipefail
           {
+            echo "# GNR_R1S Ingredient Registration"
             echo ""
-            echo "## Registration Result"
+            echo "Registration completed successfully."
             echo ""
-            echo "GNR_R1S ingredient registration completed successfully."
-            echo ""
-            echo "Next step: manually trigger the **GNR_R1S Debug Patch Build** workflow."
+            echo "Next step: manually trigger the GNR_R1S Debug Patch Build workflow."
           } >> "$GITHUB_STEP_SUMMARY"
-
-  notify-final-result:
-    runs-on: [self-hosted, Linux, X64, gnrr1sregister]
-    needs: [session-management, validate-inputs, register-ingredients]
-    if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
-
-    steps:
-      - name: Send Final Result Notification
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
-          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
-          REG_STATUS="unknown"
-          REG_MESSAGE="Registration completed with unknown status"
-
-          if [ "${{ needs.register-ingredients.result }}" = "success" ]; then
-            REG_STATUS="success"
-            REG_MESSAGE="GNR_R1S ingredient registration completed successfully"
-          elif [ "${{ needs.register-ingredients.result }}" = "failure" ]; then
-            REG_STATUS="registration_failed"
-            REG_MESSAGE="GNR_R1S ingredient registration failed"
-          elif [ "${{ needs.register-ingredients.result }}" = "cancelled" ]; then
-            REG_STATUS="registration_cancelled"
-            REG_MESSAGE="GNR_R1S ingredient registration was cancelled"
-          fi
-
-          PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","registration_results":{"register_ingredients":"%s"},"final_summary":{"parent_config_ini":"%s","pcode_path":"%s","stepping":"%s","program":"%s","github_repository":"%s","workflow_url":"%s","next_step":"Manually trigger the GNR_R1S Debug Patch Build workflow after successful registration"}}' \
-            "$SESSION_ID" \
-            "$REG_STATUS" \
-            "$REG_MESSAGE" \
-            "${{ github.run_id }}" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "${{ needs.session-management.outputs.trigger_source }}" \
-            "${{ needs.register-ingredients.result }}" \
-            "${{ needs.validate-inputs.outputs.parent_config_ini }}" \
-            "${{ needs.validate-inputs.outputs.pcode_path }}" \
-            "${{ needs.validate-inputs.outputs.stepping }}" \
-            "${{ env.PROGRAM }}" \
-            "${{ github.repository }}" \
-            "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
-
-          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" || echo "Failed to send final notification"
