@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       pcode_path:
-        description: 'Pcode drop path for GNR_R1S registration'
+        description: 'Optional Pcode drop path for GNR_R1S registration'
         required: false
         type: string
       stepping:
@@ -84,6 +84,7 @@ jobs:
       parent_config_ini: ${{ steps.validate.outputs.parent_config_ini }}
       pcode_path: ${{ steps.validate.outputs.pcode_path }}
       stepping: ${{ steps.validate.outputs.stepping }}
+      has_pcode: ${{ steps.validate.outputs.has_pcode }}
     steps:
       - name: Validate required paths and tools
         id: validate
@@ -93,13 +94,21 @@ jobs:
           PARENT_CONFIG="${{ github.event.inputs.parent_config_ini }}"
           PCODE_PATH="${{ github.event.inputs.pcode_path }}"
           STEPPING="${{ github.event.inputs.stepping }}"
+
           [ -f "${{ env.PYTHON_PATH }}" ] || { echo "Python not found: ${{ env.PYTHON_PATH }}"; exit 1; }
           [ -f "${{ env.COPYINGR_CLI_PATH }}" ] || { echo "CLI script not found: ${{ env.COPYINGR_CLI_PATH }}"; exit 1; }
           [ -f "$PARENT_CONFIG" ] || { echo "Parent config not found: $PARENT_CONFIG"; exit 1; }
-          [ -d "$PCODE_PATH" ] || { echo "Pcode path not found: $PCODE_PATH"; exit 1; }
+
+          HAS_PCODE=false
+          if [ -n "$PCODE_PATH" ]; then
+            [ -d "$PCODE_PATH" ] || { echo "Pcode path not found: $PCODE_PATH"; exit 1; }
+            HAS_PCODE=true
+          fi
+
           echo "parent_config_ini=$PARENT_CONFIG" >> "$GITHUB_OUTPUT"
           echo "pcode_path=$PCODE_PATH" >> "$GITHUB_OUTPUT"
           echo "stepping=$STEPPING" >> "$GITHUB_OUTPUT"
+          echo "has_pcode=$HAS_PCODE" >> "$GITHUB_OUTPUT"
 
       - name: Dry Run Validation
         shell: bash
@@ -127,11 +136,10 @@ jobs:
           klist || true
           ls -l /tmp/krb5cc_* || true
 
-      - name: Run GNR_R1S Ingredient Registration
+      - name: Run reusable ingredient registration
         shell: bash
         run: |
           set -euo pipefail
-
           unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
           export NO_PROXY="${{ env.NO_PROXY }}"
           export no_proxy="$NO_PROXY"
@@ -152,7 +160,32 @@ jobs:
             --config "${{ needs.validate-inputs.outputs.parent_config_ini }}" \
             --program "${{ env.PROGRAM }}" \
             --copy-reusable \
-            --upload-reusable \
+            --upload-reusable
+
+      - name: Run optional Pcode upload
+        if: ${{ needs.validate-inputs.outputs.has_pcode == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+          export NO_PROXY="${{ env.NO_PROXY }}"
+          export no_proxy="$NO_PROXY"
+          export SSL_CERT_FILE="${{ env.SSL_CERT_FILE }}"
+          export REQUESTS_CA_BUNDLE="${{ env.REQUESTS_CA_BUNDLE }}"
+
+          if [ -z "${KRB5CCNAME:-}" ]; then
+            KRB_CACHE=$(ls /tmp/krb5cc_* 2>/dev/null | head -1 || true)
+            if [ -n "$KRB_CACHE" ]; then
+              export KRB5CCNAME="FILE:$KRB_CACHE"
+            fi
+          fi
+
+          echo "Using KRB5CCNAME=${KRB5CCNAME:-unset}"
+          klist || true
+
+          "${{ env.PYTHON_PATH }}" "${{ env.COPYINGR_CLI_PATH }}" \
+            --config "${{ needs.validate-inputs.outputs.parent_config_ini }}" \
+            --program "${{ env.PROGRAM }}" \
             --upload-pcode \
             --pcode-path "${{ needs.validate-inputs.outputs.pcode_path }}" \
             --stepping "${{ needs.validate-inputs.outputs.stepping }}"
@@ -164,7 +197,12 @@ jobs:
           {
             echo "# GNR_R1S Ingredient Registration"
             echo ""
-            echo "Registration completed successfully."
+            echo "Reusable ingredient registration completed successfully."
+            if [ "${{ needs.validate-inputs.outputs.has_pcode }}" = "true" ]; then
+              echo "Pcode upload was also executed."
+            else
+              echo "Pcode upload was skipped because no pcode_path was provided."
+            fi
             echo ""
             echo "Next step: manually trigger the GNR_R1S Debug Patch Build workflow."
           } >> "$GITHUB_STEP_SUMMARY"
