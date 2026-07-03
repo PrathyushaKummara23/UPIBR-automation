@@ -121,8 +121,7 @@ jobs:
             eof { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
           }
 
-          send "cd /d \"$script_dir\" && \"$python_path\" -u \"$script_path\" & echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
-
+          send "cmd /v:on /c \"set NO_PROXY=localhost,127.0.0.1 && set no_proxy=localhost,127.0.0.1 && cd /d \"$script_dir\" && \"$python_path\" -u \"$script_path\" ^& echo __PY_EXIT_CODE__=!ERRORLEVEL!\"\r"
           expect {
             "*>*" {
               set py_output $expect_out(buffer)
