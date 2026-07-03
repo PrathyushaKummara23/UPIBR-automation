@@ -58,7 +58,7 @@ jobs:
           GNR_PASSWORD: ${{ secrets.GNR_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           echo "================================================="
           echo "  GNR SSH Login - Post Build Auto Login"
@@ -69,31 +69,42 @@ jobs:
           set timeout 3000
           set password $env(GNR_PASSWORD)
 
-          spawn ssh -T -o StrictHostKeyChecking=no .\\CEFLS_User@10.138.186.168
+          spawn ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.168
 
           expect {
             "*assword:*" { send "$password\r" }
-            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
+            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
+            "Connection refused" { puts "FAILURE: SSH connection refused"; exit 1 }
+            "Could not resolve hostname" { puts "FAILURE: Hostname resolution failed"; exit 1 }
+            "No route to host" { puts "FAILURE: No route to host"; exit 1 }
+            timeout { puts "FAILURE: Connection timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session terminated before password prompt"; exit 1 }
           }
 
           expect {
+            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
+            "*assword:*" { puts "FAILURE: Password rejected"; exit 1 }
             "*>*" { send "whoami\r" }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after login"; exit 1 }
           }
 
           expect {
             "*>*" { send "cd C:\\pkummara\\scripts\r" }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
           }
 
           expect {
             "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after cd"; exit 1 }
           }
 
           expect {
             "*>*" { send "exit\r" }
             timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+            eof { puts "FAILURE: SSH session closed while waiting for script completion"; exit 1 }
           }
 
           expect eof
@@ -101,8 +112,12 @@ jobs:
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
           echo "Connecting to GNR host via SSH..."
+
+          set +e
           /usr/bin/expect /tmp/ssh_login_${{ github.run_id }}.exp
           SSH_EXIT=$?
+          set -e
+
           rm -f /tmp/ssh_login_${{ github.run_id }}.exp
 
           if [ $SSH_EXIT -eq 0 ]; then
@@ -116,18 +131,21 @@ jobs:
         if: ${{ inputs.callback_url != '' }}
         shell: bash
         run: |
+          set -euo pipefail
+
           echo "Sending GNR login notification..."
 
           CALLBACK_URL="${{ inputs.callback_url }}"
           SESSION_ID="${{ inputs.session_id }}"
 
           if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"gnr_login_completed","message":"GNR login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","gnr_login_details":{"host":"10.138.186.168","user":".\\\\CEFLS_User","login_timestamp":"%s"}}' \
+            PAYLOAD=$(printf '{"session_id":"%s","status":"gnr_login_completed","message":"GNR login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","gnr_login_details":{"host":"10.138.186.168","user":"CEFLS_User","login_timestamp":"%s"}}' \
               "$SESSION_ID" \
               "${{ github.run_id }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               "${{ inputs.trigger_source }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+
             curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" || echo "Failed to send GNR login notification"
