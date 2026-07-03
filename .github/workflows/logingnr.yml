@@ -124,31 +124,51 @@ jobs:
           send "cd /d \"$script_dir\" && \"$python_path\" -u \"$script_path\" & echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
 
           expect {
-            "PHASE 0 FAILED" {
-              puts "FAILURE: Remote script reported PHASE 0 FAILED"
-              exit 1
-            }
-            "Traceback (most recent call last)" {
-              puts "FAILURE: Python script threw an exception"
-              exit 1
-            }
-            "can't open file" {
-              puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
-              exit 1
-            }
-            "No such file or directory" {
-              puts "FAILURE: Python script path is invalid"
-              exit 1
-            }
-            -re {__PY_EXIT_CODE__=([0-9]+)} {
-              set py_exit $expect_out(1,string)
-              if {$py_exit ne "0"} {
-                puts "FAILURE: Remote Python exited with code $py_exit"
+            "*>*" {
+              set py_output $expect_out(buffer)
+
+              if {[string match -nocase "*PHASE 0 FAILED*" $py_output]} {
+                puts "FAILURE: Remote script reported PHASE 0 FAILED"
+                puts $py_output
                 exit 1
               }
-              exp_continue
+
+              if {[string match -nocase "*Stitch and burn flow failed*" $py_output]} {
+                puts "FAILURE: Remote script reported stitch/burn failure"
+                puts $py_output
+                exit 1
+              }
+
+              if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
+                puts "FAILURE: Python script threw an exception"
+                puts $py_output
+                exit 1
+              }
+
+              if {[string match -nocase "*can't open file*" $py_output]} {
+                puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
+                puts $py_output
+                exit 1
+              }
+
+              if {[string match -nocase "*No such file or directory*" $py_output]} {
+                puts "FAILURE: Python script path is invalid"
+                puts $py_output
+                exit 1
+              }
+
+              if {[regexp {__PY_EXIT_CODE__=([0-9]+)} $py_output -> py_exit]} {
+                if {$py_exit ne "0"} {
+                  puts "FAILURE: Remote Python exited with code $py_exit"
+                  puts $py_output
+                  exit 1
+                }
+              } else {
+                puts "FAILURE: Could not determine remote Python exit code"
+                puts $py_output
+                exit 1
+              }
             }
-            "*>*" {}
             timeout { puts "FAILURE: Python script did not complete"; exit 1 }
             eof { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
           }
