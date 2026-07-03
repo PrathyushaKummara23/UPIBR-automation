@@ -69,6 +69,9 @@ jobs:
           set timeout 3000
           set password $env(GNR_PASSWORD)
 
+          set script_path "C:\\Users\\CEFLS_User\\Desktop\\sunith\\pkummara\\pkummara\\scripts\\deploy_reboot_wrapper.py"
+          set python_path "C:\\Python310\\python.exe"
+
           spawn ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.168
 
           expect {
@@ -90,21 +93,37 @@ jobs:
           }
 
           expect {
-            "*>*" { send "cd C:\\pkummara\\scripts\r" }
-            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+            "elfleet056\\cefls_user" {}
+            timeout { puts "FAILURE: whoami did not return expected user"; exit 1 }
             eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
           }
 
           expect {
-            "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
-            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
-            eof { puts "FAILURE: SSH session closed after cd"; exit 1 }
+            "*>*" { send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r" }
+            timeout { puts "FAILURE: Prompt not received after whoami"; exit 1 }
+            eof { puts "FAILURE: SSH session closed before script existence check"; exit 1 }
           }
 
           expect {
+            "SCRIPT_FOUND" {}
+            "SCRIPT_MISSING" { puts "FAILURE: deploy_reboot_wrapper.py not found at expected path"; exit 1 }
+            timeout { puts "FAILURE: Script existence check timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session closed during script existence check"; exit 1 }
+          }
+
+          expect {
+            "*>*" { send "\"$python_path\" -u \"$script_path\"\r" }
+            timeout { puts "FAILURE: Prompt not received before running Python script"; exit 1 }
+            eof { puts "FAILURE: SSH session closed before Python execution"; exit 1 }
+          }
+
+          expect {
+            "can't open file" { puts "FAILURE: Python could not open deploy_reboot_wrapper.py"; exit 1 }
+            "No such file or directory" { puts "FAILURE: Python script path is invalid"; exit 1 }
+            "Traceback (most recent call last)" { puts "FAILURE: Python script threw an exception"; exp_continue }
             "*>*" { send "exit\r" }
             timeout { puts "FAILURE: Python script did not complete"; exit 1 }
-            eof { puts "FAILURE: SSH session closed while waiting for script completion"; exit 1 }
+            eof { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
           }
 
           expect eof
