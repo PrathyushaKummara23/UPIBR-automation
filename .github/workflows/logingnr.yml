@@ -87,23 +87,26 @@ jobs:
           expect {
             "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
             "*assword:*" { puts "FAILURE: Password rejected"; exit 1 }
-            "*>*" { send "whoami\r" }
+            "*>*" {}
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
             eof { puts "FAILURE: SSH session closed after login"; exit 1 }
           }
 
+          send "whoami\r"
           expect {
-            "elfleet056\\cefls_user" {}
-            timeout { puts "FAILURE: whoami did not return expected user"; exit 1 }
+            "*>*" {
+              set whoami_output $expect_out(buffer)
+              if {![string match -nocase "*elfleet056\\\\cefls_user*" $whoami_output]} {
+                puts "FAILURE: whoami did not return expected user"
+                puts "WHOAMI OUTPUT: $whoami_output"
+                exit 1
+              }
+            }
+            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
             eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
           }
 
-          expect {
-            "*>*" { send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r" }
-            timeout { puts "FAILURE: Prompt not received after whoami"; exit 1 }
-            eof { puts "FAILURE: SSH session closed before script existence check"; exit 1 }
-          }
-
+          send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r"
           expect {
             "SCRIPT_FOUND" {}
             "SCRIPT_MISSING" { puts "FAILURE: deploy_reboot_wrapper.py not found at expected path"; exit 1 }
@@ -112,20 +115,22 @@ jobs:
           }
 
           expect {
-            "*>*" { send "\"$python_path\" -u \"$script_path\"\r" }
-            timeout { puts "FAILURE: Prompt not received before running Python script"; exit 1 }
-            eof { puts "FAILURE: SSH session closed before Python execution"; exit 1 }
+            "*>*" {}
+            timeout { puts "FAILURE: Prompt not received after script existence check"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
           }
 
+          send "\"$python_path\" -u \"$script_path\"\r"
           expect {
             "can't open file" { puts "FAILURE: Python could not open deploy_reboot_wrapper.py"; exit 1 }
             "No such file or directory" { puts "FAILURE: Python script path is invalid"; exit 1 }
             "Traceback (most recent call last)" { puts "FAILURE: Python script threw an exception"; exp_continue }
-            "*>*" { send "exit\r" }
+            "*>*" {}
             timeout { puts "FAILURE: Python script did not complete"; exit 1 }
             eof { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
           }
 
+          send "exit\r"
           expect eof
           EOF
 
