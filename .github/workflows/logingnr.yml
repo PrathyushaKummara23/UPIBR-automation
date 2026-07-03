@@ -66,10 +66,11 @@ jobs:
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 3000
+          set timeout 7200
           set password $env(GNR_PASSWORD)
 
-          set script_path "C:\\Users\\CEFLS_User\\Desktop\\sunith\\pkummara\\pkummara\\scripts\\deploy_reboot_wrapper.py"
+          set script_dir "C:\\pkummara\\scripts"
+          set script_path "C:\\pkummara\\scripts\\deploy_reboot_wrapper.py"
           set python_path "C:\\Python310\\python.exe"
 
           spawn ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.168
@@ -120,11 +121,33 @@ jobs:
             eof { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
           }
 
-          send "\"$python_path\" -u \"$script_path\"\r"
+          send "cd /d \"$script_dir\" && \"$python_path\" -u \"$script_path\" & echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
+
           expect {
-            "can't open file" { puts "FAILURE: Python could not open deploy_reboot_wrapper.py"; exit 1 }
-            "No such file or directory" { puts "FAILURE: Python script path is invalid"; exit 1 }
-            "Traceback (most recent call last)" { puts "FAILURE: Python script threw an exception"; exp_continue }
+            "PHASE 0 FAILED" {
+              puts "FAILURE: Remote script reported PHASE 0 FAILED"
+              exit 1
+            }
+            "Traceback (most recent call last)" {
+              puts "FAILURE: Python script threw an exception"
+              exit 1
+            }
+            "can't open file" {
+              puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
+              exit 1
+            }
+            "No such file or directory" {
+              puts "FAILURE: Python script path is invalid"
+              exit 1
+            }
+            -re {__PY_EXIT_CODE__=([0-9]+)} {
+              set py_exit $expect_out(1,string)
+              if {$py_exit ne "0"} {
+                puts "FAILURE: Remote Python exited with code $py_exit"
+                exit 1
+              }
+              exp_continue
+            }
             "*>*" {}
             timeout { puts "FAILURE: Python script did not complete"; exit 1 }
             eof { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
