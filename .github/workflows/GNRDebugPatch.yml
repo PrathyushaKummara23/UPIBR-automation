@@ -739,7 +739,7 @@ jobs:
           RELEASE_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/${CURRENT_VERSION}/release"
           WINDOWS_DEST='C:\Users\CEFLS_User\Desktop\sunith\pkummara\pkummara\IFWI_INC_PDB\test'
           GNR_HOST="10.138.186.168"
-          GNR_USER=".\CEFLS_User"
+          GNR_USER="CEFLS_User"
           CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
 
           [ -d "$RELEASE_PATH" ] || { echo "Release path not found: $RELEASE_PATH"; exit 1; }
