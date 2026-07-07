@@ -381,7 +381,18 @@ jobs:
           if has_value "$s3m_path"; then sed -i "s|^s3m = .*|s3m = $s3m_path|" "$CONFIG_FILE"; fi
           if has_value "$pcode_io_path"; then sed -i "s|^pcode-io = .*|pcode-io = $pcode_io_path|" "$CONFIG_FILE"; fi
           if has_value "$pcode_c_path"; then sed -i "s|^pcode-c = .*|pcode-c = $pcode_c_path|" "$CONFIG_FILE"; fi
-          if has_value "$ucode_path"; then sed -i "s|^ucode = .*|ucode = $ucode_path|" "$CONFIG_FILE"; fi
+
+          if has_value "$ucode_path"; then
+            sed -i "s|^ucode = .*|ucode = $ucode_path|" "$CONFIG_FILE"
+
+            ucode_base_dir="$(dirname "$ucode_path")"
+            ucode_config_path="${ucode_base_dir}/patch_default_server.patch"
+            ucode_template_path="${ucode_base_dir}/patch_template.template"
+
+            sed -i "s|^ucode_config = .*|ucode_config = $ucode_config_path|" "$CONFIG_FILE"
+            sed -i "s|^ucode_template = .*|ucode_template = $ucode_template_path|" "$CONFIG_FILE"
+          fi
+
           if has_value "$xucode_path"; then sed -i "s|^xucode = .*|xucode = $xucode_path|" "$CONFIG_FILE"; fi
           if has_value "$mcheck_path"; then sed -i "s|^mcheck = .*|mcheck = $mcheck_path|" "$CONFIG_FILE"; fi
 
