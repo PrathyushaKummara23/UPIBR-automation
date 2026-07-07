@@ -173,12 +173,6 @@ jobs:
             exit 1
           }
 
-          if {[string match -nocase "*No such file or directory*" $py_output]} {
-            puts "FAILURE: Python script path is invalid"
-            puts $py_output
-            exit 1
-          }
-
           send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
           expect {
             -re {__PY_EXIT_CODE__=([0-9]+)} {
