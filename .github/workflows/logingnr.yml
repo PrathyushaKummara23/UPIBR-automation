@@ -69,7 +69,6 @@ jobs:
           set timeout 7200
           set password $env(GNR_PASSWORD)
 
-          set script_dir "C:\\pkummara\\scripts"
           set script_path "C:\\pkummara\\scripts\\deploy_reboot_wrapper.py"
           set python_path "C:\\Python310\\python.exe"
 
@@ -120,56 +119,92 @@ jobs:
             timeout { puts "FAILURE: Prompt not received after script existence check"; exit 1 }
             eof { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
           }
-          
-          send "cmd /v:on /c \"set NO_PROXY=localhost,127.0.0.1 && set no_proxy=localhost,127.0.0.1 && $python_path -u $script_path ^& echo __PY_EXIT_CODE__=!ERRORLEVEL!\"\r"
+
+          send "set NO_PROXY=localhost,127.0.0.1\r"
+          expect {
+            "*>*" {}
+            timeout { puts "FAILURE: setting NO_PROXY timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session closed while setting NO_PROXY"; exit 1 }
+          }
+
+          send "set no_proxy=localhost,127.0.0.1\r"
+          expect {
+            "*>*" {}
+            timeout { puts "FAILURE: setting no_proxy timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session closed while setting no_proxy"; exit 1 }
+          }
+
+          send "$python_path -u $script_path\r"
           expect {
             "*>*" {
               set py_output $expect_out(buffer)
+            }
+            timeout {
+              puts "FAILURE: Python script did not complete"
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH session closed while waiting for Python script completion"
+              exit 1
+            }
+          }
 
-              if {[string match -nocase "*PHASE 0 FAILED*" $py_output]} {
-                puts "FAILURE: Remote script reported PHASE 0 FAILED"
-                puts $py_output
-                exit 1
-              }
+          if {[string match -nocase "*PHASE 0 FAILED*" $py_output]} {
+            puts "FAILURE: Remote script reported PHASE 0 FAILED"
+            puts $py_output
+            exit 1
+          }
 
-              if {[string match -nocase "*Stitch and burn flow failed*" $py_output]} {
-                puts "FAILURE: Remote script reported stitch/burn failure"
-                puts $py_output
-                exit 1
-              }
+          if {[string match -nocase "*Stitch and burn flow failed*" $py_output]} {
+            puts "FAILURE: Remote script reported stitch/burn failure"
+            puts $py_output
+            exit 1
+          }
 
-              if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
-                puts "FAILURE: Python script threw an exception"
-                puts $py_output
-                exit 1
-              }
+          if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
+            puts "FAILURE: Python script threw an exception"
+            puts $py_output
+            exit 1
+          }
 
-              if {[string match -nocase "*can't open file*" $py_output]} {
-                puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
-                puts $py_output
-                exit 1
-              }
+          if {[string match -nocase "*can't open file*" $py_output]} {
+            puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
+            puts $py_output
+            exit 1
+          }
 
-              if {[string match -nocase "*No such file or directory*" $py_output]} {
-                puts "FAILURE: Python script path is invalid"
-                puts $py_output
-                exit 1
-              }
+          if {[string match -nocase "*No such file or directory*" $py_output]} {
+            puts "FAILURE: Python script path is invalid"
+            puts $py_output
+            exit 1
+          }
 
-              if {[regexp {__PY_EXIT_CODE__=([0-9]+)} $py_output -> py_exit]} {
-                if {$py_exit ne "0"} {
-                  puts "FAILURE: Remote Python exited with code $py_exit"
-                  puts $py_output
-                  exit 1
-                }
-              } else {
-                puts "FAILURE: Could not determine remote Python exit code"
+          send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
+          expect {
+            -re {__PY_EXIT_CODE__=([0-9]+)} {
+              set py_exit $expect_out(1,string)
+              if {$py_exit ne "0"} {
+                puts "FAILURE: Remote Python exited with code $py_exit"
                 puts $py_output
                 exit 1
               }
             }
-            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
-            eof { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
+            timeout {
+              puts "FAILURE: Could not determine remote Python exit code"
+              puts $py_output
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH session closed while reading Python exit code"
+              puts $py_output
+              exit 1
+            }
+          }
+
+          expect {
+            "*>*" {}
+            timeout { puts "FAILURE: Prompt not received after exit code check"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after exit code check"; exit 1 }
           }
 
           send "exit\r"
