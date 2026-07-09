@@ -314,16 +314,39 @@ jobs:
             [ -n "$value" ] && [ "$value" != "null" ]
           }
 
-          normalize_hex_0x() {
+          preserve_value() {
             local value="$1"
             value="$(echo "$value" | xargs)"
-            if [ -z "$value" ] || [ "$value" = "null" ]; then
+            if [ "$value" = "null" ]; then
+              echo ""
+            else
+              echo "$value"
+            fi
+          }
+
+          format_like_existing_field() {
+            local field_name="$1"
+            local new_value="$2"
+            local config_file="$3"
+
+            new_value="$(preserve_value "$new_value")"
+            if [ -z "$new_value" ]; then
               echo ""
               return
             fi
-            value="${value#0x}"
-            value="${value#0X}"
-            echo "0x$value"
+
+            local existing_value
+            existing_value=$(grep -E "^${field_name} = " "$config_file" | head -1 | cut -d'=' -f2- | xargs || true)
+
+            if [[ "$existing_value" =~ ^0[xX] ]]; then
+              new_value="${new_value#0x}"
+              new_value="${new_value#0X}"
+              echo "0x$new_value"
+            else
+              new_value="${new_value#0x}"
+              new_value="${new_value#0X}"
+              echo "$new_value"
+            fi
           }
 
           milestone=$(extract_section1_value "Milestone")
@@ -335,12 +358,12 @@ jobs:
           min_runtime_id=$(extract_section1_value "min_runtime_id")
           prev_version=$(extract_section1_value "prev_version")
 
-          version=$(normalize_hex_0x "$version")
-          prev_version=$(normalize_hex_0x "$prev_version")
-          svn=$(normalize_hex_0x "$svn")
-          se_svn=$(normalize_hex_0x "$se_svn")
-          min_svn=$(normalize_hex_0x "$min_svn")
-          min_runtime_id=$(normalize_hex_0x "$min_runtime_id")
+          version=$(format_like_existing_field "version" "$version" "$CONFIG_FILE")
+          prev_version=$(format_like_existing_field "prev_version" "$prev_version" "$CONFIG_FILE")
+          svn=$(format_like_existing_field "svn" "$svn" "$CONFIG_FILE")
+          se_svn=$(format_like_existing_field "se_svn" "$se_svn" "$CONFIG_FILE")
+          min_svn=$(format_like_existing_field "min_svn" "$min_svn" "$CONFIG_FILE")
+          min_runtime_id=$(format_like_existing_field "min_runtime_id" "$min_runtime_id" "$CONFIG_FILE")
 
           ucode_path=$(extract_staging_area "ucode")
           xucode_path=$(extract_staging_area "xucode")
