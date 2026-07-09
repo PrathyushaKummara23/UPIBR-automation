@@ -69,13 +69,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           if [ -n "${{ github.event.inputs.session_id }}" ]; then
             SESSION_ID="${{ github.event.inputs.session_id }}"
           else
             SESSION_ID="session_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
           fi
-
           TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
           CALLBACK_URL="${{ github.event.inputs.callback_url }}"
           REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
@@ -114,16 +112,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
           REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
           BRANCH="${{ github.ref_name }}"
-
           mkdir -p "$PARENT_DIR"
           cd "$PARENT_DIR"
-
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
@@ -135,7 +130,6 @@ jobs:
             git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
             cd "$WORKDIR"
           fi
-
           git config --global --add safe.directory "$WORKDIR"
 
       - name: Validate JSON file exists
@@ -143,13 +137,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
           if [ ! -f "$JSON_FILE" ]; then
             echo "Error: JSON file '${{ github.event.inputs.json_filename }}' not found"
             exit 1
           fi
-
           echo "json_path=$JSON_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Extract and Display Values
@@ -157,7 +149,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE="${{ steps.validate.outputs.json_path }}"
 
           extract_section1_value() {
@@ -172,8 +163,9 @@ jobs:
 
           version=$(extract_section1_value "version")
           prev_version=$(extract_section1_value "prev_version")
-          clean_prev_version=$(echo "$prev_version" | sed 's/0x//')
-          clean_current_version=$(echo "$version" | sed 's/0x//')
+
+          clean_prev_version=$(echo "$prev_version" | sed 's/^0x//I')
+          clean_current_version=$(echo "$version" | sed 's/^0x//I')
 
           echo "previous_version=$clean_prev_version" >> "$GITHUB_OUTPUT"
           echo "current_version=$clean_current_version" >> "$GITHUB_OUTPUT"
@@ -192,7 +184,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE="${{ steps.validate.outputs.json_path }}"
           {
             echo "# GNR_R1S Debug Patch Build Pipeline"
@@ -217,10 +208,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
           START_PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"GNR_R1S Debug patch build has started","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","json_filename":"%s","build_description":"%s"}' \
             "$SESSION_ID" \
             "${{ github.run_id }}" \
@@ -229,7 +218,6 @@ jobs:
             "${{ needs.session-management.outputs.trigger_source }}" \
             "${{ github.event.inputs.json_filename }}" \
             "${{ github.event.inputs.build_description }}")
-
           curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
             -d "$START_PAYLOAD" || echo "Failed to send start notification"
@@ -244,7 +232,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           BUILD_PATH="${{ env.GNR_R1S_BUILD_PATH }}"
@@ -279,16 +266,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
           REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
           BRANCH="${{ github.ref_name }}"
-
           mkdir -p "$PARENT_DIR"
           cd "$PARENT_DIR"
-
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
@@ -300,14 +284,12 @@ jobs:
             git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
             cd "$WORKDIR"
           fi
-
           git config --global --add safe.directory "$WORKDIR"
 
       - name: Update Config File with JSON Values
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE="${{ needs.read-json.outputs.json_path }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           DEST_PATH="${{ env.BUILD_BASE_PATH }}"
@@ -332,6 +314,18 @@ jobs:
             [ -n "$value" ] && [ "$value" != "null" ]
           }
 
+          normalize_hex_0x() {
+            local value="$1"
+            value="$(echo "$value" | xargs)"
+            if [ -z "$value" ] || [ "$value" = "null" ]; then
+              echo ""
+              return
+            fi
+            value="${value#0x}"
+            value="${value#0X}"
+            echo "0x$value"
+          }
+
           milestone=$(extract_section1_value "Milestone")
           patch_desc=$(extract_section1_value "patch_description")
           version=$(extract_section1_value "version")
@@ -340,6 +334,13 @@ jobs:
           min_svn=$(extract_section1_value "min_svn")
           min_runtime_id=$(extract_section1_value "min_runtime_id")
           prev_version=$(extract_section1_value "prev_version")
+
+          version=$(normalize_hex_0x "$version")
+          prev_version=$(normalize_hex_0x "$prev_version")
+          svn=$(normalize_hex_0x "$svn")
+          se_svn=$(normalize_hex_0x "$se_svn")
+          min_svn=$(normalize_hex_0x "$min_svn")
+          min_runtime_id=$(normalize_hex_0x "$min_runtime_id")
 
           ucode_path=$(extract_staging_area "ucode")
           xucode_path=$(extract_staging_area "xucode")
@@ -384,11 +385,9 @@ jobs:
 
           if has_value "$ucode_path"; then
             sed -i "s|^ucode = .*|ucode = $ucode_path|" "$CONFIG_FILE"
-
             ucode_base_dir="$(dirname "$ucode_path")"
             ucode_config_path="${ucode_base_dir}/patch_default_server.patch"
             ucode_template_path="${ucode_base_dir}/patch_template.template"
-
             sed -i "s|^ucode_config = .*|ucode_config = $ucode_config_path|" "$CONFIG_FILE"
             sed -i "s|^ucode_template = .*|ucode_template = $ucode_template_path|" "$CONFIG_FILE"
           fi
@@ -415,7 +414,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${CURRENT_VERSION}.ini"
           cat "$CONFIG_FILE"
@@ -432,7 +430,6 @@ jobs:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
-
           if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
             echo "REPO_PUSH_TOKEN secret is empty or unavailable"
             exit 1
@@ -511,7 +508,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
           CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
@@ -538,12 +534,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
           CONFIG_CONTENTS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             cat '$CONFIG_PATH'
           " )
-
           echo "$CONFIG_CONTENTS"
 
   kerberos-setup:
@@ -558,7 +552,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" whoami )
           [ "$CURRENT_USER" = "${{ env.FACELESS_USER }}" ] || exit 1
 
@@ -569,11 +562,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
           " )
-
           echo "$KTAB_RESULT"
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
@@ -585,11 +576,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           KCRON_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
           " )
-
           echo "$KCRON_RESULT"
           if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
@@ -607,7 +596,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" whoami )
           [ "$CURRENT_USER" = "${{ env.FACELESS_USER }}" ] || exit 1
 
@@ -617,7 +605,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           PYTHON_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           " )
@@ -627,7 +614,6 @@ jobs:
           EXPECT_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           " )
-
           [[ "$PYTHON_CHECK" == "EXISTS" ]] || exit 1
           [[ "$FXT_CHECK" == "EXISTS" ]] || exit 1
           [[ "$EXPECT_CHECK" == "EXISTS" ]] || exit 1
@@ -639,51 +625,95 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
 
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env CSS_PASSWORD="$CSS_PASSWORD" bash -c "
-            set -euo pipefail
-            cd '${{ env.BUILD_BASE_PATH }}'
+          set +e
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env CSS_PASSWORD="$CSS_PASSWORD" CONFIG_FILE="$CONFIG_FILE" bash <<'EOF'
+          set -uo pipefail
+          cd '${{ env.BUILD_BASE_PATH }}'
 
-            cat > automated_build_expect.exp <<'EOF'
+          cat > automated_build_expect.exp <<'EOT'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
-          set css_password \$env(CSS_PASSWORD)
-
-          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
-
+          set css_password $env(CSS_PASSWORD)
+          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $env(CONFIG_FILE)
           expect {
-            \"Enter your CSS password:\" {
-              send \"\$css_password\r\"
+            "Enter your CSS password:" {
+              send "$css_password\r"
               exp_continue
             }
-            \"Enter your CSS password: \" {
-              send \"\$css_password\r\"
+            "Enter your CSS password: " {
+              send "$css_password\r"
               exp_continue
             }
-            -re \".*assword.*\" {
-              send \"\$css_password\r\"
+            -re ".*assword.*" {
+              send "$css_password\r"
               exp_continue
             }
             eof {
               catch wait result
-              exit [lindex \$result 3]
+              exit [lindex $result 3]
             }
             timeout {
-              puts \"Automated build timed out after 30 minutes\"
+              puts "Automated build timed out after 30 minutes"
               exit 124
             }
           }
-          EOF
+          EOT
 
-            chmod +x automated_build_expect.exp
-            ./automated_build_expect.exp
-            BUILD_EXIT=\$?
-            rm -f automated_build_expect.exp
-            exit \$BUILD_EXIT
-          " 
+          chmod +x automated_build_expect.exp
+
+          set +e
+          ./automated_build_expect.exp
+          BUILD_EXIT=$?
+          set -e
+
+          rm -f automated_build_expect.exp
+          exit $BUILD_EXIT
+          EOF
+          BUILD_EXIT=$?
+          set -e
+
+          if [ "$BUILD_EXIT" -ne 0 ]; then
+            echo "Patch build failed with exit code $BUILD_EXIT"
+            exit "$BUILD_EXIT"
+          fi
+
+      - name: Check build log for explicit failures
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          LOG_FILE="${{ env.BUILD_BASE_PATH }}/PatchBuild_${CURRENT_VERSION}.log"
+
+          set +e
+          LOG_STATUS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
+            if [ -f '$LOG_FILE' ]; then
+              if grep -Eiq 'FAILURE --|Error Occurred\. Exiting the Program|Invalid Patch Version Number' '$LOG_FILE'; then
+                echo FAILED
+              else
+                echo OK
+              fi
+            else
+              echo LOG_NOT_FOUND
+            fi
+          " )
+          set -e
+
+          echo "Log status: $LOG_STATUS"
+
+          if [ "$LOG_STATUS" = "FAILED" ]; then
+            echo "Patch build log contains failure markers"
+            exit 1
+          fi
+
+          if [ "$LOG_STATUS" = "LOG_NOT_FOUND" ]; then
+            echo "Patch build log not found: $LOG_FILE"
+            exit 1
+          fi
 
       - name: Verify Automated Build Results
         env:
@@ -691,7 +721,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           VERIFICATION_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
@@ -700,7 +729,6 @@ jobs:
             find . -name '*debug*' -o -name '*css-debug*' 2>/dev/null | head -10 || true
             find . -name '*${CURRENT_VERSION}*' 2>/dev/null | head -10 || true
           " )
-
           echo "$VERIFICATION_RESULT"
 
   copy-release-collaterals:
@@ -715,16 +743,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
           REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
           BRANCH="${{ github.ref_name }}"
-
           mkdir -p "$PARENT_DIR"
           cd "$PARENT_DIR"
-
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
@@ -736,7 +761,6 @@ jobs:
             git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
             cd "$WORKDIR"
           fi
-
           git config --global --add safe.directory "$WORKDIR"
 
       - name: Copy Release Collaterals to GNR Host
@@ -745,7 +769,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           RELEASE_PATH="/nfs/site/disks/dcsg_0729/patches/GNR_R1S/B0/build/${CURRENT_VERSION}/release"
           WINDOWS_DEST='C:/pkummara/IFWI_INC_PDB/test'
@@ -811,11 +834,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-          PIPELINE_STATUS="UNKNOWN"
 
+          PIPELINE_STATUS="UNKNOWN"
           if [ "${{ needs.call-read-gnr-pipeline-result.result }}" = "success" ]; then
             PIPELINE_STATUS="PASSED"
           elif [ "${{ needs.call-read-gnr-pipeline-result.result }}" = "failure" ]; then
