@@ -172,8 +172,8 @@ jobs:
 
           version=$(extract_section1_value "version")
           prev_version=$(extract_section1_value "prev_version")
-          clean_prev_version=$(echo "$prev_version" | sed 's/0x//')
-          clean_current_version=$(echo "$version" | sed 's/0x//')
+          clean_prev_version=$(echo "$prev_version" | sed 's/^0x//I')
+          clean_current_version=$(echo "$version" | sed 's/^0x//I')
 
           echo "previous_version=$clean_prev_version" >> "$GITHUB_OUTPUT"
           echo "current_version=$clean_current_version" >> "$GITHUB_OUTPUT"
@@ -332,6 +332,41 @@ jobs:
             [ -n "$value" ] && [ "$value" != "null" ]
           }
 
+          preserve_value() {
+            local value="$1"
+            value="$(echo "$value" | xargs)"
+            if [ "$value" = "null" ]; then
+              echo ""
+            else
+              echo "$value"
+            fi
+          }
+
+          format_like_existing_field() {
+            local field_name="$1"
+            local new_value="$2"
+            local config_file="$3"
+
+            new_value="$(preserve_value "$new_value")"
+            if [ -z "$new_value" ]; then
+              echo ""
+              return
+            fi
+
+            local existing_value
+            existing_value=$(grep -E "^${field_name} = " "$config_file" | head -1 | cut -d'=' -f2- | xargs || true)
+
+            if [[ "$existing_value" =~ ^0[xX] ]]; then
+              new_value="${new_value#0x}"
+              new_value="${new_value#0X}"
+              echo "0x$new_value"
+            else
+              new_value="${new_value#0x}"
+              new_value="${new_value#0X}"
+              echo "$new_value"
+            fi
+          }
+
           milestone=$(extract_section1_value "Milestone")
           patch_desc=$(extract_section1_value "patch_description")
           version=$(extract_section1_value "version")
@@ -340,6 +375,13 @@ jobs:
           min_svn=$(extract_section1_value "min_svn")
           min_runtime_id=$(extract_section1_value "min_runtime_id")
           prev_version=$(extract_section1_value "prev_version")
+
+          version=$(format_like_existing_field "version" "$version" "$CONFIG_FILE")
+          prev_version=$(format_like_existing_field "prev_version" "$prev_version" "$CONFIG_FILE")
+          svn=$(format_like_existing_field "svn" "$svn" "$CONFIG_FILE")
+          se_svn=$(format_like_existing_field "se_svn" "$se_svn" "$CONFIG_FILE")
+          min_svn=$(format_like_existing_field "min_svn" "$min_svn" "$CONFIG_FILE")
+          min_runtime_id=$(format_like_existing_field "min_runtime_id" "$min_runtime_id" "$CONFIG_FILE")
 
           ucode_path=$(extract_staging_area "ucode")
           xucode_path=$(extract_staging_area "xucode")
@@ -643,47 +685,95 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
 
-          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env CSS_PASSWORD="$CSS_PASSWORD" bash -c "
-            set -euo pipefail
-            cd '${{ env.BUILD_BASE_PATH }}'
+          set +e
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env CSS_PASSWORD="$CSS_PASSWORD" CONFIG_FILE="$CONFIG_FILE" bash <<'EOF'
+          set -uo pipefail
+          cd '${{ env.BUILD_BASE_PATH }}'
 
-            cat > automated_build_expect.exp <<'EOF'
+          cat > automated_build_expect.exp <<'EOT'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
-          set css_password \$env(CSS_PASSWORD)
+          set css_password $env(CSS_PASSWORD)
 
-          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
+          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $env(CONFIG_FILE)
 
           expect {
-            \"Enter your CSS password:\" {
-              send \"\$css_password\r\"
+            "Enter your CSS password:" {
+              send "$css_password\r"
               exp_continue
             }
-            \"Enter your CSS password: \" {
-              send \"\$css_password\r\"
+            "Enter your CSS password: " {
+              send "$css_password\r"
               exp_continue
             }
-            -re \".*assword.*\" {
-              send \"\$css_password\r\"
+            -re ".*assword.*" {
+              send "$css_password\r"
               exp_continue
             }
             eof {
               catch wait result
-              exit [lindex \$result 3]
+              exit [lindex $result 3]
             }
             timeout {
-              puts \"Automated build timed out after 30 minutes\"
+              puts "Automated build timed out after 30 minutes"
               exit 124
             }
           }
-          EOF
+          EOT
 
-            chmod +x automated_build_expect.exp
-            ./automated_build_expect.exp
-            BUILD_EXIT=\$?
-            rm -f automated_build_expect.exp
-            exit \$BUILD_EXIT
-          " 
+          chmod +x automated_build_expect.exp
+
+          set +e
+          ./automated_build_expect.exp
+          BUILD_EXIT=$?
+          set -e
+
+          rm -f automated_build_expect.exp
+          exit $BUILD_EXIT
+          EOF
+          BUILD_EXIT=$?
+          set -e
+
+          if [ "$BUILD_EXIT" -ne 0 ]; then
+            echo "Patch build failed with exit code $BUILD_EXIT"
+            exit "$BUILD_EXIT"
+          fi
+
+      - name: Check build log for explicit failures
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          LOG_FILE="${{ env.BUILD_BASE_PATH }}/PatchBuild_${CURRENT_VERSION}.log"
+
+          set +e
+          LOG_STATUS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
+            if [ -f '$LOG_FILE' ]; then
+              if grep -Eiq 'FAILURE --|Error Occurred\. Exiting the Program|Invalid Patch Version Number' '$LOG_FILE'; then
+                echo FAILED
+              else
+                echo OK
+              fi
+            else
+              echo LOG_NOT_FOUND
+            fi
+          " )
+          set -e
+
+          echo "Log status: $LOG_STATUS"
+
+          if [ "$LOG_STATUS" = "FAILED" ]; then
+            echo "Patch build log contains failure markers"
+            exit 1
+          fi
+
+          if [ "$LOG_STATUS" = "LOG_NOT_FOUND" ]; then
+            echo "Patch build log not found: $LOG_FILE"
+            exit 1
+          fi
 
       - name: Verify Automated Build Results
         env:
