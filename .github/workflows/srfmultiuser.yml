@@ -326,18 +326,80 @@ jobs:
           }
 
           has_value() {
-            local value="$1"
+            local value="${1:-}"
             [ -n "$value" ] && [ "$value" != "null" ] && [ "$value" != "" ]
           }
 
-          milestone=$(extract_section1_value "Milestone")
-          patch_desc=$(extract_section1_value "patch_description")
-          version=$(extract_section1_value "version")
-          svn=$(extract_section1_value "svn")
-          se_svn=$(extract_section1_value "se_svn")
-          min_svn=$(extract_section1_value "min_svn")
-          min_runtime_id=$(extract_section1_value "min_runtime_id")
-          prev_version=$(extract_section1_value "prev_version")
+          trim_value() {
+            local v="${1:-}"
+            v="$(echo "$v" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+            [ "$v" = "null" ] && v=""
+            echo "$v"
+          }
+
+          to_int() {
+            local v
+            v="$(trim_value "${1:-}")"
+            [ -z "$v" ] && { echo ""; return; }
+
+            if [[ "$v" =~ ^0[xX][0-9a-fA-F]+$ ]]; then
+              local hex="${v#0x}"
+              hex="${hex#0X}"
+              echo $((16#$hex))
+            elif [[ "$v" =~ ^[0-9]+$ ]]; then
+              echo $((10#$v))
+            else
+              echo ""
+            fi
+          }
+
+          normalize_svn() {
+            local n
+            n="$(to_int "$1")"
+            [ -z "$n" ] && { echo ""; return; }
+            printf "0x%02X" "$n"
+          }
+
+          normalize_se_svn() {
+            local n
+            n="$(to_int "$1")"
+            [ -z "$n" ] && { echo ""; return; }
+            printf "0x%X" "$n"
+          }
+
+          normalize_min_svn() {
+            local n
+            n="$(to_int "$1")"
+            [ -z "$n" ] && { echo ""; return; }
+            printf "%d" "$n"
+          }
+
+          normalize_version_hex() {
+            local v
+            v="$(trim_value "$1")"
+            [ -z "$v" ] && { echo ""; return; }
+
+            if [[ "$v" =~ ^0[xX][0-9a-fA-F]+$ ]]; then
+              local hex="${v#0x}"
+              hex="${hex#0X}"
+              echo "0x${hex^^}"
+            elif [[ "$v" =~ ^[0-9a-fA-F]+$ ]]; then
+              echo "0x${v^^}"
+            else
+              echo ""
+            fi
+          }
+
+          milestone="$(trim_value "$(extract_section1_value "Milestone")")"
+          patch_desc="$(trim_value "$(extract_section1_value "patch_description")")"
+
+          version="$(normalize_version_hex "$(extract_section1_value "version")")"
+          prev_version="$(normalize_version_hex "$(extract_section1_value "prev_version")")"
+          svn="$(normalize_svn "$(extract_section1_value "svn")")"
+          se_svn="$(normalize_se_svn "$(extract_section1_value "se_svn")")"
+          min_svn="$(normalize_min_svn "$(extract_section1_value "min_svn")")"
+
+          min_runtime_id="$(trim_value "$(extract_section1_value "min_runtime_id")")"
 
           ucode_path=$(extract_staging_area "ucode")
           xucode_path=$(extract_staging_area "xucode")
@@ -350,7 +412,10 @@ jobs:
           pcode_c_path=$(extract_staging_area "pcode-c")
           s3m_path=$(extract_staging_area "s3m")
 
-          if [ -z "$patch_desc" ] || [ "$patch_desc" = "null" ] || [ "$patch_desc" = " " ]; then
+          has_value "$version" || { echo "Invalid/missing version in JSON"; exit 1; }
+          has_value "$prev_version" || { echo "Invalid/missing prev_version in JSON"; exit 1; }
+
+          if [ -z "$patch_desc" ] || [ "$patch_desc" = " " ]; then
             patch_desc="SRF Debug patch $milestone"
           fi
 
@@ -654,51 +719,50 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
 
-          BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            set -euo pipefail
             cd '${{ env.BUILD_BASE_PATH }}'
 
             cat > automated_build_expect.exp <<'EOF'
-          #!${{ env.EXPECT_PATH }} -f
-          set timeout 1800
-          set css_password \$env(CSS_PASSWORD)
+#!/usr/bin/expect -f
+set timeout 1800
+set css_password \$env(CSS_PASSWORD)
 
-          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
+spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
 
-          expect {
-            \"Enter your CSS password:\" {
-              send \"\$css_password\r\"
-              exp_continue
-            }
-            \"Enter your CSS password: \" {
-              send \"\$css_password\r\"
-              exp_continue
-            }
-            -re \".*assword.*\" {
-              send \"\$css_password\r\"
-              exp_continue
-            }
-            eof {
-              catch wait result
-              exit [lindex \$result 3]
-            }
-            timeout {
-              puts \"Automated build timed out after 30 minutes\"
-              exit 124
-            }
-          }
-          EOF
+expect {
+  \"Enter your CSS password:\" {
+    send \"\$css_password\r\"
+    exp_continue
+  }
+  \"Enter your CSS password: \" {
+    send \"\$css_password\r\"
+    exp_continue
+  }
+  -re \".*assword.*\" {
+    send \"\$css_password\r\"
+    exp_continue
+  }
+  eof {
+    catch wait result
+    exit [lindex \$result 3]
+  }
+  timeout {
+    puts \"Automated build timed out after 30 minutes\"
+    exit 124
+  }
+}
+EOF
 
             chmod +x automated_build_expect.exp
             export CSS_PASSWORD='$CSS_PASSWORD'
-            ./automated_build_expect.exp 2>&1
-            BUILD_EXIT=\$?
+            ./automated_build_expect.exp 2>&1 | tee patch_build_output.log
+            RC=\${PIPESTATUS[0]}
             rm -f automated_build_expect.exp
-            exit \$BUILD_EXIT
-          " )
 
-          BUILD_EXIT_CODE=$?
-          echo "$BUILD_RESULT"
-          [ "$BUILD_EXIT_CODE" -eq 0 ] || exit "$BUILD_EXIT_CODE"
+            grep -q 'FAILURE --' patch_build_output.log && exit 1
+            exit \$RC
+          "
 
       - name: Verify Automated Build Results
         env:
