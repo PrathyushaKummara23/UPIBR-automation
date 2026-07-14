@@ -3,17 +3,17 @@
         {
             "sr_no": 1,
             "check_list_item": "Milestone",
-            "entry": "UPLR"
+            "entry": "UPL"
         },
         {
             "sr_no": 2,
             "check_list_item": "patch_description",
-            "entry": "exp patch "
+            "entry": "SRF UPLR Debug Patch Release"
         },
         {
             "sr_no": 3,
             "check_list_item": "version",
-            "entry": "0x836103C1"
+            "entry": "0xF36003C2"
         },
         {
             "sr_no": 4,
@@ -43,7 +43,17 @@
         {
             "sr_no": 9,
             "check_list_item": "prev_version",
-            "entry": "0x830003C1"
+            "entry": ""
+        },
+        {
+            "sr_no": 10,
+            "check_list_item": "Rollback ID",
+            "entry": ""
+        },
+        {
+            "sr_no": 11,
+            "check_list_item": "UP Base Line Version",
+            "entry": "0x830003C2"
         }
     ],
     "ucode": [
