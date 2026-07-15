@@ -724,35 +724,35 @@ jobs:
             cd '${{ env.BUILD_BASE_PATH }}'
 
             cat > automated_build_expect.exp <<'EOF'
-#!/usr/bin/expect -f
-set timeout 1800
-set css_password \$env(CSS_PASSWORD)
+          #!/usr/bin/expect -f
+          set timeout 1800
+          set css_password \$env(CSS_PASSWORD)
 
-spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
+          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
 
-expect {
-  \"Enter your CSS password:\" {
-    send \"\$css_password\r\"
-    exp_continue
-  }
-  \"Enter your CSS password: \" {
-    send \"\$css_password\r\"
-    exp_continue
-  }
-  -re \".*assword.*\" {
-    send \"\$css_password\r\"
-    exp_continue
-  }
-  eof {
-    catch wait result
-    exit [lindex \$result 3]
-  }
-  timeout {
-    puts \"Automated build timed out after 30 minutes\"
-    exit 124
-  }
-}
-EOF
+          expect {
+            \"Enter your CSS password:\" {
+              send \"\$css_password\r\"
+              exp_continue
+            }
+            \"Enter your CSS password: \" {
+              send \"\$css_password\r\"
+              exp_continue
+            }
+            -re \".*assword.*\" {
+              send \"\$css_password\r\"
+              exp_continue
+            }
+            eof {
+              catch wait result
+              exit [lindex \$result 3]
+            }
+            timeout {
+              puts \"Automated build timed out after 30 minutes\"
+              exit 124
+            }
+          }
+          EOF
 
             chmod +x automated_build_expect.exp
             export CSS_PASSWORD='$CSS_PASSWORD'
