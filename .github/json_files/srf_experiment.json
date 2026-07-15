@@ -23,5 +23,107 @@
         "pcode-io": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww23_UPLR5_RC3/gnr_io_c0/pcode-io_enc_dbug.bin",
         "pcode-c": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww23_UPLR5_RC3/gnr_atom_b0/pcode-c_enc_dbug.bin",
         "s3m": ""
+    },
+    "section_2": {
+        "ucode": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "xucode": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "mcheck": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "tcode": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "acode": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "icode": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "oobmsm": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "pcode-io": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "pcode-c": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        },
+        "s3m": {
+            "SGX": { "entry": "" },
+            "TDX": { "entry": "" },
+            "SVN": { "entry": "" },
+            "SE_SVN": { "entry": "" },
+            "Unit Test Checking": { "entry": "" },
+            "Sanity Test": { "entry": "" },
+            "SDLE process": { "entry": "" },
+            "CTE PRE Si Val": { "entry": "" }
+        }
     }
 }
