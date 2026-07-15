@@ -752,7 +752,10 @@ jobs:
           BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
 
-            cat > automated_build_expect.exp <<'EOF'
+            EXP_FILE=\$(mktemp /tmp/automated_build_expect_XXXXXX.exp)
+            chmod +x \"\$EXP_FILE\"
+
+            cat > \"\$EXP_FILE\" <<'EOF'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
           set css_password \$env(CSS_PASSWORD)
@@ -783,11 +786,10 @@ jobs:
           }
           EOF
 
-            chmod +x automated_build_expect.exp
             export CSS_PASSWORD='$CSS_PASSWORD'
-            ./automated_build_expect.exp 2>&1
+            \"\$EXP_FILE\" 2>&1
             BUILD_EXIT=\$?
-            rm -f automated_build_expect.exp
+            rm -f \"\$EXP_FILE\"
             exit \$BUILD_EXIT
           " )
 
