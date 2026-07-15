@@ -210,6 +210,24 @@ jobs:
             fi
           done
 
+          echo "Section 2 checklist values:"
+          jq -r '
+            def checklist_items:
+              ["SGX", "TDX", "SVN", "SE_SVN", "Unit Test Checking", "Sanity Test", "SDLE process", "CTE PRE Si Val"];
+            def components:
+              ["ucode", "xucode", "mcheck", "tcode", "acode", "icode", "oobmsm", "pcode-io", "pcode-c", "s3m"];
+            def section2_value($component; $item):
+              if has("section_2") then
+                .section_2[$component][$item] // {"entry":""}
+              else
+                (.[$component][]? | select(.check_list_item == ($component + " " + $item)) | {entry: (.entry // "")}) // {"entry":""}
+              end;
+            components[] as $component |
+            checklist_items[] as $item |
+            section2_value($component; $item) as $value |
+            "\($component) \($item): entry=\($value.entry // "")"
+          ' "$JSON_FILE"
+
       - name: Create Summary
         shell: bash
         run: |
@@ -232,6 +250,26 @@ jobs:
               else
                 .section_1[] | "| \(.check_list_item) | \(.entry) |"
               end
+            ' "$JSON_FILE"
+            echo ""
+            echo "## Section 2 Checklist"
+            echo "| Component | Check | Entry |"
+            echo "|-----------|-------|-------|"
+            jq -r '
+              def checklist_items:
+                ["SGX", "TDX", "SVN", "SE_SVN", "Unit Test Checking", "Sanity Test", "SDLE process", "CTE PRE Si Val"];
+              def components:
+                ["ucode", "xucode", "mcheck", "tcode", "acode", "icode", "oobmsm", "pcode-io", "pcode-c", "s3m"];
+              def section2_value($component; $item):
+                if has("section_2") then
+                  .section_2[$component][$item] // {"entry":""}
+                else
+                  (.[$component][]? | select(.check_list_item == ($component + " " + $item)) | {entry: (.entry // "")}) // {"entry":""}
+                end;
+              components[] as $component |
+              checklist_items[] as $item |
+              section2_value($component; $item) as $value |
+              "| \($component) | \($item) | \($value.entry // "") |"
             ' "$JSON_FILE"
           } >> "$GITHUB_STEP_SUMMARY"
 
