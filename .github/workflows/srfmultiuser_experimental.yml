@@ -1,4 +1,4 @@
-name: SRF Debug UP Build - Complete Pipeline Experimental
+name: SRF Debug UP experiment
 
 # Edit common pipeline settings here instead of searching through the jobs below.
 env:
