@@ -582,14 +582,14 @@
         {
             "sr_no": 4,
             "check_list_item": "s3m SVN",
-            "selection": "Yes",
-            "entry": "123"
+            "selection": "No",
+            "entry": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "s3m SE_SVN",
-            "selection": "Yes",
-            "entry": "x789"
+            "selection": "No",
+            "entry": ""
         },
         {
             "sr_no": 6,
