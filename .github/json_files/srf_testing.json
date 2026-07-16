@@ -9,8 +9,6 @@
         "min_runtime_id": "",
         "patch_rollback_flags": "",
         "prev_version": "0x830003C2",
-        "Rollback ID": "",
-        "UP Base Line Version": "0x830003C2"
     },
     "components": {
         "ucode": "",
