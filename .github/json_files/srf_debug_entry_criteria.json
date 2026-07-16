@@ -3,17 +3,17 @@
         {
             "sr_no": 1,
             "check_list_item": "Milestone",
-            "entry": "UPL"
+            "entry": "UPLR5"
         },
         {
             "sr_no": 2,
             "check_list_item": "patch_description",
-            "entry": "SRF UPLR Debug Patch Release"
+            "entry": "SRF UPLR5 Debug Patch Release Candidate 3 "
         },
         {
             "sr_no": 3,
             "check_list_item": "version",
-            "entry": "0xF36003C2"
+            "entry": "0x830003C2"
         },
         {
             "sr_no": 4,
@@ -53,7 +53,7 @@
         {
             "sr_no": 11,
             "check_list_item": "UP Base Line Version",
-            "entry": "0x830003C2"
+            "entry": "0x830003C1"
         }
     ],
     "ucode": [
