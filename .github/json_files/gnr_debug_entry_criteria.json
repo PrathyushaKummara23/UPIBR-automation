@@ -33,7 +33,7 @@
         {
             "sr_no": 7,
             "check_list_item": "min_runtime_id",
-            "entry": " "
+            "entry": ""
         },
         {
             "sr_no": 8,
@@ -43,6 +43,16 @@
         {
             "sr_no": 9,
             "check_list_item": "prev_version",
+            "entry": " "
+        },
+        {
+            "sr_no": 10,
+            "check_list_item": "Rollback ID",
+            "entry": ""
+        },
+        {
+            "sr_no": 11,
+            "check_list_item": "UP Base Line Version",
             "entry": "0x81000442"
         }
     ],
