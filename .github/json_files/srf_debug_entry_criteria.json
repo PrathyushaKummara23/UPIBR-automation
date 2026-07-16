@@ -3,17 +3,17 @@
         {
             "sr_no": 1,
             "check_list_item": "Milestone",
-            "entry": "UPLR5"
+            "entry": "UPLR"
         },
         {
             "sr_no": 2,
             "check_list_item": "patch_description",
-            "entry": "SRF UPLR5 Debug Patch Release Candidate 3 "
+            "entry": "exp patch "
         },
         {
             "sr_no": 3,
             "check_list_item": "version",
-            "entry": "0x830003C2"
+            "entry": "0x836103C1"
         },
         {
             "sr_no": 4,
@@ -582,14 +582,14 @@
         {
             "sr_no": 4,
             "check_list_item": "s3m SVN",
-            "selection": "No",
-            "entry": ""
+            "selection": "Yes",
+            "entry": "123"
         },
         {
             "sr_no": 5,
             "check_list_item": "s3m SE_SVN",
-            "selection": "No",
-            "entry": ""
+            "selection": "Yes",
+            "entry": "x789"
         },
         {
             "sr_no": 6,
