@@ -296,22 +296,29 @@ jobs:
           PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           BUILD_PATH="${{ env.GNR_BUILD_PATH }}"
+          DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           VERSION_PATH="$BUILD_PATH/$PREV_VERSION"
           RELEASE_PATH="$VERSION_PATH/release"
           CONFIG_FILE="config_${PREV_VERSION}.ini"
           SOURCE_CONFIG="$RELEASE_PATH/$CONFIG_FILE"
-          DEST_PATH="${{ env.BUILD_BASE_PATH }}"
-          DEST_CONFIG="$DEST_PATH/$CONFIG_FILE"
           FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
 
-          [ -d "$VERSION_PATH" ] || { echo "Missing version path: $VERSION_PATH"; exit 1; }
-          [ -d "$RELEASE_PATH" ] || { echo "Missing release path: $RELEASE_PATH"; exit 1; }
-          [ -f "$SOURCE_CONFIG" ] || { echo "Missing source config: $SOURCE_CONFIG"; exit 1; }
+          if [ ! -f "$SOURCE_CONFIG" ]; then
+            echo "Requested source config not found for prev_version=$PREV_VERSION: $SOURCE_CONFIG"
+            if [ -d "$BUILD_PATH" ]; then
+              SOURCE_CONFIG=$(find "$BUILD_PATH" -maxdepth 3 -type f -name 'config_*.ini' | sort | tail -1 || true)
+            else
+              SOURCE_CONFIG=""
+            fi
+            [ -n "${SOURCE_CONFIG:-}" ] || { echo "No fallback config found under $BUILD_PATH"; exit 1; }
+            echo "Using fallback source config: $SOURCE_CONFIG"
+          else
+            echo "Using requested source config: $SOURCE_CONFIG"
+          fi
 
           mkdir -p "$DEST_PATH"
-          cp "$SOURCE_CONFIG" "$DEST_CONFIG"
-          chmod 777 "$DEST_CONFIG"
-          mv "$DEST_CONFIG" "$FINAL_CONFIG"
+          cp "$SOURCE_CONFIG" "$FINAL_CONFIG"
+          chmod 664 "$FINAL_CONFIG"
 
           [ -f "$FINAL_CONFIG" ] || { echo "Missing final config: $FINAL_CONFIG"; exit 1; }
 
