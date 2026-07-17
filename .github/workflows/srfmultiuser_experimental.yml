@@ -940,7 +940,7 @@ jobs:
 
   notify-final-result:
     runs-on: [self-hosted, node16]
-    needs: [session-management, read-json, patch-build, copy-release-collaterals, call-read-pipeline-result]
+    needs: [session-management, read-json, patch-build, copy-release-collaterals, call-srf-login, call-read-pipeline-result]
     if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
 
     steps:
