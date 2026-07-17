@@ -1,14 +1,14 @@
 {
     "section_1": {
-        "Milestone": "UPLR",
-        "patch_description": "experiment debug patch ",
-        "version": "0x81610422",
+        "Milestone": "UPL",
+        "patch_description": "SRF UPLR Debug Patch Release",
+        "version": "0xF36003C2",
         "svn": "",
         "se_svn": "",
         "min_svn": "",
-        "min_runtime_id": " ",
-        "patch_rollback_flags": " ",
-        "prev_version": "0x81000442"
+        "min_runtime_id": "",
+        "patch_rollback_flags": "",
+        "prev_version": "0x830003C2"
     },
     "components": {
         "ucode": "",
@@ -18,8 +18,8 @@
         "acode": "",
         "icode": "",
         "oobmsm": "",
-        "pcode-io": "",
-        "pcode-c": "",
+        "pcode-io": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww23_UPLR5_RC3/gnr_io_c0/pcode-io_enc_dbug.bin",
+        "pcode-c": "/nfs/site/disks/dcsg_0729/patches/SRF/C0/staging/Pcode/main/26ww23_UPLR5_RC3/gnr_atom_b0/pcode-c_enc_dbug.bin",
         "s3m": ""
     },
     "section_2": {
