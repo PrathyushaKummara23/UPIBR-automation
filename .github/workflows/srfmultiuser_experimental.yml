@@ -860,40 +860,45 @@ jobs:
           set -euo pipefail
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          RELEASE_PATH="${{ env.PATCH_BUILD_ROOT }}/${CURRENT_VERSION}/release"
+          BUILD_ROOT="${{ env.PATCH_BUILD_ROOT }}"
           WINDOWS_DEST="${{ env.SRF_WINDOWS_DEST }}"
           SRF_HOST="${{ env.SRF_HOST }}"
           SRF_USER="${{ env.SRF_USER }}"
-          CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
+
+          echo "Current version: $CURRENT_VERSION"
+          echo "Searching for release dir under: $BUILD_ROOT"
+
+          VERSION_DIR=$(find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d -iname "$CURRENT_VERSION" | head -n 1)
+          [ -n "$VERSION_DIR" ] || {
+            echo "ERROR: No build directory found for version '$CURRENT_VERSION' under $BUILD_ROOT"
+            find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -100 || true
+            exit 1
+          }
+
+          RELEASE_PATH="$VERSION_DIR/release"
+          [ -d "$RELEASE_PATH" ] || {
+            echo "ERROR: Release directory missing at: $RELEASE_PATH"
+            ls -la "$VERSION_DIR" || true
+            exit 1
+          }
 
           echo "Resolved release path: $RELEASE_PATH"
-          echo "Current version: $CURRENT_VERSION"
-          echo "Current version lower-case: $CURRENT_VERSION_LOWER"
-
-          if [ ! -d "$RELEASE_PATH" ]; then
-            LOWER_RELEASE_PATH="${{ env.PATCH_BUILD_ROOT }}/${CURRENT_VERSION_LOWER}/release"
-            echo "WARN: Release path does not exist with original casing: $RELEASE_PATH"
-            echo "Retrying release path with lower-case version: $LOWER_RELEASE_PATH"
-            RELEASE_PATH="$LOWER_RELEASE_PATH"
-          fi
-          [ -d "$RELEASE_PATH" ] || { echo "ERROR: Release path does not exist: $RELEASE_PATH"; exit 1; }
-
           echo "Release directory contents:"
-          ls -la "$RELEASE_PATH" || true
+          ls -la "$RELEASE_PATH"
 
-          echo "Finding .inc files with case-insensitive pattern: *${CURRENT_VERSION}*.inc"
-          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iname "*${CURRENT_VERSION}*.inc")
+          echo "Finding .inc files with case-insensitive regex: .*${CURRENT_VERSION}.*\\.inc$"
+          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iregex ".*${CURRENT_VERSION}.*\\.inc$")
           echo "INC files found:"
           printf '%s\n' "${INC_FILES:-[none]}"
           echo "Validating .inc files before transfer"
-          [ -n "$INC_FILES" ] || { echo "ERROR: No .inc files found matching case-insensitive pattern *${CURRENT_VERSION}*.inc in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+          [ -n "$INC_FILES" ] || { echo "ERROR: No .inc files found matching case-insensitive regex .*${CURRENT_VERSION}.*\\.inc$ in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
 
-          echo "Finding .pdb files with case-insensitive pattern: *${CURRENT_VERSION}*.pdb"
-          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iname "*${CURRENT_VERSION}*.pdb")
+          echo "Finding .pdb files with case-insensitive regex: .*${CURRENT_VERSION}.*\\.pdb$"
+          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iregex ".*${CURRENT_VERSION}.*\\.pdb$")
           echo "PDB files found:"
           printf '%s\n' "${PDB_FILES:-[none]}"
           echo "Validating .pdb files before transfer"
-          [ -n "$PDB_FILES" ] || { echo "ERROR: No .pdb files found matching case-insensitive pattern *${CURRENT_VERSION}*.pdb in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+          [ -n "$PDB_FILES" ] || { echo "ERROR: No .pdb files found matching case-insensitive regex .*${CURRENT_VERSION}.*\\.pdb$ in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
 
           for INC_FILE in $INC_FILES; do
             FILENAME=$(basename "$INC_FILE")
