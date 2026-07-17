@@ -1,8 +1,8 @@
 {
     "section_1": {
         "Milestone": "UPL",
-        "patch_description": "SRF UPLR Debug Patch Release",
-        "version": "0xF36003C4",
+        "patch_description": "06 Mock SRF UPLR Debug Patch Release",
+        "version": "0x830003C5",
         "svn": "",
         "se_svn": "",
         "min_svn": "",
