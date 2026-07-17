@@ -750,25 +750,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
-          RELEASE_PATH="${{ env.GNR_BUILD_PATH }}/${PREV_VERSION}/release"
+          PREV_VERSION_HEX="${{ needs.read-json.outputs.previous_version }}"
+          PREV_VERSION="${PREV_VERSION_HEX#0x}"
+          PREV_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/${PREV_VERSION}/release"
 
-          if [ ! -d "$RELEASE_PATH" ]; then
-            echo "ERROR: prev_version release path does not exist: $RELEASE_PATH"
-            echo "Update prev_version in the JSON to one of the available versions with a release directory."
-            echo "Available release versions under ${{ env.GNR_BUILD_PATH }}:"
-            if [ -d "${{ env.GNR_BUILD_PATH }}" ]; then
-              find "${{ env.GNR_BUILD_PATH }}" -mindepth 2 -maxdepth 2 -type d -name release \
-                | sed 's|${{ env.GNR_BUILD_PATH }}/||; s|/release$||' \
-                | sort \
-                | tail -50
-            else
-              echo "GNR build path not found: ${{ env.GNR_BUILD_PATH }}"
-            fi
+          if [ ! -d "$PREV_PATH" ]; then
+            echo "Invalid prev_version: ${PREV_VERSION_HEX}"
+            echo "Expected directory not found: $PREV_PATH"
             exit 1
           fi
-
-          echo "prev_version release path verified: $RELEASE_PATH"
 
       - name: Execute GNR Debug Automated Build
         env:
