@@ -46,11 +46,11 @@ permissions:
 
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
-  GNR_BUILD_PATH: /nfs/site/disks/dcsg_0729/patches/GNR/B0/build
+  GNR_BUILD_PATH: /nfs/site/disks/dcsg_0729/patches/SRF/C0/build
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
   PYTHON_PATH: /usr/intel/bin/python3.7.4
-  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools/MUPPET/fxtMuppet.py
+  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxtMuppt.py
   EXPECT_PATH: /usr/bin/expect
   FACELESS_USER: grp_gnr_fit1_build
 
@@ -752,7 +752,7 @@ jobs:
 
           PREV_VERSION_HEX="${{ needs.read-json.outputs.previous_version }}"
           PREV_VERSION="${PREV_VERSION_HEX#0x}"
-          PREV_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/${PREV_VERSION}/release"
+          PREV_PATH="${{ env.GNR_BUILD_PATH }}/${PREV_VERSION}/release"
 
           if [ ! -d "$PREV_PATH" ]; then
             echo "Invalid prev_version: ${PREV_VERSION_HEX}"
@@ -923,7 +923,7 @@ jobs:
           set -euo pipefail
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          RELEASE_PATH="/nfs/site/disks/dcsg_0729/patches/GNR/B0/build/${CURRENT_VERSION}/release"
+          RELEASE_PATH="${{ env.GNR_BUILD_PATH }}/${CURRENT_VERSION}/release"
           WINDOWS_DEST='C:/pkummara/IFWI_INC_PDB/test'
           GNR_HOST="10.138.186.168"
           GNR_USER="CEFLS_User"
