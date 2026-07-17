@@ -870,33 +870,30 @@ jobs:
           echo "Current version: $CURRENT_VERSION"
           echo "Current version lower-case: $CURRENT_VERSION_LOWER"
 
+          if [ ! -d "$RELEASE_PATH" ]; then
+            LOWER_RELEASE_PATH="${{ env.PATCH_BUILD_ROOT }}/${CURRENT_VERSION_LOWER}/release"
+            echo "WARN: Release path does not exist with original casing: $RELEASE_PATH"
+            echo "Retrying release path with lower-case version: $LOWER_RELEASE_PATH"
+            RELEASE_PATH="$LOWER_RELEASE_PATH"
+          fi
           [ -d "$RELEASE_PATH" ] || { echo "ERROR: Release path does not exist: $RELEASE_PATH"; exit 1; }
 
-          echo "Finding .inc files with lower-case pattern: m_*_*_${CURRENT_VERSION_LOWER}.inc"
-          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f)
-          echo "INC files found with lower-case pattern:"
-          printf '%s\n' "${INC_FILES:-[none]}"
-          if [ -z "$INC_FILES" ]; then
-            echo "WARN: No lower-case .inc match, retrying with original casing: $CURRENT_VERSION"
-            INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION}.inc" -type f)
-            echo "INC files found with original-case pattern:"
-            printf '%s\n' "${INC_FILES:-[none]}"
-          fi
-          echo "Validating .inc files before transfer"
-          [ -n "$INC_FILES" ] || { echo "ERROR: No .inc files found matching m_*_*_${CURRENT_VERSION_LOWER}.inc or m_*_*_${CURRENT_VERSION}.inc in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+          echo "Release directory contents:"
+          ls -la "$RELEASE_PATH" || true
 
-          echo "Finding .pdb files with lower-case pattern: m_*_*_${CURRENT_VERSION_LOWER}.pdb"
-          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f)
-          echo "PDB files found with lower-case pattern:"
+          echo "Finding .inc files with case-insensitive pattern: *${CURRENT_VERSION}*.inc"
+          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iname "*${CURRENT_VERSION}*.inc")
+          echo "INC files found:"
+          printf '%s\n' "${INC_FILES:-[none]}"
+          echo "Validating .inc files before transfer"
+          [ -n "$INC_FILES" ] || { echo "ERROR: No .inc files found matching case-insensitive pattern *${CURRENT_VERSION}*.inc in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+
+          echo "Finding .pdb files with case-insensitive pattern: *${CURRENT_VERSION}*.pdb"
+          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iname "*${CURRENT_VERSION}*.pdb")
+          echo "PDB files found:"
           printf '%s\n' "${PDB_FILES:-[none]}"
-          if [ -z "$PDB_FILES" ]; then
-            echo "WARN: No lower-case .pdb match, retrying with original casing: $CURRENT_VERSION"
-            PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION}.pdb" -type f)
-            echo "PDB files found with original-case pattern:"
-            printf '%s\n' "${PDB_FILES:-[none]}"
-          fi
           echo "Validating .pdb files before transfer"
-          [ -n "$PDB_FILES" ] || { echo "ERROR: No .pdb files found matching m_*_*_${CURRENT_VERSION_LOWER}.pdb or m_*_*_${CURRENT_VERSION}.pdb in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+          [ -n "$PDB_FILES" ] || { echo "ERROR: No .pdb files found matching case-insensitive pattern *${CURRENT_VERSION}*.pdb in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
 
           for INC_FILE in $INC_FILES; do
             FILENAME=$(basename "$INC_FILE")
