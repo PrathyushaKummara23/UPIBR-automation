@@ -19,9 +19,10 @@ on:
   workflow_dispatch:
     inputs:
       json_filename:
-        description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
+        description: 'JSON filename (e.g., srf_testing.json)'
         required: true
         type: string
+        default: 'srf_testing.json'
       build_description:
         description: 'Build description'
         required: false
@@ -194,8 +195,8 @@ jobs:
 
           version=$(extract_section1_value "version")
           prev_version=$(extract_section1_value "prev_version")
-          clean_prev_version=$(echo "$prev_version" | sed 's/0x//')
-          clean_current_version=$(echo "$version" | sed 's/0x//')
+          clean_prev_version=$(echo "$prev_version" | sed 's/^0x//I')
+          clean_current_version=$(echo "$version" | sed 's/^0x//I')
 
           echo "previous_version=$clean_prev_version" >> "$GITHUB_OUTPUT"
           echo "current_version=$clean_current_version" >> "$GITHUB_OUTPUT"
@@ -865,13 +866,37 @@ jobs:
           SRF_USER="${{ env.SRF_USER }}"
           CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
 
-          [ -d "$RELEASE_PATH" ] || exit 1
+          echo "Resolved release path: $RELEASE_PATH"
+          echo "Current version: $CURRENT_VERSION"
+          echo "Current version lower-case: $CURRENT_VERSION_LOWER"
 
+          [ -d "$RELEASE_PATH" ] || { echo "ERROR: Release path does not exist: $RELEASE_PATH"; exit 1; }
+
+          echo "Finding .inc files with lower-case pattern: m_*_*_${CURRENT_VERSION_LOWER}.inc"
           INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f)
-          [ -n "$INC_FILES" ] || exit 1
+          echo "INC files found with lower-case pattern:"
+          printf '%s\n' "${INC_FILES:-[none]}"
+          if [ -z "$INC_FILES" ]; then
+            echo "WARN: No lower-case .inc match, retrying with original casing: $CURRENT_VERSION"
+            INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION}.inc" -type f)
+            echo "INC files found with original-case pattern:"
+            printf '%s\n' "${INC_FILES:-[none]}"
+          fi
+          echo "Validating .inc files before transfer"
+          [ -n "$INC_FILES" ] || { echo "ERROR: No .inc files found matching m_*_*_${CURRENT_VERSION_LOWER}.inc or m_*_*_${CURRENT_VERSION}.inc in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
 
+          echo "Finding .pdb files with lower-case pattern: m_*_*_${CURRENT_VERSION_LOWER}.pdb"
           PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f)
-          [ -n "$PDB_FILES" ] || exit 1
+          echo "PDB files found with lower-case pattern:"
+          printf '%s\n' "${PDB_FILES:-[none]}"
+          if [ -z "$PDB_FILES" ]; then
+            echo "WARN: No lower-case .pdb match, retrying with original casing: $CURRENT_VERSION"
+            PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION}.pdb" -type f)
+            echo "PDB files found with original-case pattern:"
+            printf '%s\n' "${PDB_FILES:-[none]}"
+          fi
+          echo "Validating .pdb files before transfer"
+          [ -n "$PDB_FILES" ] || { echo "ERROR: No .pdb files found matching m_*_*_${CURRENT_VERSION_LOWER}.pdb or m_*_*_${CURRENT_VERSION}.pdb in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
 
           for INC_FILE in $INC_FILES; do
             FILENAME=$(basename "$INC_FILE")
