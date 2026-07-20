@@ -862,7 +862,7 @@ jobs:
 
           git config --global --add safe.directory "$WORKDIR"
 
-      - name: Copy Release Collaterals to SRF Host
+            - name: Copy Release Collaterals to SRF Host
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
@@ -870,24 +870,30 @@ jobs:
           set -euo pipefail
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          RELEASE_PATH="${{ env.PATCH_BUILD_ROOT }}/${CURRENT_VERSION}/release"
           WINDOWS_DEST="${{ env.SRF_WINDOWS_DEST }}"
           SRF_HOST="${{ env.SRF_HOST }}"
           SRF_USER="${{ env.SRF_USER }}"
+          BUILD_ROOT="${{ env.PATCH_BUILD_ROOT }}"
           CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
 
-          echo "Resolved release path: $RELEASE_PATH"
           echo "Current version: $CURRENT_VERSION"
           echo "Current version lower-case: $CURRENT_VERSION_LOWER"
+          echo "Searching for release directory under: $BUILD_ROOT"
 
-          if [ ! -d "$RELEASE_PATH" ]; then
-            LOWER_RELEASE_PATH="${{ env.PATCH_BUILD_ROOT }}/${CURRENT_VERSION_LOWER}/release"
-            echo "WARN: Release path does not exist with original casing: $RELEASE_PATH"
-            echo "Retrying release path with lower-case version: $LOWER_RELEASE_PATH"
-            RELEASE_PATH="$LOWER_RELEASE_PATH"
-          fi
-          [ -d "$RELEASE_PATH" ] || { echo "ERROR: Release path does not exist: $RELEASE_PATH"; exit 1; }
+          RELEASE_PATH=$(find "$BUILD_ROOT" -type d \( \
+            -path "*/${CURRENT_VERSION}/release" -o \
+            -path "*/${CURRENT_VERSION_LOWER}/release" -o \
+            -ipath "*/${CURRENT_VERSION}/release" \
+          \) | head -n 1)
 
+          [ -n "$RELEASE_PATH" ] || {
+            echo "ERROR: No release directory found for version $CURRENT_VERSION under $BUILD_ROOT"
+            echo "Directories matching version hint:"
+            find "$BUILD_ROOT" -maxdepth 4 -type d | grep -i "$CURRENT_VERSION" || true
+            exit 1
+          }
+
+          echo "Resolved release path: $RELEASE_PATH"
           echo "Release directory contents:"
           ls -la "$RELEASE_PATH" || true
 
@@ -896,16 +902,25 @@ jobs:
           echo "INC files found:"
           printf '%s\n' "${INC_FILES:-[none]}"
           echo "Validating .inc files before transfer"
-          [ -n "$INC_FILES" ] || { echo "ERROR: No .inc files found matching case-insensitive pattern *${CURRENT_VERSION}*.inc in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+          [ -n "$INC_FILES" ] || {
+            echo "ERROR: No .inc files found matching case-insensitive pattern *${CURRENT_VERSION}*.inc in $RELEASE_PATH"
+            ls -la "$RELEASE_PATH" || true
+            exit 1
+          }
 
           echo "Finding .pdb files with case-insensitive pattern: *${CURRENT_VERSION}*.pdb"
           PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iname "*${CURRENT_VERSION}*.pdb")
           echo "PDB files found:"
           printf '%s\n' "${PDB_FILES:-[none]}"
           echo "Validating .pdb files before transfer"
-          [ -n "$PDB_FILES" ] || { echo "ERROR: No .pdb files found matching case-insensitive pattern *${CURRENT_VERSION}*.pdb in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+          [ -n "$PDB_FILES" ] || {
+            echo "ERROR: No .pdb files found matching case-insensitive pattern *${CURRENT_VERSION}*.pdb in $RELEASE_PATH"
+            ls -la "$RELEASE_PATH" || true
+            exit 1
+          }
 
-          for INC_FILE in $INC_FILES; do
+          while IFS= read -r INC_FILE; do
+            [ -n "$INC_FILE" ] || continue
             FILENAME=$(basename "$INC_FILE")
             export SRC_FILE="$INC_FILE"
             export FILENAME="$FILENAME"
@@ -913,9 +928,10 @@ jobs:
             export SRF_HOST="$SRF_HOST"
             export WINDOWS_DEST="$WINDOWS_DEST"
             "${{ env.EXPECT_PATH }}" "${{ env.SCP_EXPECT_SCRIPT }}" || exit 1
-          done
+          done <<< "$INC_FILES"
 
-          for PDB_FILE in $PDB_FILES; do
+          while IFS= read -r PDB_FILE; do
+            [ -n "$PDB_FILE" ] || continue
             FILENAME=$(basename "$PDB_FILE")
             export SRC_FILE="$PDB_FILE"
             export FILENAME="$FILENAME"
@@ -923,7 +939,7 @@ jobs:
             export SRF_HOST="$SRF_HOST"
             export WINDOWS_DEST="$WINDOWS_DEST"
             "${{ env.EXPECT_PATH }}" "${{ env.SCP_EXPECT_SCRIPT }}" || exit 1
-          done
+          done <<< "$PDB_FILES"
 
   call-srf-login:
     needs: [session-management, copy-release-collaterals]
