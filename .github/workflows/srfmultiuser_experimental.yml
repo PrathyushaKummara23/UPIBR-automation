@@ -1,3 +1,4 @@
+
 name: SRF Debug UP experiment
 
 # Edit common pipeline settings here instead of searching through the jobs below.
@@ -75,22 +76,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           if [ -n "${{ github.event.inputs.session_id }}" ]; then
             SESSION_ID="${{ github.event.inputs.session_id }}"
           else
             SESSION_ID="session_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
           fi
-
           TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
           CALLBACK_URL="${{ github.event.inputs.callback_url }}"
           REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
-
           echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
           echo "trigger_source=$TRIGGER_SOURCE" >> "$GITHUB_OUTPUT"
           echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
           echo "requester_info=$REQUESTER_INFO" >> "$GITHUB_OUTPUT"
-
           SESSION_FILE="/tmp/build_session_${SESSION_ID}.json"
           cat > "$SESSION_FILE" <<EOF
           {
@@ -104,7 +101,6 @@ jobs:
             "json_filename": "${{ github.event.inputs.json_filename }}"
           }
           EOF
-
   read-json:
     runs-on: [self-hosted, node16]
     needs: session-management
@@ -120,16 +116,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
           REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
           BRANCH="${{ github.ref_name }}"
-
           mkdir -p "$PARENT_DIR"
           cd "$PARENT_DIR"
-
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
@@ -141,32 +134,24 @@ jobs:
             git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
             cd "$WORKDIR"
           fi
-
           git config --global --add safe.directory "$WORKDIR"
-
       - name: Validate JSON file exists
         id: validate
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
-
           if [ ! -f "$JSON_FILE" ]; then
             echo "Error: JSON file '${{ github.event.inputs.json_filename }}' not found"
             exit 1
           fi
-
           echo "json_path=$JSON_FILE" >> "$GITHUB_OUTPUT"
-
       - name: Extract and Display Values
         id: extract_version
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE="${{ steps.validate.outputs.json_path }}"
-
           extract_section1_value() {
             local item="$1"
             jq -r --arg item "$item" '
@@ -177,7 +162,6 @@ jobs:
               end
             ' "$JSON_FILE"
           }
-
           extract_staging_area() {
             local section="$1"
             jq -r --arg section "$section" '
@@ -192,10 +176,8 @@ jobs:
               end
             ' "$JSON_FILE"
           }
-
           version=$(extract_section1_value "version")
           prev_version=$(extract_section1_value "prev_version")
-
           if [ -z "$version" ] || [ "$version" = "null" ]; then
             echo "Error: section_1.version is required in $JSON_FILE"
             exit 1
@@ -204,13 +186,10 @@ jobs:
             echo "Error: section_1.prev_version is required in $JSON_FILE"
             exit 1
           fi
-
           clean_prev_version=$(echo "$prev_version" | sed 's/^0x//I')
           clean_current_version=$(echo "$version" | sed 's/^0x//I')
-
           echo "previous_version=$clean_prev_version" >> "$GITHUB_OUTPUT"
           echo "current_version=$clean_current_version" >> "$GITHUB_OUTPUT"
-
           components=("ucode" "xucode" "mcheck" "tcode" "acode" "icode" "oobmsm" "pcode-io" "pcode-c" "s3m")
           for component in "${components[@]}"; do
             staging_area=$(extract_staging_area "$component")
@@ -220,7 +199,6 @@ jobs:
               echo "$component Post Binary Staging Area: [NOT AVAILABLE]"
             fi
           done
-
           echo "Section 2 checklist values:"
           jq -r '
             def checklist_items:
@@ -244,12 +222,10 @@ jobs:
             section2_value($component; $item) as $value |
             "\($component) \($item): entry=\(entry_value($value))"
           ' "$JSON_FILE"
-
       - name: Create Summary
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE="${{ steps.validate.outputs.json_path }}"
           {
             echo "# SRF Debug UP Build Pipeline"
@@ -295,7 +271,6 @@ jobs:
               "| \($component) | \($item) | \(entry_value($value)) |"
             ' "$JSON_FILE"
           } >> "$GITHUB_STEP_SUMMARY"
-
   notify-build-start:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json]
@@ -306,10 +281,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
           START_PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"SRF Debug UP build has started","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","json_filename":"%s","build_description":"%s"}' \
             "$SESSION_ID" \
             "${{ github.run_id }}" \
@@ -318,11 +291,9 @@ jobs:
             "${{ needs.session-management.outputs.trigger_source }}" \
             "${{ github.event.inputs.json_filename }}" \
             "${{ github.event.inputs.build_description }}")
-
           curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
             -d "$START_PAYLOAD" || echo "Failed to send start notification"
-
   copy-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json]
@@ -333,7 +304,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           PREV_VERSION="${{ needs.read-json.outputs.previous_version }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           BUILD_PATH="${{ env.PATCH_BUILD_ROOT }}"
@@ -344,18 +314,14 @@ jobs:
           DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           DEST_CONFIG="$DEST_PATH/$CONFIG_FILE"
           FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
-
           [ -d "$VERSION_PATH" ] || { echo "Missing version path: $VERSION_PATH"; exit 1; }
           [ -d "$RELEASE_PATH" ] || { echo "Missing release path: $RELEASE_PATH"; exit 1; }
           [ -f "$SOURCE_CONFIG" ] || { echo "Missing source config: $SOURCE_CONFIG"; exit 1; }
-
           mkdir -p "$DEST_PATH"
           cp "$SOURCE_CONFIG" "$DEST_CONFIG"
           chmod 777 "$DEST_CONFIG"
           mv "$DEST_CONFIG" "$FINAL_CONFIG"
-
           [ -f "$FINAL_CONFIG" ] || { echo "Missing final config: $FINAL_CONFIG"; exit 1; }
-
   prepare-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config]
@@ -368,16 +334,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
           REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
           BRANCH="${{ github.ref_name }}"
-
           mkdir -p "$PARENT_DIR"
           cd "$PARENT_DIR"
-
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
@@ -389,22 +352,17 @@ jobs:
             git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
             cd "$WORKDIR"
           fi
-
           git config --global --add safe.directory "$WORKDIR"
-
       - name: Update Config File with JSON Values
         shell: bash
         run: |
           set -euo pipefail
-
           JSON_FILE="${{ needs.read-json.outputs.json_path }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
-
           [ -f "$CONFIG_FILE" ] || { echo "Config not found: $CONFIG_FILE"; exit 1; }
           cp "$CONFIG_FILE" "${CONFIG_FILE}.backup"
-
           extract_section1_value() {
             local item="$1"
             jq -r --arg item "$item" '
@@ -415,7 +373,6 @@ jobs:
               end
             ' "$JSON_FILE"
           }
-
           extract_staging_area() {
             local section="$1"
             jq -r --arg section "$section" '
@@ -430,12 +387,10 @@ jobs:
               end
             ' "$JSON_FILE"
           }
-
           has_value() {
             local value="$1"
             [ -n "$value" ] && [ "$value" != "null" ] && [ "$value" != "" ]
           }
-
           milestone=$(extract_section1_value "Milestone")
           patch_desc=$(extract_section1_value "patch_description")
           version=$(extract_section1_value "version")
@@ -444,7 +399,6 @@ jobs:
           min_svn=$(extract_section1_value "min_svn")
           min_runtime_id=$(extract_section1_value "min_runtime_id")
           prev_version=$(extract_section1_value "prev_version")
-
           ucode_path=$(extract_staging_area "ucode")
           xucode_path=$(extract_staging_area "xucode")
           mcheck_path=$(extract_staging_area "mcheck")
@@ -455,15 +409,12 @@ jobs:
           pcode_io_path=$(extract_staging_area "pcode-io")
           pcode_c_path=$(extract_staging_area "pcode-c")
           s3m_path=$(extract_staging_area "s3m")
-
           if [ -z "$patch_desc" ] || [ "$patch_desc" = "null" ] || [ "$patch_desc" = " " ]; then
             patch_desc="SRF Debug patch $milestone"
           fi
-
           sed -i "s/^version = .*/version = $version/" "$CONFIG_FILE"
           sed -i "s/^patch_description = .*/patch_description = $patch_desc/" "$CONFIG_FILE"
           sed -i "s/^prev_version = .*/prev_version = $prev_version/" "$CONFIG_FILE"
-
           if has_value "$svn"; then
             sed -i "s/^svn = .*/svn = $svn/" "$CONFIG_FILE"
           fi
@@ -476,7 +427,6 @@ jobs:
           if has_value "$min_runtime_id"; then
             sed -i "s/^min_runtime_id = .*/min_runtime_id = $min_runtime_id/" "$CONFIG_FILE"
           fi
-
           if has_value "$icode_path"; then sed -i "s|^icode = .*|icode = $icode_path|" "$CONFIG_FILE"; fi
           if has_value "$oobmsm_path"; then sed -i "s|^oobmsm = .*|oobmsm = $oobmsm_path|" "$CONFIG_FILE"; fi
           if has_value "$s3m_path"; then sed -i "s|^s3m = .*|s3m = $s3m_path|" "$CONFIG_FILE"; fi
@@ -485,31 +435,25 @@ jobs:
           if has_value "$ucode_path"; then sed -i "s|^ucode = .*|ucode = $ucode_path|" "$CONFIG_FILE"; fi
           if has_value "$xucode_path"; then sed -i "s|^xucode = .*|xucode = $xucode_path|" "$CONFIG_FILE"; fi
           if has_value "$mcheck_path"; then sed -i "s|^mcheck = .*|mcheck = $mcheck_path|" "$CONFIG_FILE"; fi
-
           if ! has_value "$tcode_path"; then
             sed -i "s|^tcode = .*|tcode = none|" "$CONFIG_FILE"
           else
             sed -i "s|^tcode = .*|tcode = $tcode_path|" "$CONFIG_FILE"
           fi
-
           if ! has_value "$acode_path"; then
             sed -i "s|^acode = .*|acode = none|" "$CONFIG_FILE"
           else
             sed -i "s|^acode = .*|acode = $acode_path|" "$CONFIG_FILE"
           fi
-
           sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
           sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
-
       - name: Display Final Prepared Config
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${CURRENT_VERSION}.ini"
           cat "$CONFIG_FILE"
-
   upload-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config, prepare-config]
@@ -522,38 +466,30 @@ jobs:
           set -euo pipefail
           echo "Session ID: ${{ needs.session-management.outputs.session_id }}"
           echo "Triggered by: ${{ needs.session-management.outputs.trigger_source }}"
-
       - name: Upload Config File via GitHub API
         shell: bash
         env:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
-
           if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
             echo "REPO_PUSH_TOKEN secret is empty or unavailable"
             exit 1
           fi
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
           TARGET_PATH="${{ env.OUTPUT_CONFIG_DIR }}/config_${CURRENT_VERSION}.ini"
           API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
-
           [ -f "$CONFIG_FILE" ] || { echo "Config file not found: $CONFIG_FILE"; exit 1; }
-
           CONTENT_B64=$(base64 -w 0 "$CONFIG_FILE" 2>/dev/null || base64 "$CONFIG_FILE" | tr -d '\n')
           COMMIT_MESSAGE="Add prepared config file: config_${CURRENT_VERSION}.ini"
-
           HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
             -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "$API_URL")
-
           if [ "$HTTP_CODE" = "200" ]; then
             FILE_SHA=$(jq -r '.sha' existing_file.json)
-
             jq -n \
               --arg message "$COMMIT_MESSAGE" \
               --arg content "$CONTENT_B64" \
@@ -592,14 +528,12 @@ jobs:
             cat existing_file.json || true
             exit 1
           fi
-
           RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
             -X PUT \
             -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -d @payload.json \
             "$API_URL")
-
           if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
             echo "Config file uploaded successfully to ${TARGET_PATH}"
             jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
@@ -608,9 +542,7 @@ jobs:
             cat api_response.json || true
             exit 1
           fi
-
           rm -f existing_file.json payload.json api_response.json
-
   validate-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config, prepare-config, upload-config]
@@ -626,11 +558,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
           CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
-
           CONFIG_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '$CONFIG_PATH' ]]; then
               echo 'EXISTS'
@@ -638,7 +568,6 @@ jobs:
               echo 'NOT_FOUND'
             fi
           " )
-
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
             echo "config_validated=true" >> "$GITHUB_OUTPUT"
             echo "config_path=$CONFIG_PATH" >> "$GITHUB_OUTPUT"
@@ -646,21 +575,17 @@ jobs:
             echo "config_validated=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-
       - name: Display Prepared Config File Contents
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-
           CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
           CONFIG_CONTENTS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cat '$CONFIG_PATH'
           " )
-
           echo "$CONFIG_CONTENTS"
-
   kerberos-setup:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, validate-config]
@@ -673,10 +598,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
           [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
-
       - name: Initialize Kerberos Ticket
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -684,34 +607,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
           " )
-
           echo "$KTAB_RESULT"
-
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
-
       - name: Initialize Kerberos Cron
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-
           KCRON_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
           " )
-
           echo "$KCRON_RESULT"
-
           if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
-
   patch-build:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, validate-config, kerberos-setup]
@@ -724,17 +639,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
           [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
-
       - name: Verify Build Tools Exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-
           PYTHON_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           " )
@@ -744,11 +656,9 @@ jobs:
           EXPECT_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
           " )
-
           [[ "$PYTHON_CHECK" == "EXISTS" ]] || exit 1
           [[ "$FXT_CHECK" == "EXISTS" ]] || exit 1
           [[ "$EXPECT_CHECK" == "EXISTS" ]] || exit 1
-
       - name: Execute SRF Debug UP Automated Build
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -756,23 +666,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
-
           BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
-
             EXP_FILE=\$(mktemp /tmp/automated_build_expect_XXXXXX.exp)
             chmod +x \"\$EXP_FILE\"
-
             cat > \"\$EXP_FILE\" <<'EOF'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
           set css_password \$env(CSS_PASSWORD)
-
           spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
-
           expect {
             \"Enter your CSS password:\" {
               send \"\$css_password\r\"
@@ -796,25 +700,21 @@ jobs:
             }
           }
           EOF
-
             export CSS_PASSWORD='$CSS_PASSWORD'
             \"\$EXP_FILE\" 2>&1
             BUILD_EXIT=\$?
             rm -f \"\$EXP_FILE\"
             exit \$BUILD_EXIT
           " )
-
           BUILD_EXIT_CODE=$?
           echo "$BUILD_RESULT"
           [ "$BUILD_EXIT_CODE" -eq 0 ] || exit "$BUILD_EXIT_CODE"
-
       - name: Verify Automated Build Results
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           VERIFICATION_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
@@ -823,9 +723,7 @@ jobs:
             find . -name '*debug*' -o -name '*css-debug*' 2>/dev/null | head -10 || true
             find . -name '*${CURRENT_VERSION}*' 2>/dev/null | head -10 || true
           " )
-
           echo "$VERIFICATION_RESULT"
-
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, patch-build]
@@ -838,16 +736,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
           REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
           BRANCH="${{ github.ref_name }}"
-
           mkdir -p "$PARENT_DIR"
           cd "$PARENT_DIR"
-
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
@@ -859,68 +754,44 @@ jobs:
             git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
             cd "$WORKDIR"
           fi
-
           git config --global --add safe.directory "$WORKDIR"
-
-            - name: Copy Release Collaterals to SRF Host
+      - name: Copy Release Collaterals to SRF Host
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          RELEASE_PATH="${{ env.PATCH_BUILD_ROOT }}/${CURRENT_VERSION}/release"
           WINDOWS_DEST="${{ env.SRF_WINDOWS_DEST }}"
           SRF_HOST="${{ env.SRF_HOST }}"
           SRF_USER="${{ env.SRF_USER }}"
-          BUILD_ROOT="${{ env.PATCH_BUILD_ROOT }}"
           CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
-
+          echo "Resolved release path: $RELEASE_PATH"
           echo "Current version: $CURRENT_VERSION"
           echo "Current version lower-case: $CURRENT_VERSION_LOWER"
-          echo "Searching for release directory under: $BUILD_ROOT"
-
-          RELEASE_PATH=$(find "$BUILD_ROOT" -type d \( \
-            -path "*/${CURRENT_VERSION}/release" -o \
-            -path "*/${CURRENT_VERSION_LOWER}/release" -o \
-            -ipath "*/${CURRENT_VERSION}/release" \
-          \) | head -n 1)
-
-          [ -n "$RELEASE_PATH" ] || {
-            echo "ERROR: No release directory found for version $CURRENT_VERSION under $BUILD_ROOT"
-            echo "Directories matching version hint:"
-            find "$BUILD_ROOT" -maxdepth 4 -type d | grep -i "$CURRENT_VERSION" || true
-            exit 1
-          }
-
-          echo "Resolved release path: $RELEASE_PATH"
+          if [ ! -d "$RELEASE_PATH" ]; then
+            LOWER_RELEASE_PATH="${{ env.PATCH_BUILD_ROOT }}/${CURRENT_VERSION_LOWER}/release"
+            echo "WARN: Release path does not exist with original casing: $RELEASE_PATH"
+            echo "Retrying release path with lower-case version: $LOWER_RELEASE_PATH"
+            RELEASE_PATH="$LOWER_RELEASE_PATH"
+          fi
+          [ -d "$RELEASE_PATH" ] || { echo "ERROR: Release path does not exist: $RELEASE_PATH"; exit 1; }
           echo "Release directory contents:"
           ls -la "$RELEASE_PATH" || true
-
           echo "Finding .inc files with case-insensitive pattern: *${CURRENT_VERSION}*.inc"
           INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iname "*${CURRENT_VERSION}*.inc")
           echo "INC files found:"
           printf '%s\n' "${INC_FILES:-[none]}"
           echo "Validating .inc files before transfer"
-          [ -n "$INC_FILES" ] || {
-            echo "ERROR: No .inc files found matching case-insensitive pattern *${CURRENT_VERSION}*.inc in $RELEASE_PATH"
-            ls -la "$RELEASE_PATH" || true
-            exit 1
-          }
-
+          [ -n "$INC_FILES" ] || { echo "ERROR: No .inc files found matching case-insensitive pattern *${CURRENT_VERSION}*.inc in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
           echo "Finding .pdb files with case-insensitive pattern: *${CURRENT_VERSION}*.pdb"
           PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -type f -iname "*${CURRENT_VERSION}*.pdb")
           echo "PDB files found:"
           printf '%s\n' "${PDB_FILES:-[none]}"
           echo "Validating .pdb files before transfer"
-          [ -n "$PDB_FILES" ] || {
-            echo "ERROR: No .pdb files found matching case-insensitive pattern *${CURRENT_VERSION}*.pdb in $RELEASE_PATH"
-            ls -la "$RELEASE_PATH" || true
-            exit 1
-          }
-
-          while IFS= read -r INC_FILE; do
-            [ -n "$INC_FILE" ] || continue
+          [ -n "$PDB_FILES" ] || { echo "ERROR: No .pdb files found matching case-insensitive pattern *${CURRENT_VERSION}*.pdb in $RELEASE_PATH"; ls -la "$RELEASE_PATH" || true; exit 1; }
+          for INC_FILE in $INC_FILES; do
             FILENAME=$(basename "$INC_FILE")
             export SRC_FILE="$INC_FILE"
             export FILENAME="$FILENAME"
@@ -928,10 +799,8 @@ jobs:
             export SRF_HOST="$SRF_HOST"
             export WINDOWS_DEST="$WINDOWS_DEST"
             "${{ env.EXPECT_PATH }}" "${{ env.SCP_EXPECT_SCRIPT }}" || exit 1
-          done <<< "$INC_FILES"
-
-          while IFS= read -r PDB_FILE; do
-            [ -n "$PDB_FILE" ] || continue
+          done
+          for PDB_FILE in $PDB_FILES; do
             FILENAME=$(basename "$PDB_FILE")
             export SRC_FILE="$PDB_FILE"
             export FILENAME="$FILENAME"
@@ -939,8 +808,7 @@ jobs:
             export SRF_HOST="$SRF_HOST"
             export WINDOWS_DEST="$WINDOWS_DEST"
             "${{ env.EXPECT_PATH }}" "${{ env.SCP_EXPECT_SCRIPT }}" || exit 1
-          done <<< "$PDB_FILES"
-
+          done
   call-srf-login:
     needs: [session-management, copy-release-collaterals]
     if: ${{ success() }}
@@ -971,11 +839,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
           PIPELINE_STATUS="UNKNOWN"
-
           if [ "${{ needs.call-read-pipeline-result.result }}" = "success" ]; then
             PIPELINE_STATUS="PASSED"
           elif [ "${{ needs.call-read-pipeline-result.result }}" = "failure" ]; then
@@ -983,10 +849,8 @@ jobs:
           elif [ "${{ needs.call-read-pipeline-result.result }}" = "cancelled" ]; then
             PIPELINE_STATUS="CANCELLED"
           fi
-
           BUILD_STATUS="unknown"
           BUILD_MESSAGE="Build completed with unknown status"
-
           if [ "${{ needs.patch-build.result }}" = "success" ] && [ "${{ needs.copy-release-collaterals.result }}" = "success" ]; then
             if [ "$PIPELINE_STATUS" = "PASSED" ]; then
               BUILD_STATUS="success"
@@ -1005,7 +869,6 @@ jobs:
             BUILD_STATUS="build_failed"
             BUILD_MESSAGE="SRF Debug UP build failed"
           fi
-
           PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","pipeline_status":"%s","build_results":{"patch_build":"%s","copy_collaterals":"%s","srf_login":"%s","pipeline_result":"%s"},"final_summary":{"json_filename":"%s","build_description":"%s","config_file":"%s","github_repository":"%s","workflow_url":"%s"}}' \
             "$SESSION_ID" \
             "$BUILD_STATUS" \
@@ -1024,7 +887,6 @@ jobs:
             "config_${{ needs.read-json.outputs.current_version }}.ini" \
             "${{ github.repository }}" \
             "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
-
           curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" || echo "Failed to send final notification"
