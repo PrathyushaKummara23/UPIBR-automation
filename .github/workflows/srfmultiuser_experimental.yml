@@ -668,11 +668,14 @@ jobs:
           set -euo pipefail
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
-          BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            cd '${{ env.BUILD_BASE_PATH }}'
-            EXP_FILE=\$(mktemp /tmp/automated_build_expect_XXXXXX.exp)
-            chmod +x \"\$EXP_FILE\"
-            cat > \"\$EXP_FILE\" <<'EOF'
+
+          set +e
+          BUILD_RESULT=$(
+            (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+              cd '${{ env.BUILD_BASE_PATH }}'
+              EXP_FILE=\$(mktemp /tmp/automated_build_expect_XXXXXX.exp)
+              chmod +x \"\$EXP_FILE\"
+              cat > \"\$EXP_FILE\" <<'EOF'
           #!${{ env.EXPECT_PATH }} -f
           set timeout 1800
           set css_password \$env(CSS_PASSWORD)
@@ -700,15 +703,25 @@ jobs:
             }
           }
           EOF
-            export CSS_PASSWORD='$CSS_PASSWORD'
-            \"\$EXP_FILE\" 2>&1
-            BUILD_EXIT=\$?
-            rm -f \"\$EXP_FILE\"
-            exit \$BUILD_EXIT
-          " )
+              export CSS_PASSWORD='$CSS_PASSWORD'
+              \"\$EXP_FILE\" 2>&1
+              BUILD_EXIT=\$?
+              rm -f \"\$EXP_FILE\"
+              exit \$BUILD_EXIT
+            "
+          )
           BUILD_EXIT_CODE=$?
+          set -e
+
           echo "$BUILD_RESULT"
-          [ "$BUILD_EXIT_CODE" -eq 0 ] || exit "$BUILD_EXIT_CODE"
+          if [ "$BUILD_EXIT_CODE" -ne 0 ]; then
+		    exit "$BUILD_EXIT_CODE"
+          fi
+
+          if echo "$BUILD_RESULT" | grep -Eqi 'FAILURE --|Error Occurred|Invalid Path|File does not exist'; then
+            echo "Build tool reported failure even though exit code was 0"
+            exit 1
+          fi
       - name: Verify Automated Build Results
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
