@@ -2,13 +2,13 @@
     "section_1": {
         "Milestone": "UPL",
         "patch_description": "MOCK",
-        "version": "0x830003C4",
+        "version": "0x831003B3",
         "svn": "",
         "se_svn": "",
         "min_svn": "",
         "min_runtime_id": "",
         "patch_rollback_flags": "",
-        "prev_version": "0x830003C3",
+        "prev_version": "0x830003B2 ",
         "Rollback ID": ""
     },
     "components": {
