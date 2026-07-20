@@ -1,4 +1,3 @@
-
 name: SRF Debug UP experiment
 
 # Edit common pipeline settings here instead of searching through the jobs below.
@@ -101,6 +100,7 @@ jobs:
             "json_filename": "${{ github.event.inputs.json_filename }}"
           }
           EOF
+
   read-json:
     runs-on: [self-hosted, node16]
     needs: session-management
@@ -135,6 +135,7 @@ jobs:
             cd "$WORKDIR"
           fi
           git config --global --add safe.directory "$WORKDIR"
+
       - name: Validate JSON file exists
         id: validate
         shell: bash
@@ -146,6 +147,7 @@ jobs:
             exit 1
           fi
           echo "json_path=$JSON_FILE" >> "$GITHUB_OUTPUT"
+
       - name: Extract and Display Values
         id: extract_version
         shell: bash
@@ -222,6 +224,7 @@ jobs:
             section2_value($component; $item) as $value |
             "\($component) \($item): entry=\(entry_value($value))"
           ' "$JSON_FILE"
+
       - name: Create Summary
         shell: bash
         run: |
@@ -271,6 +274,7 @@ jobs:
               "| \($component) | \($item) | \(entry_value($value)) |"
             ' "$JSON_FILE"
           } >> "$GITHUB_STEP_SUMMARY"
+
   notify-build-start:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json]
@@ -294,6 +298,7 @@ jobs:
           curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
             -d "$START_PAYLOAD" || echo "Failed to send start notification"
+
   copy-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json]
@@ -322,6 +327,7 @@ jobs:
           chmod 777 "$DEST_CONFIG"
           mv "$DEST_CONFIG" "$FINAL_CONFIG"
           [ -f "$FINAL_CONFIG" ] || { echo "Missing final config: $FINAL_CONFIG"; exit 1; }
+
   prepare-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config]
@@ -353,6 +359,7 @@ jobs:
             cd "$WORKDIR"
           fi
           git config --global --add safe.directory "$WORKDIR"
+
       - name: Update Config File with JSON Values
         shell: bash
         run: |
@@ -447,6 +454,7 @@ jobs:
           fi
           sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
           sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
+
       - name: Display Final Prepared Config
         shell: bash
         run: |
@@ -454,6 +462,7 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${CURRENT_VERSION}.ini"
           cat "$CONFIG_FILE"
+
   upload-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config, prepare-config]
@@ -466,6 +475,7 @@ jobs:
           set -euo pipefail
           echo "Session ID: ${{ needs.session-management.outputs.session_id }}"
           echo "Triggered by: ${{ needs.session-management.outputs.trigger_source }}"
+
       - name: Upload Config File via GitHub API
         shell: bash
         env:
@@ -543,6 +553,7 @@ jobs:
             exit 1
           fi
           rm -f existing_file.json payload.json api_response.json
+
   validate-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config, prepare-config, upload-config]
@@ -561,13 +572,13 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
           CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
-          CONFIG_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          CONFIG_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '$CONFIG_PATH' ]]; then
               echo 'EXISTS'
             else
               echo 'NOT_FOUND'
             fi
-          " )
+          ")
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
             echo "config_validated=true" >> "$GITHUB_OUTPUT"
             echo "config_path=$CONFIG_PATH" >> "$GITHUB_OUTPUT"
@@ -575,6 +586,7 @@ jobs:
             echo "config_validated=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
       - name: Display Prepared Config File Contents
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -582,10 +594,11 @@ jobs:
         run: |
           set -euo pipefail
           CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
-          CONFIG_CONTENTS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          CONFIG_CONTENTS=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cat '$CONFIG_PATH'
-          " )
+          ")
           echo "$CONFIG_CONTENTS"
+
   kerberos-setup:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, validate-config]
@@ -598,8 +611,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
           [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
+
       - name: Initialize Kerberos Ticket
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -607,26 +621,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          KTAB_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
-          " )
+          ")
           echo "$KTAB_RESULT"
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
+
       - name: Initialize Kerberos Cron
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          KCRON_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          KCRON_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
-          " )
+          ")
           echo "$KCRON_RESULT"
           if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
+
   patch-build:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, validate-config, kerberos-setup]
@@ -639,26 +655,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
+          CURRENT_USER=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami)
           [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
+
       - name: Verify Build Tools Exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          PYTHON_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          PYTHON_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
-          " )
-          FXT_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          ")
+          FXT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
-          " )
-          EXPECT_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          ")
+          EXPECT_CHECK=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
-          " )
+          ")
           [[ "$PYTHON_CHECK" == "EXISTS" ]] || exit 1
           [[ "$FXT_CHECK" == "EXISTS" ]] || exit 1
           [[ "$EXPECT_CHECK" == "EXISTS" ]] || exit 1
+
       - name: Execute SRF Debug UP Automated Build
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -714,14 +732,16 @@ jobs:
           set -e
 
           echo "$BUILD_RESULT"
+
           if [ "$BUILD_EXIT_CODE" -ne 0 ]; then
-		    exit "$BUILD_EXIT_CODE"
+            exit "$BUILD_EXIT_CODE"
           fi
 
           if echo "$BUILD_RESULT" | grep -Eqi 'FAILURE --|Error Occurred|Invalid Path|File does not exist'; then
             echo "Build tool reported failure even though exit code was 0"
             exit 1
           fi
+
       - name: Verify Automated Build Results
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
@@ -729,14 +749,15 @@ jobs:
         run: |
           set -euo pipefail
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          VERIFICATION_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+          VERIFICATION_RESULT=$((echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
             find . -type f -mmin -30 2>/dev/null | head -20 || true
             find . -name '*.patch' -o -name '*.bin' -o -name '*.ucode' 2>/dev/null | head -10 || true
             find . -name '*debug*' -o -name '*css-debug*' 2>/dev/null | head -10 || true
             find . -name '*${CURRENT_VERSION}*' 2>/dev/null | head -10 || true
-          " )
+          ")
           echo "$VERIFICATION_RESULT"
+
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, patch-build]
@@ -768,6 +789,7 @@ jobs:
             cd "$WORKDIR"
           fi
           git config --global --add safe.directory "$WORKDIR"
+
       - name: Copy Release Collaterals to SRF Host
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
@@ -822,6 +844,7 @@ jobs:
             export WINDOWS_DEST="$WINDOWS_DEST"
             "${{ env.EXPECT_PATH }}" "${{ env.SCP_EXPECT_SCRIPT }}" || exit 1
           done
+
   call-srf-login:
     needs: [session-management, copy-release-collaterals]
     if: ${{ success() }}
