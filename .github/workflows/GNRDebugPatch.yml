@@ -437,18 +437,8 @@ jobs:
 
           if has_value "$xucode_path"; then sed -i "s|^xucode = .*|xucode = $xucode_path|" "$CONFIG_FILE"; fi
           if has_value "$mcheck_path"; then sed -i "s|^mcheck = .*|mcheck = $mcheck_path|" "$CONFIG_FILE"; fi
-
-          if ! has_value "$tcode_path"; then
-            sed -i "s|^tcode = .*|tcode = none|" "$CONFIG_FILE"
-          else
-            sed -i "s|^tcode = .*|tcode = $tcode_path|" "$CONFIG_FILE"
-          fi
-
-          if ! has_value "$acode_path"; then
-            sed -i "s|^acode = .*|acode = none|" "$CONFIG_FILE"
-          else
-            sed -i "s|^acode = .*|acode = $acode_path|" "$CONFIG_FILE"
-          fi
+          if has_value "$tcode_path"; then sed -i "s|^tcode = .*|tcode = $tcode_path|" "$CONFIG_FILE"; fi
+          if has_value "$acode_path"; then sed -i "s|^acode = .*|acode = $acode_path|" "$CONFIG_FILE"; fi
 
           sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
           sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
