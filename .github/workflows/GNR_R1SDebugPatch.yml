@@ -153,12 +153,12 @@ jobs:
 
           extract_section1_value() {
             local item="$1"
-            jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
+            jq -r --arg item "$item" '.section_1[$item] // ""' "$JSON_FILE"
           }
 
           extract_staging_area() {
             local section="$1"
-            jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
+            jq -r --arg section "$section" '.components[$section] // ""' "$JSON_FILE"
           }
 
           version=$(extract_section1_value "version")
@@ -195,7 +195,7 @@ jobs:
             echo "## Section 1 Values"
             echo "| Field | Value |"
             echo "|-------|-------|"
-            jq -r '.section_1[] | "| \(.check_list_item) | \(.entry) |"' "$JSON_FILE"
+            jq -r '.section_1 | to_entries[] | "| \(.key) | \(.value) |"' "$JSON_FILE"
           } >> "$GITHUB_STEP_SUMMARY"
 
   notify-build-start:
@@ -300,12 +300,12 @@ jobs:
 
           extract_section1_value() {
             local item="$1"
-            jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
+            jq -r --arg item "$item" '.section_1[$item] // ""' "$JSON_FILE"
           }
 
           extract_staging_area() {
             local section="$1"
-            jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
+            jq -r --arg section "$section" '.components[$section] // ""' "$JSON_FILE"
           }
 
           has_value() {
@@ -417,18 +417,8 @@ jobs:
 
           if has_value "$xucode_path"; then sed -i "s|^xucode = .*|xucode = $xucode_path|" "$CONFIG_FILE"; fi
           if has_value "$mcheck_path"; then sed -i "s|^mcheck = .*|mcheck = $mcheck_path|" "$CONFIG_FILE"; fi
-
-          if ! has_value "$tcode_path"; then
-            sed -i "s|^tcode = .*|tcode = none|" "$CONFIG_FILE"
-          else
-            sed -i "s|^tcode = .*|tcode = $tcode_path|" "$CONFIG_FILE"
-          fi
-
-          if ! has_value "$acode_path"; then
-            sed -i "s|^acode = .*|acode = none|" "$CONFIG_FILE"
-          else
-            sed -i "s|^acode = .*|acode = $acode_path|" "$CONFIG_FILE"
-          fi
+          if has_value "$tcode_path"; then sed -i "s|^tcode = .*|tcode = $tcode_path|" "$CONFIG_FILE"; fi
+          if has_value "$acode_path"; then sed -i "s|^acode = .*|acode = $acode_path|" "$CONFIG_FILE"; fi
 
           sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
           sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
