@@ -3,12 +3,12 @@
         {
             "sr_no": 1,
             "check_list_item": "Milestone",
-            "entry": "UPLR"
+            "entry": "UPLR 1234"
         },
         {
             "sr_no": 2,
             "check_list_item": "patch_description",
-            "entry": "Mock"
+            "entry": "Mock des"
         },
         {
             "sr_no": 3,
