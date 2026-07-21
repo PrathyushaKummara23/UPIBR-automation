@@ -3,47 +3,56 @@
         {
             "sr_no": 1,
             "check_list_item": "Milestone",
-            "entry": "UPLR 789"
+            "entry": "UPLR 99",
+            "entry_value": "UPLR 99"
         },
         {
             "sr_no": 2,
             "check_list_item": "patch_description",
-            "entry": "Mock 789"
+            "entry": "Mock 99",
+            "entry_value": "Mock 99"
         },
         {
             "sr_no": 3,
             "check_list_item": "version",
-            "entry": "0x836003C4"
+            "entry": "0x836003C4",
+            "entry_value": "0x836003C4"
         },
         {
             "sr_no": 4,
             "check_list_item": "svn",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "se_svn",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "min_svn",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "min_runtime_id",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "patch_rollback_flags",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "prev_version",
-            "entry": "0x830003C4"
+            "entry": "0x830003C4",
+            "entry_value": "0x830003C4"
         }
     ],
     "ucode": [
@@ -51,55 +60,64 @@
             "sr_no": 1,
             "check_list_item": "ucode Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "ucode SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "ucode TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "ucode SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "ucode SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "ucode Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "ucode Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "ucode SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "ucode CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "xucode": [
@@ -107,55 +125,64 @@
             "sr_no": 1,
             "check_list_item": "xucode Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "xucode SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "xucode TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "xucode SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "xucode SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "xucode Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "xucode Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "xucode SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "xucode CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "mcheck": [
@@ -163,55 +190,64 @@
             "sr_no": 1,
             "check_list_item": "mcheck Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "mcheck SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "mcheck TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "mcheck SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "mcheck SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "mcheck Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "mcheck Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "mcheck SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "mcheck CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "tcode": [
@@ -219,55 +255,64 @@
             "sr_no": 1,
             "check_list_item": "tcode Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "tcode SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "tcode TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "tcode SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "tcode SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "tcode Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "tcode Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "tcode SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "tcode CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "acode": [
@@ -275,55 +320,64 @@
             "sr_no": 1,
             "check_list_item": "acode Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "acode SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "acode TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "acode SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "acode SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "acode Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "acode Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "acode SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "acode CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "icode": [
@@ -331,55 +385,64 @@
             "sr_no": 1,
             "check_list_item": "icode Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "icode SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "icode TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "icode SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "icode SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "icode Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "icode Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "icode SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "icode CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "oobmsm": [
@@ -387,55 +450,64 @@
             "sr_no": 1,
             "check_list_item": "oobmsm Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "oobmsm SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "oobmsm TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "oobmsm SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "oobmsm SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "oobmsm Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "oobmsm Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "oobmsm SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "oobmsm CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "pcode-io": [
@@ -443,55 +515,64 @@
             "sr_no": 1,
             "check_list_item": "pcode-io Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "pcode-io SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "pcode-io TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "pcode-io SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "pcode-io SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "pcode-io Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "pcode-io Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "pcode-io SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "pcode-io CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "pcode-c": [
@@ -499,55 +580,64 @@
             "sr_no": 1,
             "check_list_item": "pcode-c Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "pcode-c SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "pcode-c TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "pcode-c SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "pcode-c SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "pcode-c Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "pcode-c Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "pcode-c SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "pcode-c CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
     ],
     "s3m": [
@@ -555,55 +645,65 @@
             "sr_no": 1,
             "check_list_item": "s3m Post Binary Staging Area",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 2,
             "check_list_item": "s3m SGX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 3,
             "check_list_item": "s3m TDX",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 4,
             "check_list_item": "s3m SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 5,
             "check_list_item": "s3m SE_SVN",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 6,
             "check_list_item": "s3m Unit Test Checking",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 7,
             "check_list_item": "s3m Sanity Test",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 8,
             "check_list_item": "s3m SDLE process",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         },
         {
             "sr_no": 9,
             "check_list_item": "s3m CTE PRE Si Val",
             "selection": "No",
-            "entry": ""
+            "entry": "",
+            "entry_value": ""
         }
-    ]
+    ],
+    "last_updated": "2026-07-21T15:27:10.754134Z"
 }
