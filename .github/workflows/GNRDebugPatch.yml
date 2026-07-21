@@ -162,12 +162,12 @@ jobs:
 
           extract_section1_value() {
             local item="$1"
-            jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
+            jq -r --arg item "$item" '.section_1[$item] // ""' "$JSON_FILE"
           }
 
           extract_staging_area() {
             local section="$1"
-            jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
+            jq -r --arg section "$section" '.components[$section] // ""' "$JSON_FILE"
           }
 
           version=$(extract_section1_value "version")
@@ -204,7 +204,7 @@ jobs:
             echo "## Section 1 Values"
             echo "| Field | Value |"
             echo "|-------|-------|"
-            jq -r '.section_1[] | "| \(.check_list_item) | \(.entry) |"' "$JSON_FILE"
+            jq -r '.section_1 | to_entries[] | "| \(.key) | \(.value) |"' "$JSON_FILE"
           } >> "$GITHUB_STEP_SUMMARY"
 
   notify-build-start:
@@ -318,12 +318,12 @@ jobs:
 
           extract_section1_value() {
             local item="$1"
-            jq -r --arg item "$item" '.section_1[] | select(.check_list_item == $item) | .entry' "$JSON_FILE"
+            jq -r --arg item "$item" '.section_1[$item] // ""' "$JSON_FILE"
           }
 
           extract_staging_area() {
             local section="$1"
-            jq -r --arg section "$section" '.[$section][0].entry // ""' "$JSON_FILE"
+            jq -r --arg section "$section" '.components[$section] // ""' "$JSON_FILE"
           }
 
           has_value() {
