@@ -2,13 +2,13 @@
     "section_1": {
         "Milestone": "UPLR",
         "patch_description": "exp patch",
-        "version": "",
+        "version": "0x836003C4",
         "svn": "",
         "se_svn": "",
         "min_svn": "",
         "min_runtime_id": "",
         "patch_rollback_flags": "",
-        "prev_version": ""
+        "prev_version": "0x830003C4"
     },
     "components": {
         "ucode": "",
@@ -124,5 +124,5 @@
             "CTE PRE Si Val": ""
         }
     },
-    "last_updated": "2026-07-22T07:06:47.174768Z"
+    "last_updated": "2026-07-22T09:08:40.693751Z"
 }
