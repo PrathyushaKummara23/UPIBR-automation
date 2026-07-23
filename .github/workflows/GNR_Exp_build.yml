@@ -1,4 +1,4 @@
-name: GNR Debug Patch Build
+name: GNR Exp Patch Build
 
 on:
   workflow_dispatch:
@@ -375,37 +375,48 @@ jobs:
           SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
           NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
 
-          echo "Generating config file..."
+          echo "Generating config file as faceless account..."
           echo "Source: $SOURCE_CONFIG"
           echo "Target: $NEW_CONFIG"
 
           (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
+            set -euo pipefail
+
             mkdir -p '${{ env.BUILD_BASE_PATH }}'
             cp '$SOURCE_CONFIG' '$NEW_CONFIG'
 
-            sed -i 's/^version = .*/version = 0x${NEW_CLEAN}/' '$NEW_CONFIG'
-            sed -i 's/^prev_version = .*/prev_version = 0x${BASELINE_CLEAN}/' '$NEW_CONFIG'
-            sed -i 's|^patch_description = .*|patch_description = ${{ github.event.inputs.patch_description }}|' '$NEW_CONFIG'
+            # Update version values
+            sed -i 's/^version *= *.*/version = 0x${NEW_CLEAN}/' '$NEW_CONFIG'
+            sed -i 's/^prev_version *= *.*/prev_version = 0x${BASELINE_CLEAN}/' '$NEW_CONFIG'
 
-            [[ -n '${{ github.event.inputs.icode }}' ]] && sed -i 's|^icode = .*|icode = ${{ github.event.inputs.icode }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.oobmsm }}' ]] && sed -i 's|^oobmsm = .*|oobmsm = ${{ github.event.inputs.oobmsm }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.s3m }}' ]] && sed -i 's|^s3m = .*|s3m = ${{ github.event.inputs.s3m }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.pcode_io }}' ]] && sed -i 's|^pcode-io = .*|pcode-io = ${{ github.event.inputs.pcode_io }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.pcode_c }}' ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ github.event.inputs.pcode_c }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.ucode }}' ]] && sed -i 's|^ucode = .*|ucode = ${{ github.event.inputs.ucode }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.xucode }}' ]] && sed -i 's|^xucode = .*|xucode = ${{ github.event.inputs.xucode }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.mcheck }}' ]] && sed -i 's|^mcheck = .*|mcheck = ${{ github.event.inputs.mcheck }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.tcode }}' ]] && sed -i 's|^tcode = .*|tcode = ${{ github.event.inputs.tcode }}|' '$NEW_CONFIG'
-            [[ -n '${{ github.event.inputs.acode }}' ]] && sed -i 's|^acode = .*|acode = ${{ github.event.inputs.acode }}|' '$NEW_CONFIG'
+            # Debug patch specific changes (same idea as SRF)
+            sed -i 's|^build_path *= .*|build_path = ${{ env.BUILD_BASE_PATH }}|' '$NEW_CONFIG'
+            sed -i 's|^patch_description *= .*|patch_description = ${{ github.event.inputs.patch_description }}|' '$NEW_CONFIG'
+            sed -i 's/^release *= *.*/release = no/' '$NEW_CONFIG'
+            sed -i 's/^fiv_register *= *.*/fiv_register = no/' '$NEW_CONFIG'
+            sed -i 's/^release_notes *= *.*/release_notes = no/' '$NEW_CONFIG'
+            sed -i 's/^fiv_crawler *= *.*/fiv_crawler = no/' '$NEW_CONFIG'
+            sed -i 's/^soc_sign *= *.*/soc_sign = css-debug/' '$NEW_CONFIG'
+            sed -i 's/^fit1_sign *= *.*/fit1_sign = css-debug/' '$NEW_CONFIG'
 
+            # Update component paths if provided
+            [[ -n '${{ github.event.inputs.icode }}' ]] && sed -i 's|^icode *= .*|icode = ${{ github.event.inputs.icode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.oobmsm }}' ]] && sed -i 's|^oobmsm *= .*|oobmsm = ${{ github.event.inputs.oobmsm }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.s3m }}' ]] && sed -i 's|^s3m *= .*|s3m = ${{ github.event.inputs.s3m }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.pcode_io }}' ]] && sed -i 's|^pcode-io *= .*|pcode-io = ${{ github.event.inputs.pcode_io }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.pcode_c }}' ]] && sed -i 's|^pcode-c *= .*|pcode-c = ${{ github.event.inputs.pcode_c }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.ucode }}' ]] && sed -i 's|^ucode *= .*|ucode = ${{ github.event.inputs.ucode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.xucode }}' ]] && sed -i 's|^xucode *= .*|xucode = ${{ github.event.inputs.xucode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.mcheck }}' ]] && sed -i 's|^mcheck *= .*|mcheck = ${{ github.event.inputs.mcheck }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.tcode }}' ]] && sed -i 's|^tcode *= .*|tcode = ${{ github.event.inputs.tcode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.acode }}' ]] && sed -i 's|^acode *= .*|acode = ${{ github.event.inputs.acode }}|' '$NEW_CONFIG'
+
+            # If ucode path is overridden, update related fields too
             if [[ -n '${{ github.event.inputs.ucode }}' ]]; then
               UCODE_BASE_DIR=\$(dirname '${{ github.event.inputs.ucode }}')
-              sed -i \"s|^ucode_config = .*|ucode_config = \${UCODE_BASE_DIR}/patch_default_server.patch|\" '$NEW_CONFIG'
-              sed -i \"s|^ucode_template = .*|ucode_template = \${UCODE_BASE_DIR}/patch_template.template|\" '$NEW_CONFIG'
+              sed -i \"s|^ucode_config *= .*|ucode_config = \${UCODE_BASE_DIR}/patch_default_server.patch|\" '$NEW_CONFIG'
+              sed -i \"s|^ucode_template *= .*|ucode_template = \${UCODE_BASE_DIR}/patch_template.template|\" '$NEW_CONFIG'
             fi
-
-            sed -i 's/^soc_sign = .*/soc_sign = css-debug/' '$NEW_CONFIG'
-            sed -i 's/^fit1_sign = .*/fit1_sign = css-debug/' '$NEW_CONFIG'
 
             echo 'Config file generated successfully'
             echo 'Generated config file contents:'
@@ -458,6 +469,15 @@ jobs:
           echo "- **Patch Description**: ${{ github.event.inputs.patch_description }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Signing Mode**: css-debug" >> "$GITHUB_STEP_SUMMARY"
           echo "- **File Permissions**: 777 (rwxrwxrwx - full access for all)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Debug Patch Modifications Applied:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **build_path**: Updated to ${{ env.BUILD_BASE_PATH }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **release**: Changed to 'no'" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **fiv_register**: Changed to 'no'" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **fiv_crawler**: Ensured 'no'" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **release_notes**: Changed to 'no'" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **soc_sign**: Changed to 'css-debug'" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **fit1_sign**: Changed to 'css-debug'" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Updated Components:" >> "$GITHUB_STEP_SUMMARY"
 
@@ -916,6 +936,7 @@ jobs:
           echo "- **Account**: ${{ env.FACELESS_USER }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Build Mode**: GNR Debug Patch" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Signing Mode**: css-debug" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Release Flag**: no" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Password Method**: expect script with GNR_CSS_PASSWORD from GitHub Secrets" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Timeout**: 30 minutes maximum build time" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
