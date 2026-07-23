@@ -1,4 +1,4 @@
-name: GNR Exp Patch Build
+name: GNR Debug Patch Build
 
 on:
   workflow_dispatch:
@@ -57,6 +57,9 @@ on:
         type: string
         default: 'GNR Debug Patch Automated Build'
 
+permissions:
+  contents: read
+
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   PATCHES_BASE_PATH: /nfs/site/disks/dcsg_0729/patches/GNR/B0
@@ -75,12 +78,42 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          WORKDIR="${GITHUB_WORKSPACE}"
+          PARENT_DIR="$(dirname "$WORKDIR")"
+          REPO_DIR="$(basename "$WORKDIR")"
+          BRANCH="${{ github.ref_name }}"
+
+          mkdir -p "$PARENT_DIR"
+          cd "$PARENT_DIR"
+
+          if [ -d "$WORKDIR/.git" ]; then
+            cd "$WORKDIR"
+            git remote set-url origin "$REPO_URL"
+            git fetch --depth=1 origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          else
+            rm -rf "$WORKDIR"
+            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+            cd "$WORKDIR"
+          fi
+
+          git config --global --add safe.directory "$WORKDIR"
 
       - name: Switch to faceless account and verify
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Switching to faceless account for path validation..."
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" whoami )
 
@@ -98,11 +131,16 @@ jobs:
           fi
 
       - name: Validate versions
+        shell: bash
         run: |
+          set -euo pipefail
+
           BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0X}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
 
           if [[ ! "$BASELINE_CLEAN" =~ ^[0-9A-Fa-f]{8}$ ]]; then
             echo "Error: Invalid baseline version format: $BASELINE_CLEAN"
@@ -122,9 +160,13 @@ jobs:
         id: validate-baseline
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
           BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0X}"
 
           SOURCE_CONFIG="${{ env.PATCHES_BASE_PATH }}/build/${BASELINE_CLEAN}/release/config_${BASELINE_CLEAN}.ini"
 
@@ -141,7 +183,7 @@ jobs:
 
           if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
             echo "Baseline config found: $SOURCE_CONFIG"
-            echo "baseline_config=$SOURCE_CONFIG" >> $GITHUB_OUTPUT
+            echo "baseline_config=$SOURCE_CONFIG" >> "$GITHUB_OUTPUT"
           else
             echo "Error: Baseline config not found: $SOURCE_CONFIG"
             exit 1
@@ -150,7 +192,10 @@ jobs:
       - name: Validate provided paths exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Validating user-provided paths..."
 
           check_path() {
@@ -232,7 +277,10 @@ jobs:
       - name: Validate baseline config paths
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Validating paths from baseline config..."
 
           SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
@@ -279,21 +327,22 @@ jobs:
                 return 0
               else
                 echo "WARNING $name: $path (baseline missing, using as-is)"
+                echo "Note: This may cause issues during build, but continuing anyway"
                 return 0
               fi
             fi
           }
 
-          ICODE_PATH=$(grep '^icode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          OOBMSM_PATH=$(grep '^oobmsm = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          S3M_PATH=$(grep '^s3m = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          PCODE_IO_PATH=$(grep '^pcode-io = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          PCODE_C_PATH=$(grep '^pcode-c = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          UCODE_PATH=$(grep '^ucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          XUCODE_PATH=$(grep '^xucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          MCHECK_PATH=$(grep '^mcheck = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          TCODE_PATH=$(grep '^tcode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
-          ACODE_PATH=$(grep '^acode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs)
+          ICODE_PATH=$(grep '^icode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          OOBMSM_PATH=$(grep '^oobmsm = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          S3M_PATH=$(grep '^s3m = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          PCODE_IO_PATH=$(grep '^pcode-io = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          PCODE_C_PATH=$(grep '^pcode-c = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          UCODE_PATH=$(grep '^ucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          XUCODE_PATH=$(grep '^xucode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          MCHECK_PATH=$(grep '^mcheck = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          TCODE_PATH=$(grep '^tcode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
+          ACODE_PATH=$(grep '^acode = ' "$SOURCE_CONFIG" | cut -d'=' -f2 | xargs || true)
 
           validate_baseline_path 'ICODE' "$ICODE_PATH" "$([[ -n "$ICODE_INPUT" ]] && echo true || echo false)"
           validate_baseline_path 'OOBMSM' "$OOBMSM_PATH" "$([[ -n "$OOBMSM_INPUT" ]] && echo true || echo false)"
@@ -310,11 +359,18 @@ jobs:
 
       - name: Copy and generate config
         id: generate-config
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           BASELINE_CLEAN="${{ github.event.inputs.baseline_version }}"
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           BASELINE_CLEAN="${BASELINE_CLEAN#0x}"
+          BASELINE_CLEAN="${BASELINE_CLEAN#0X}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
 
           SOURCE_CONFIG="${{ steps.validate-baseline.outputs.baseline_config }}"
           NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
@@ -323,125 +379,150 @@ jobs:
           echo "Source: $SOURCE_CONFIG"
           echo "Target: $NEW_CONFIG"
 
-          mkdir -p "${{ env.BUILD_BASE_PATH }}"
-          cp "$SOURCE_CONFIG" "$NEW_CONFIG"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
+            mkdir -p '${{ env.BUILD_BASE_PATH }}'
+            cp '$SOURCE_CONFIG' '$NEW_CONFIG'
 
-          sed -i 's/version = .*/version = 0x'"${NEW_CLEAN}"'/' "$NEW_CONFIG"
-          sed -i 's/prev_version = .*/prev_version = 0x'"${BASELINE_CLEAN}"'/' "$NEW_CONFIG"
-          sed -i 's/patch_description = .*/patch_description = ${{ github.event.inputs.patch_description }}/' "$NEW_CONFIG"
+            sed -i 's/^version = .*/version = 0x${NEW_CLEAN}/' '$NEW_CONFIG'
+            sed -i 's/^prev_version = .*/prev_version = 0x${BASELINE_CLEAN}/' '$NEW_CONFIG'
+            sed -i 's|^patch_description = .*|patch_description = ${{ github.event.inputs.patch_description }}|' '$NEW_CONFIG'
 
-          [[ -n "${{ github.event.inputs.icode }}" ]] && sed -i 's|^icode = .*|icode = ${{ github.event.inputs.icode }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.oobmsm }}" ]] && sed -i 's|^oobmsm = .*|oobmsm = ${{ github.event.inputs.oobmsm }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.s3m }}" ]] && sed -i 's|^s3m = .*|s3m = ${{ github.event.inputs.s3m }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.pcode_io }}" ]] && sed -i 's|^pcode-io = .*|pcode-io = ${{ github.event.inputs.pcode_io }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.pcode_c }}" ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ github.event.inputs.pcode_c }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.ucode }}" ]] && sed -i 's|^ucode = .*|ucode = ${{ github.event.inputs.ucode }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.xucode }}" ]] && sed -i 's|^xucode = .*|xucode = ${{ github.event.inputs.xucode }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.mcheck }}" ]] && sed -i 's|^mcheck = .*|mcheck = ${{ github.event.inputs.mcheck }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.tcode }}" ]] && sed -i 's|^tcode = .*|tcode = ${{ github.event.inputs.tcode }}|' "$NEW_CONFIG"
-          [[ -n "${{ github.event.inputs.acode }}" ]] && sed -i 's|^acode = .*|acode = ${{ github.event.inputs.acode }}|' "$NEW_CONFIG"
+            [[ -n '${{ github.event.inputs.icode }}' ]] && sed -i 's|^icode = .*|icode = ${{ github.event.inputs.icode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.oobmsm }}' ]] && sed -i 's|^oobmsm = .*|oobmsm = ${{ github.event.inputs.oobmsm }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.s3m }}' ]] && sed -i 's|^s3m = .*|s3m = ${{ github.event.inputs.s3m }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.pcode_io }}' ]] && sed -i 's|^pcode-io = .*|pcode-io = ${{ github.event.inputs.pcode_io }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.pcode_c }}' ]] && sed -i 's|^pcode-c = .*|pcode-c = ${{ github.event.inputs.pcode_c }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.ucode }}' ]] && sed -i 's|^ucode = .*|ucode = ${{ github.event.inputs.ucode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.xucode }}' ]] && sed -i 's|^xucode = .*|xucode = ${{ github.event.inputs.xucode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.mcheck }}' ]] && sed -i 's|^mcheck = .*|mcheck = ${{ github.event.inputs.mcheck }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.tcode }}' ]] && sed -i 's|^tcode = .*|tcode = ${{ github.event.inputs.tcode }}|' '$NEW_CONFIG'
+            [[ -n '${{ github.event.inputs.acode }}' ]] && sed -i 's|^acode = .*|acode = ${{ github.event.inputs.acode }}|' '$NEW_CONFIG'
 
-          if [[ -n "${{ github.event.inputs.ucode }}" ]]; then
-            UCODE_BASE_DIR="$(dirname "${{ github.event.inputs.ucode }}")"
-            sed -i "s|^ucode_config = .*|ucode_config = ${UCODE_BASE_DIR}/patch_default_server.patch|" "$NEW_CONFIG"
-            sed -i "s|^ucode_template = .*|ucode_template = ${UCODE_BASE_DIR}/patch_template.template|" "$NEW_CONFIG"
-          fi
+            if [[ -n '${{ github.event.inputs.ucode }}' ]]; then
+              UCODE_BASE_DIR=\$(dirname '${{ github.event.inputs.ucode }}')
+              sed -i \"s|^ucode_config = .*|ucode_config = \${UCODE_BASE_DIR}/patch_default_server.patch|\" '$NEW_CONFIG'
+              sed -i \"s|^ucode_template = .*|ucode_template = \${UCODE_BASE_DIR}/patch_template.template|\" '$NEW_CONFIG'
+            fi
 
-          sed -i 's/^soc_sign = .*/soc_sign = css-debug/' "$NEW_CONFIG"
-          sed -i 's/^fit1_sign = .*/fit1_sign = css-debug/' "$NEW_CONFIG"
+            sed -i 's/^soc_sign = .*/soc_sign = css-debug/' '$NEW_CONFIG'
+            sed -i 's/^fit1_sign = .*/fit1_sign = css-debug/' '$NEW_CONFIG'
 
-          echo "Config file generated successfully"
-          echo "Generated config file contents:"
-          cat "$NEW_CONFIG"
+            echo 'Config file generated successfully'
+            echo 'Generated config file contents:'
+            cat '$NEW_CONFIG'
+          "
 
-          echo "config_file=config_${NEW_CLEAN}.ini" >> $GITHUB_OUTPUT
+          echo "config_file=config_${NEW_CLEAN}.ini" >> "$GITHUB_OUTPUT"
 
       - name: Set config file permissions
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
 
           NEW_CONFIG="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
 
-          echo "Setting permissions (777) for config file..."
-          chmod 777 "$NEW_CONFIG"
+          echo "Setting permissions (777) for config file as faceless account..."
+          echo "Config file: $NEW_CONFIG"
+
+          echo "Current permissions:"
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" ls -la "$NEW_CONFIG"
+
+          (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" chmod 777 "$NEW_CONFIG"
 
           echo "Updated permissions:"
-          ls -la "$NEW_CONFIG"
+          PERMISSIONS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" ls -la "$NEW_CONFIG" )
+          echo "$PERMISSIONS"
+
+          if echo "$PERMISSIONS" | grep -q "^-rwxrwxrwx"; then
+            echo "SUCCESS: Config file permissions set to 777 (rwxrwxrwx)"
+          else
+            echo "WARNING: Permissions may not have been set correctly"
+            echo "Actual: $PERMISSIONS"
+          fi
 
       - name: Display config summary
+        shell: bash
         run: |
-          echo "## Config Generation Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **New Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Patch Description**: ${{ github.event.inputs.patch_description }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Signing Mode**: css-debug" >> $GITHUB_STEP_SUMMARY
-          echo "- **File Permissions**: 777 (rwxrwxrwx - full access for all)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Updated Components:" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+
+          echo "## Config Generation Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Baseline Version**: ${{ github.event.inputs.baseline_version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **New Version**: ${{ github.event.inputs.new_version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Config File**: ${{ steps.generate-config.outputs.config_file }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Patch Description**: ${{ github.event.inputs.patch_description }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Signing Mode**: css-debug" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **File Permissions**: 777 (rwxrwxrwx - full access for all)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Updated Components:" >> "$GITHUB_STEP_SUMMARY"
 
           COMPONENTS_UPDATED=false
 
           if [[ -n "${{ github.event.inputs.icode }}" ]]; then
-            echo "- **ICODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **ICODE**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.oobmsm }}" ]]; then
-            echo "- **OOBMSM**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **OOBMSM**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.s3m }}" ]]; then
-            echo "- **S3M**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **S3M**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.pcode_io }}" ]]; then
-            echo "- **PCODE-IO**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **PCODE-IO**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.pcode_c }}" ]]; then
-            echo "- **PCODE-C**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **PCODE-C**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.ucode }}" ]]; then
-            echo "- **UCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **UCODE**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.xucode }}" ]]; then
-            echo "- **XUCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **XUCODE**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.mcheck }}" ]]; then
-            echo "- **MCHECK**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **MCHECK**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.tcode }}" ]]; then
-            echo "- **TCODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **TCODE**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
           if [[ -n "${{ github.event.inputs.acode }}" ]]; then
-            echo "- **ACODE**: Updated" >> $GITHUB_STEP_SUMMARY
+            echo "- **ACODE**: Updated" >> "$GITHUB_STEP_SUMMARY"
             COMPONENTS_UPDATED=true
           fi
 
           if [[ "$COMPONENTS_UPDATED" == "false" ]]; then
-            echo "- No component paths were updated (using baseline paths)" >> $GITHUB_STEP_SUMMARY
+            echo "- No component paths were updated (using baseline paths)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Config file generated successfully for GNR debug patch build!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Config file generated successfully for GNR debug patch build!" >> "$GITHUB_STEP_SUMMARY"
 
   kerberos-setup:
     runs-on: [self-hosted, Linux, X64, gnrdebugbuild]
     needs: prepare-config
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
 
+    steps:
       - name: Switch to faceless account and verify
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Switching to faceless account..."
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" whoami )
 
@@ -461,7 +542,10 @@ jobs:
       - name: Verify Kerberos tools exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Verifying Kerberos tools availability..."
 
           KTAB_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
@@ -500,7 +584,10 @@ jobs:
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
           FA_PASSWORD: ${{ secrets.GNR_FA_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Step 1: Initializing Kerberos Ticket with ktab..."
           echo "Running: ${{ env.KTAB_PATH }} -i"
 
@@ -521,7 +608,10 @@ jobs:
       - name: Initialize Kerberos Cron (kcron)
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Step 2: Initializing Kerberos Cron with kcron..."
           echo "Running: ${{ env.KCRON_PATH }} -i"
 
@@ -540,31 +630,33 @@ jobs:
           fi
 
       - name: Display setup summary
+        shell: bash
         run: |
-          echo "## Kerberos Setup Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Account**: ${{ env.FACELESS_USER }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **ktab Path**: ${{ env.KTAB_PATH }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **kcron Path**: ${{ env.KCRON_PATH }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Steps Completed:" >> $GITHUB_STEP_SUMMARY
-          echo "1. PASS **Faceless Account Login**" >> $GITHUB_STEP_SUMMARY
-          echo "2. PASS **Tool Verification**" >> $GITHUB_STEP_SUMMARY
-          echo "3. PASS **Kerberos Ticket Init**" >> $GITHUB_STEP_SUMMARY
-          echo "4. PASS **Kerberos Cron Init**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Kerberos setup completed successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "## Kerberos Setup Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Account**: ${{ env.FACELESS_USER }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **ktab Path**: ${{ env.KTAB_PATH }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **kcron Path**: ${{ env.KCRON_PATH }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Steps Completed:" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. PASS **Faceless Account Login**" >> "$GITHUB_STEP_SUMMARY"
+          echo "2. PASS **Tool Verification**" >> "$GITHUB_STEP_SUMMARY"
+          echo "3. PASS **Kerberos Ticket Init**" >> "$GITHUB_STEP_SUMMARY"
+          echo "4. PASS **Kerberos Cron Init**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Kerberos setup completed successfully!" >> "$GITHUB_STEP_SUMMARY"
 
   build-patch:
     runs-on: [self-hosted, Linux, X64, gnrdebugbuild]
     needs: [prepare-config, kerberos-setup]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
 
+    steps:
       - name: Switch to faceless account and verify
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Switching to faceless account for patch build..."
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" whoami )
 
@@ -584,11 +676,15 @@ jobs:
       - name: Verify build tools and config exist
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Verifying build tools and configuration..."
 
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
           CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${NEW_CLEAN}.ini"
 
           PYTHON_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
@@ -657,11 +753,15 @@ jobs:
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
           CSS_PASSWORD: ${{ secrets.GNR_CSS_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Starting patch build with expect for CSS password prompt..."
 
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
           CONFIG_FILE="config_${NEW_CLEAN}.ini"
 
           echo "Build configuration:"
@@ -672,6 +772,7 @@ jobs:
           echo "  - Config File: $CONFIG_FILE"
           echo ""
 
+          set +e
           BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" env CSS_PASSWORD="$CSS_PASSWORD" CONFIG_FILE="$CONFIG_FILE" bash <<'EOF'
           set -uo pipefail
           cd '${{ env.BUILD_BASE_PATH }}'
@@ -715,8 +816,8 @@ jobs:
           exit $BUILD_EXIT
           EOF
           )
-
           BUILD_EXIT_CODE=$?
+          set -e
 
           echo "Build execution output:"
           echo "$BUILD_RESULT"
@@ -736,11 +837,15 @@ jobs:
       - name: Check build log for explicit failures
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Checking build log for explicit failures..."
 
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
           LOG_FILE="${{ env.BUILD_BASE_PATH }}/PatchBuild_${NEW_CLEAN}.log"
 
           LOG_STATUS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
@@ -770,11 +875,15 @@ jobs:
       - name: Verify build results
         env:
           BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "Verifying build results..."
 
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
 
           VERIFICATION_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
@@ -794,18 +903,20 @@ jobs:
           echo "$VERIFICATION_RESULT"
 
       - name: Display build summary
+        shell: bash
         run: |
           NEW_CLEAN="${{ github.event.inputs.new_version }}"
           NEW_CLEAN="${NEW_CLEAN#0x}"
+          NEW_CLEAN="${NEW_CLEAN#0X}"
 
-          echo "## Patch Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ github.event.inputs.new_version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Config File**: config_${NEW_CLEAN}.ini" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Account**: ${{ env.FACELESS_USER }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Mode**: GNR Debug Patch" >> $GITHUB_STEP_SUMMARY
-          echo "- **Signing Mode**: css-debug" >> $GITHUB_STEP_SUMMARY
-          echo "- **Password Method**: expect script with GNR_CSS_PASSWORD from GitHub Secrets" >> $GITHUB_STEP_SUMMARY
-          echo "- **Timeout**: 30 minutes maximum build time" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Patch build process completed with secure password handling!" >> $GITHUB_STEP_SUMMARY
+          echo "## Patch Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version**: ${{ github.event.inputs.new_version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Config File**: config_${NEW_CLEAN}.ini" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Build Directory**: ${{ env.BUILD_BASE_PATH }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Account**: ${{ env.FACELESS_USER }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Build Mode**: GNR Debug Patch" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Signing Mode**: css-debug" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Password Method**: expect script with GNR_CSS_PASSWORD from GitHub Secrets" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Timeout**: 30 minutes maximum build time" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Patch build process completed with secure password handling!" >> "$GITHUB_STEP_SUMMARY"
