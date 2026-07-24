@@ -3,15 +3,112 @@ name: Test Upload SRF INC File
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   upload-srf-inc-test:
     runs-on: [self-hosted, node16]
+
     steps:
-      - name: Basic debug
+      - name: Upload SRF INC file
         shell: bash
+        env:
+          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
-          set -euxo pipefail
-          echo "hello"
-          whoami
-          pwd
-          ls -l /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/83000132/release
+          set -euo pipefail
+
+          echo "Step started" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
+            echo "REPO_PUSH_TOKEN secret is empty or unavailable" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          CURRENT_VERSION="83000132"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
+
+          SRC_FILE="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
+          TARGET_PATH="output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
+          API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
+          COMMIT_MESSAGE="Upload SRF INC test file for ${CURRENT_VERSION}"
+
+          {
+            echo "## SRF INC Upload Test"
+            echo ""
+            echo "- Source: \`$SRC_FILE\`"
+            echo "- Target: \`$TARGET_PATH\`"
+            echo "- API URL: \`$API_URL\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          [ -f "$SRC_FILE" ] || { echo "INC file not found: $SRC_FILE" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; }
+
+          CONTENT_B64=$(base64 -w 0 "$SRC_FILE" 2>/dev/null || base64 "$SRC_FILE" | tr -d '\n')
+
+          HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL")
+
+          echo "- Existing file check HTTP code: \`$HTTP_CODE\`" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            FILE_SHA=$(jq -r '.sha' existing_file.json)
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg sha "$FILE_SHA" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                sha: $sha,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          elif [ "$HTTP_CODE" = "404" ]; then
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          else
+            echo "Failed to query existing file. HTTP status: $HTTP_CODE" | tee -a "$GITHUB_STEP_SUMMARY"
+            cat existing_file.json || true
+            exit 1
+          fi
+
+          RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -d @payload.json \
+            "$API_URL")
+
+          echo "- Upload HTTP code: \`$RESPONSE_CODE\`" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+            echo "Upload succeeded" >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "GitHub API upload failed for $TARGET_PATH. HTTP status: $RESPONSE_CODE" | tee -a "$GITHUB_STEP_SUMMARY"
+            cat api_response.json || true
+            exit 1
+          fi
+
+          rm -f existing_file.json payload.json api_response.json
