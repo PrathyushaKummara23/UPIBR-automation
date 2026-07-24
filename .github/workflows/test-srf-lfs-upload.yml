@@ -1,4 +1,4 @@
-name: SRF Artifact Upload (Linux, no Node actions)
+name: SRF Artifact Upload (Linux -> GitHub Release Assets)
 
 on:
   workflow_dispatch:
@@ -22,6 +22,7 @@ permissions:
 
 jobs:
   srf-artifact-upload:
+    name: Prepare and upload SRF zip assets
     runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
     timeout-minutes: 30
 
@@ -47,9 +48,9 @@ jobs:
           echo "PDB_FILE=${PDB_FILE}"
           echo "ARTIFACT_DIR=${ARTIFACT_DIR}"
 
-          test -d "${SRC_RELEASE_DIR}"
-          test -f "${INC_FILE}"
-          test -f "${PDB_FILE}"
+          test -d "${SRC_RELEASE_DIR}" || { echo "Missing source directory"; exit 1; }
+          test -f "${INC_FILE}" || { echo "Missing INC file"; exit 1; }
+          test -f "${PDB_FILE}" || { echo "Missing PDB file"; exit 1; }
 
           mkdir -p "${ARTIFACT_DIR}"
 
@@ -59,15 +60,21 @@ jobs:
           zip -j "${INC_ZIP}" "${INC_FILE}"
           zip -j "${PDB_ZIP}" "${PDB_FILE}"
 
-          test -f "${INC_ZIP}"
-          test -f "${PDB_ZIP}"
+          test -f "${INC_ZIP}" || { echo "INC zip not created"; exit 1; }
+          test -f "${PDB_ZIP}" || { echo "PDB zip not created"; exit 1; }
+
+          ls -lah "${ARTIFACT_DIR}"
 
           echo "INC_ZIP=${INC_ZIP}" >> "${GITHUB_ENV}"
           echo "PDB_ZIP=${PDB_ZIP}" >> "${GITHUB_ENV}"
 
-          ls -lah "${ARTIFACT_DIR}"
+      - name: Check jq
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v jq >/dev/null || { echo "jq not found on runner"; exit 1; }
 
-      - name: Create/ensure release tag
+      - name: Create or get release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,7 +84,6 @@ jobs:
           TAG="srf-${BUILD_ID}"
           API="https://api.github.com/repos/${GH_REPO}"
 
-          # Try to create release. If it exists, continue.
           http_code=$(curl -sS -o /tmp/release_create.json -w "%{http_code}" \
             -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -91,18 +97,14 @@ jobs:
             exit 1
           fi
 
-          # Get release by tag and extract upload_url
           curl -sS \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "${API}/releases/tags/${TAG}" > /tmp/release_get.json
 
-          UPLOAD_URL=$(python - <<'PY'
-import json
-d=json.load(open('/tmp/release_get.json'))
-print(d["upload_url"].split("{")[0])
-PY
-)
+          UPLOAD_URL="$(jq -r '.upload_url | split("{")[0]' /tmp/release_get.json)"
+          test -n "${UPLOAD_URL}" && [ "${UPLOAD_URL}" != "null" ] || { echo "UPLOAD_URL missing"; cat /tmp/release_get.json; exit 1; }
+
           echo "UPLOAD_URL=${UPLOAD_URL}" >> "${GITHUB_ENV}"
           echo "TAG=${TAG}" >> "${GITHUB_ENV}"
 
@@ -116,25 +118,18 @@ PY
           upload_one () {
             local file="$1"
             local name
+            local asset_id
+
             name="$(basename "$file")"
 
-            # delete existing asset with same name if exists
             curl -sS \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${GH_REPO}/releases/tags/${TAG}" > /tmp/release_assets.json
 
-            asset_id=$(python - "$name" <<'PY'
-import json,sys
-name=sys.argv[1]
-d=json.load(open('/tmp/release_assets.json'))
-for a in d.get("assets",[]):
-    if a.get("name")==name:
-        print(a.get("id"))
-        break
-PY
-)
-            if [ -n "${asset_id:-}" ]; then
+            asset_id="$(jq -r --arg n "$name" '.assets[]? | select(.name==$n) | .id' /tmp/release_assets.json | head -n1)"
+
+            if [ -n "${asset_id:-}" ] && [ "${asset_id}" != "null" ]; then
               curl -sS -X DELETE \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
