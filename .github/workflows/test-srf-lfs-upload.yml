@@ -8,9 +8,9 @@ on:
         required: true
         type: string
       src_release_dir:
-        description: "Source release directory"
+        description: "Source release directory base"
         required: true
-        default: "C:\\SRF\\C0\\build"
+        default: "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build"
         type: string
       inc_basename:
         description: "Base file name without extension (example: m_01_a06f3_836003c4)"
@@ -20,7 +20,7 @@ on:
 jobs:
   srf-artifact-upload:
     name: Prepare and upload SRF zip artifacts
-    runs-on: [self-hosted, X64, Windows, gnr_r1s-prod-fit1]
+    runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
     timeout-minutes: 30
 
     env:
@@ -29,60 +29,63 @@ jobs:
       INC_BASENAME: ${{ inputs.inc_basename }}
 
     steps:
-      - name: Checkout
+      # checkout/upload-artifact may fail on old glibc+Node24 runners.
+      # Keep checkout only if you really need repo files.
+      - name: Optional checkout
+        if: ${{ false }}
         uses: actions/checkout@v4
 
       - name: Prepare zipped SRF files
-        id: prepare
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
+          set -euo pipefail
 
-          $srcReleaseDir = Join-Path $env:ROOT_RELEASE_BASE "$($env:BUILD_ID)\release"
-          $incFile = Join-Path $srcReleaseDir "$($env:INC_BASENAME).inc"
-          $pdbFile = Join-Path $srcReleaseDir "$($env:INC_BASENAME).pdb"
-          $artifactDir = Join-Path $env:RUNNER_TEMP "srf-release-collaterals\$($env:BUILD_ID)"
+          SRC_RELEASE_DIR="${ROOT_RELEASE_BASE}/${BUILD_ID}/release"
+          INC_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.inc"
+          PDB_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.pdb"
+          ARTIFACT_DIR="${RUNNER_TEMP}/srf-release-collaterals/${BUILD_ID}"
 
-          Write-Host "SRC_RELEASE_DIR=$srcReleaseDir"
-          Write-Host "INC_FILE=$incFile"
-          Write-Host "PDB_FILE=$pdbFile"
-          Write-Host "ARTIFACT_DIR=$artifactDir"
+          echo "SRC_RELEASE_DIR=${SRC_RELEASE_DIR}"
+          echo "INC_FILE=${INC_FILE}"
+          echo "PDB_FILE=${PDB_FILE}"
+          echo "ARTIFACT_DIR=${ARTIFACT_DIR}"
 
-          if (!(Test-Path $srcReleaseDir)) { throw "Source directory missing: $srcReleaseDir" }
-          if (!(Test-Path $incFile)) { throw "INC file missing: $incFile" }
-          if (!(Test-Path $pdbFile)) { throw "PDB file missing: $pdbFile" }
+          test -d "${SRC_RELEASE_DIR}" || { echo "ERROR: Source directory missing: ${SRC_RELEASE_DIR}"; exit 1; }
+          test -f "${INC_FILE}" || { echo "ERROR: INC file missing: ${INC_FILE}"; exit 1; }
+          test -f "${PDB_FILE}" || { echo "ERROR: PDB file missing: ${PDB_FILE}"; exit 1; }
 
-          New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+          mkdir -p "${ARTIFACT_DIR}"
 
-          $incZip = Join-Path $artifactDir "$($env:INC_BASENAME).inc.zip"
-          $pdbZip = Join-Path $artifactDir "$($env:INC_BASENAME).pdb.zip"
+          INC_ZIP="${ARTIFACT_DIR}/$(basename "${INC_FILE}").zip"
+          PDB_ZIP="${ARTIFACT_DIR}/$(basename "${PDB_FILE}").zip"
 
-          Compress-Archive -Path $incFile -DestinationPath $incZip -Force
-          Compress-Archive -Path $pdbFile -DestinationPath $pdbZip -Force
+          zip -j "${INC_ZIP}" "${INC_FILE}"
+          zip -j "${PDB_ZIP}" "${PDB_FILE}"
 
-          if (!(Test-Path $incZip)) { throw "INC zip not created: $incZip" }
-          if (!(Test-Path $pdbZip)) { throw "PDB zip not created: $pdbZip" }
+          test -f "${INC_ZIP}" || { echo "ERROR: INC zip not created: ${INC_ZIP}"; exit 1; }
+          test -f "${PDB_ZIP}" || { echo "ERROR: PDB zip not created: ${PDB_ZIP}"; exit 1; }
 
-          Get-ChildItem $artifactDir | Format-Table Name,Length,LastWriteTime -AutoSize
+          ls -lah "${ARTIFACT_DIR}"
 
-          "ARTIFACT_DIR=$artifactDir" >> $env:GITHUB_ENV
-          "INC_ZIP=$incZip" >> $env:GITHUB_ENV
-          "PDB_ZIP=$pdbZip" >> $env:GITHUB_ENV
+          echo "ARTIFACT_DIR=${ARTIFACT_DIR}" >> "${GITHUB_ENV}"
+          echo "INC_ZIP=${INC_ZIP}" >> "${GITHUB_ENV}"
+          echo "PDB_ZIP=${PDB_ZIP}" >> "${GITHUB_ENV}"
 
       - name: Verify zipped outputs
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
+          set -euo pipefail
+          echo "ARTIFACT_DIR=${ARTIFACT_DIR}"
+          echo "INC_ZIP=${INC_ZIP}"
+          echo "PDB_ZIP=${PDB_ZIP}"
+          test -d "${ARTIFACT_DIR}"
+          test -f "${INC_ZIP}"
+          test -f "${PDB_ZIP}"
+          ls -lah "${ARTIFACT_DIR}"
 
-          Write-Host "ARTIFACT_DIR=$env:ARTIFACT_DIR"
-          Write-Host "INC_ZIP=$env:INC_ZIP"
-          Write-Host "PDB_ZIP=$env:PDB_ZIP"
-
-          if (!(Test-Path $env:ARTIFACT_DIR)) { throw "Missing artifact directory: $env:ARTIFACT_DIR" }
-          if (!(Test-Path $env:INC_ZIP)) { throw "Missing file: $env:INC_ZIP" }
-          if (!(Test-Path $env:PDB_ZIP)) { throw "Missing file: $env:PDB_ZIP" }
-
+      # If your runner supports Node24/glibc, enable this:
       - name: Upload SRF zip artifacts
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: srf-release-${{ env.BUILD_ID }}
@@ -91,3 +94,15 @@ jobs:
           path: |
             ${{ env.INC_ZIP }}
             ${{ env.PDB_ZIP }}
+
+      # Fallback: always works without Node-based upload-artifact
+      - name: Stage artifacts for external pickup
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="/nfs/site/disks/dcsg_0729/users/${USER}/github-artifacts/${BUILD_ID}"
+          mkdir -p "${OUT_DIR}"
+          cp -f "${INC_ZIP}" "${OUT_DIR}/"
+          cp -f "${PDB_ZIP}" "${OUT_DIR}/"
+          echo "Artifacts staged at: ${OUT_DIR}"
+          ls -lah "${OUT_DIR}"
