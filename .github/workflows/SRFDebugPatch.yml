@@ -447,7 +447,6 @@ jobs:
 
           if [ "$HTTP_CODE" = "200" ]; then
             FILE_SHA=$(jq -r '.sha' existing_file.json)
-
             jq -n \
               --arg message "$COMMIT_MESSAGE" \
               --arg content "$CONTENT_B64" \
@@ -706,54 +705,7 @@ jobs:
     if: ${{ success() }}
 
     steps:
-      - name: Checkout repository
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          WORKDIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "$WORKDIR")"
-          REPO_DIR="$(basename "$WORKDIR")"
-          BRANCH="${{ github.ref_name }}"
-
-          mkdir -p "$PARENT_DIR"
-          cd "$PARENT_DIR"
-
-          if [ -d "$WORKDIR/.git" ]; then
-            cd "$WORKDIR"
-            git remote set-url origin "$REPO_URL"
-            git fetch --depth=1 origin "$BRANCH"
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-          else
-            rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
-            cd "$WORKDIR"
-          fi
-
-          git config --global --add safe.directory "$WORKDIR"
-
-      - name: Copy release folder into repository
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
-          DEST_RELEASE_DIR="${GITHUB_WORKSPACE}/output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
-
-          [ -d "$SRC_RELEASE_DIR" ] || { echo "Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
-
-          mkdir -p "$DEST_RELEASE_DIR"
-          cp -r "$SRC_RELEASE_DIR"/. "$DEST_RELEASE_DIR"/
-
-          echo "Copied release collaterals to: $DEST_RELEASE_DIR"
-          ls -la "$DEST_RELEASE_DIR"
-
-      - name: Commit and push release collaterals
+      - name: Upload release collaterals via GitHub API
         shell: bash
         env:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
@@ -765,20 +717,90 @@ jobs:
             exit 1
           fi
 
-          cd "$GITHUB_WORKSPACE"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+          TARGET_BASE="output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
 
-          git add output_paths/SRF_release_collaterals/
+          [ -d "$SRC_RELEASE_DIR" ] || { echo "Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
 
-          if git diff --cached --quiet; then
-            echo "No release collateral changes to commit"
-            exit 0
-          fi
+          echo "Uploading files from: $SRC_RELEASE_DIR"
+          echo "Target base path: $TARGET_BASE"
 
-          git commit -m "Upload SRF release collaterals for ${{ needs.read-json.outputs.current_version }}"
-          git push origin "${{ github.ref_name }}"
+          find "$SRC_RELEASE_DIR" -maxdepth 1 -type f | while read -r FILE_PATH; do
+            FILE_NAME="$(basename "$FILE_PATH")"
+            TARGET_PATH="${TARGET_BASE}/${FILE_NAME}"
+            API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
+
+            echo "Uploading $FILE_NAME -> $TARGET_PATH"
+
+            CONTENT_B64=$(base64 -w 0 "$FILE_PATH" 2>/dev/null || base64 "$FILE_PATH" | tr -d '\n')
+            COMMIT_MESSAGE="Upload SRF release collateral ${CURRENT_VERSION}: ${FILE_NAME}"
+
+            HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
+              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              FILE_SHA=$(jq -r '.sha' existing_file.json)
+
+              jq -n \
+                --arg message "$COMMIT_MESSAGE" \
+                --arg content "$CONTENT_B64" \
+                --arg sha "$FILE_SHA" \
+                --arg branch "${{ github.ref_name }}" \
+                --arg name "GitHub Action" \
+                --arg email "action@github.com" \
+                '{
+                  message: $message,
+                  content: $content,
+                  sha: $sha,
+                  branch: $branch,
+                  committer: {
+                    name: $name,
+                    email: $email
+                  }
+                }' > payload.json
+
+            elif [ "$HTTP_CODE" = "404" ]; then
+              jq -n \
+                --arg message "$COMMIT_MESSAGE" \
+                --arg content "$CONTENT_B64" \
+                --arg branch "${{ github.ref_name }}" \
+                --arg name "GitHub Action" \
+                --arg email "action@github.com" \
+                '{
+                  message: $message,
+                  content: $content,
+                  branch: $branch,
+                  committer: {
+                    name: $name,
+                    email: $email
+                  }
+                }' > payload.json
+            else
+              echo "Failed to query existing file for $TARGET_PATH. HTTP status: $HTTP_CODE"
+              cat existing_file.json || true
+              exit 1
+            fi
+
+            RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
+              -X PUT \
+              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @payload.json \
+              "$API_URL")
+
+            if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+              echo "Uploaded successfully: $TARGET_PATH"
+            else
+              echo "GitHub API upload failed for $TARGET_PATH. HTTP status: $RESPONSE_CODE"
+              cat api_response.json || true
+              exit 1
+            fi
+          done
+
+          rm -f existing_file.json payload.json api_response.json
 
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
