@@ -17,7 +17,7 @@ jobs:
       - name: Checkout repository
         shell: bash
         env:
-          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+          RELEASE_COLLATERALS_PUSH_TOKEN_SRF: ${{ secrets.release_collaterals_push_token_srf }}
         run: |
           set -euo pipefail
 
@@ -33,12 +33,12 @@ jobs:
 
           log "=== Checkout repository ==="
 
-          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            log "REPO_PUSH_TOKEN is missing"
+          if [ -z "${RELEASE_COLLATERALS_PUSH_TOKEN_SRF:-}" ]; then
+            log "release_collaterals_push_token_srf is missing"
             exit 1
           fi
 
-          REPO_URL="https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
+          REPO_URL="https://x-access-token:${RELEASE_COLLATERALS_PUSH_TOKEN_SRF}@github.com/${{ github.repository }}.git"
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
@@ -72,13 +72,13 @@ jobs:
       - name: Prepare zipped files, configure LFS, commit and push
         shell: bash
         env:
-          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+          RELEASE_COLLATERALS_PUSH_TOKEN_SRF: ${{ secrets.release_collaterals_push_token_srf }}
         run: |
           set -euo pipefail
 
           LOG_FILE="${{ env.DEBUG_LOG_PATH }}"
           BRANCH="${{ github.ref_name }}"
-          REPO_URL="https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
+          REPO_URL="https://x-access-token:${RELEASE_COLLATERALS_PUSH_TOKEN_SRF}@github.com/${{ github.repository }}.git"
 
           log() {
             echo "$1" | tee -a "$LOG_FILE"
@@ -89,8 +89,8 @@ jobs:
           log ""
           log "=== Prepare zipped files, configure LFS, commit and push ==="
 
-          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            log "REPO_PUSH_TOKEN is missing"
+          if [ -z "${RELEASE_COLLATERALS_PUSH_TOKEN_SRF:-}" ]; then
+            log "release_collaterals_push_token_srf is missing"
             exit 1
           fi
 
@@ -145,6 +145,8 @@ jobs:
           log "=== Zip sizes ==="
           ls -lh "$INC_ZIP" >> "$LOG_FILE" 2>&1
           ls -lh "$PDB_ZIP" >> "$LOG_FILE" 2>&1
+
+          rm -f existing_file.json payload.json api_response.json
 
           log "=== git add ==="
           git add .gitattributes >> "$LOG_FILE" 2>&1 || true
