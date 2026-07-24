@@ -699,7 +699,7 @@ jobs:
           echo "$BUILD_RESULT"
           [ "$BUILD_EXIT_CODE" -eq 0 ] || exit "$BUILD_EXIT_CODE"
 
-    upload-release-collaterals:
+  upload-release-collaterals:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, patch-build]
     if: ${{ success() }}
