@@ -814,37 +814,49 @@ jobs:
           CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
           SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
 
-          INC_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
-          PDB_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb"
-
-          INC_ZIP="/tmp/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
-          PDB_ZIP="/tmp/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
-
           [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
-          [ -f "$INC_FILE" ] || { log "- INC file not found: $INC_FILE"; exit 1; }
-          [ -f "$PDB_FILE" ] || { log "- PDB file not found: $PDB_FILE"; exit 1; }
 
-          rm -f "$INC_ZIP" "$PDB_ZIP"
+          mapfile -t INC_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | sort)
+          mapfile -t PDB_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | sort)
 
-          zip -j "$INC_ZIP" "$INC_FILE"
-          zip -j "$PDB_ZIP" "$PDB_FILE"
+          [ "${#INC_FILES[@]}" -gt 0 ] || { log "- No INC files found for version suffix: ${CURRENT_VERSION_LOWER}"; exit 1; }
+          [ "${#PDB_FILES[@]}" -gt 0 ] || { log "- No PDB files found for version suffix: ${CURRENT_VERSION_LOWER}"; exit 1; }
 
-          log "- Created zip: \`$INC_ZIP\`"
-          log "- Created zip: \`$PDB_ZIP\`"
-          log "- INC zip size: \`$(ls -lh "$INC_ZIP" | awk '{print $5}')\`"
-          log "- PDB zip size: \`$(ls -lh "$PDB_ZIP" | awk '{print $5}')\`"
+          for INC_FILE in "${INC_FILES[@]}"; do
+            INC_FILENAME="$(basename "$INC_FILE")"
+            INC_ZIP="/tmp/${INC_FILENAME}.zip"
+            rm -f "$INC_ZIP"
+            zip -j "$INC_ZIP" "$INC_FILE"
 
-          upload_file \
-            "$INC_ZIP" \
-            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip" \
-            "Upload SRF zipped collateral ${CURRENT_VERSION}: m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
+            log "- Created zip: \`$INC_ZIP\`"
+            log "- INC zip size: \`$(ls -lh "$INC_ZIP" | awk '{print $5}')\`"
 
-          upload_file \
-            "$PDB_ZIP" \
-            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip" \
-            "Upload SRF zipped collateral ${CURRENT_VERSION}: m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
+            upload_file \
+              "$INC_ZIP" \
+              "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${INC_FILENAME}.zip" \
+              "Upload SRF zipped collateral ${CURRENT_VERSION}: ${INC_FILENAME}.zip"
 
-          rm -f "$INC_ZIP" "$PDB_ZIP" existing_file.json payload.json api_response.json
+            rm -f "$INC_ZIP"
+          done
+
+          for PDB_FILE in "${PDB_FILES[@]}"; do
+            PDB_FILENAME="$(basename "$PDB_FILE")"
+            PDB_ZIP="/tmp/${PDB_FILENAME}.zip"
+            rm -f "$PDB_ZIP"
+            zip -j "$PDB_ZIP" "$PDB_FILE"
+
+            log "- Created zip: \`$PDB_ZIP\`"
+            log "- PDB zip size: \`$(ls -lh "$PDB_ZIP" | awk '{print $5}')\`"
+
+            upload_file \
+              "$PDB_ZIP" \
+              "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${PDB_FILENAME}.zip" \
+              "Upload SRF zipped collateral ${CURRENT_VERSION}: ${PDB_FILENAME}.zip"
+
+            rm -f "$PDB_ZIP"
+          done
+
+          rm -f existing_file.json payload.json api_response.json
 
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
