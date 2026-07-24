@@ -17,9 +17,9 @@ on:
         required: true
         type: string
       target_branch:
-        description: "Branch to push collaterals to"
-        required: true
-        default: "main"
+        description: "Optional branch to push to (leave empty for repo default branch)"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
       BUILD_ID: ${{ inputs.build_id }}
       ROOT_RELEASE_BASE: ${{ inputs.src_release_dir }}
       INC_BASENAME: ${{ inputs.inc_basename }}
-      TARGET_BRANCH: ${{ inputs.target_branch }}
+      TARGET_BRANCH_INPUT: ${{ inputs.target_branch }}
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -44,6 +44,26 @@ jobs:
           set -euo pipefail
           command -v git >/dev/null || { echo "git not found"; exit 1; }
           command -v zip >/dev/null || { echo "zip not found"; exit 1; }
+          command -v jq >/dev/null || { echo "jq not found"; exit 1; }
+
+      - name: Resolve target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -n "${TARGET_BRANCH_INPUT}" ]; then
+            TARGET_BRANCH="${TARGET_BRANCH_INPUT}"
+          else
+            TARGET_BRANCH="$(curl -sS \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')"
+          fi
+
+          test -n "${TARGET_BRANCH}" && [ "${TARGET_BRANCH}" != "null" ] || { echo "Could not resolve target branch"; exit 1; }
+
+          echo "Using TARGET_BRANCH=${TARGET_BRANCH}"
+          echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "${GITHUB_ENV}"
 
       - name: Prepare zipped SRF files
         shell: bash
@@ -74,11 +94,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           WORK="${RUNNER_TEMP}/repo-work-${BUILD_ID}"
           rm -rf "${WORK}"
           mkdir -p "${WORK}"
 
-          # token-authenticated clone over HTTPS
           git -c http.sslVerify=true clone --branch "${TARGET_BRANCH}" \
             "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
             "${WORK}"
