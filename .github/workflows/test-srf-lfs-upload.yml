@@ -22,10 +22,8 @@ permissions:
 
 jobs:
   commit-collaterals:
-    name: Zip and commit collaterals to repository
     runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
     timeout-minutes: 30
-
     env:
       BUILD_ID: ${{ inputs.build_id }}
       ROOT_RELEASE_BASE: ${{ inputs.src_release_dir }}
@@ -44,11 +42,6 @@ jobs:
           PDB_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.pdb"
           WORK_DIR="${RUNNER_TEMP}/srf-release-collaterals/${BUILD_ID}"
 
-          echo "SRC_RELEASE_DIR=${SRC_RELEASE_DIR}"
-          echo "INC_FILE=${INC_FILE}"
-          echo "PDB_FILE=${PDB_FILE}"
-          echo "WORK_DIR=${WORK_DIR}"
-
           test -d "${SRC_RELEASE_DIR}" || { echo "Missing source directory: ${SRC_RELEASE_DIR}"; exit 1; }
           test -f "${INC_FILE}" || { echo "Missing INC file: ${INC_FILE}"; exit 1; }
           test -f "${PDB_FILE}" || { echo "Missing PDB file: ${PDB_FILE}"; exit 1; }
@@ -61,11 +54,6 @@ jobs:
           zip -j "${INC_ZIP}" "${INC_FILE}"
           zip -j "${PDB_ZIP}" "${PDB_FILE}"
 
-          test -f "${INC_ZIP}" || { echo "INC zip not created: ${INC_ZIP}"; exit 1; }
-          test -f "${PDB_ZIP}" || { echo "PDB zip not created: ${PDB_ZIP}"; exit 1; }
-
-          ls -lah "${WORK_DIR}"
-
           echo "INC_ZIP=${INC_ZIP}" >> "${GITHUB_ENV}"
           echo "PDB_ZIP=${PDB_ZIP}" >> "${GITHUB_ENV}"
 
@@ -73,9 +61,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v curl >/dev/null || { echo "curl not found"; exit 1; }
-          command -v jq >/dev/null || { echo "jq not found"; exit 1; }
-          command -v python3 >/dev/null || { echo "python3 not found"; exit 1; }
+          command -v curl >/dev/null
+          command -v jq >/dev/null
+          command -v python3 >/dev/null
 
       - name: Commit zip files to repository via GitHub API
         shell: bash
@@ -108,19 +96,8 @@ jobs:
               exit 1
             fi
 
-            python3 - "${src_file}" "${sha}" "${BUILD_ID}" "${file_name}" > "${payload_file}" <<'PY'
-             import sys, json, base64
-             src_file, sha, build_id, file_name = sys.argv[1:5]
-             with open(src_file, "rb") as f:
-             content_b64 = base64.b64encode(f.read()).decode("ascii")
-             payload = {
-             "message": f"Add SRF collateral {file_name} for build {build_id}",
-             "content": content_b64
-            }
-            if sha:
-            payload["sha"] = sha
-            print(json.dumps(payload))
-            PY
+            SRC_FILE="${src_file}" SHA_VAL="${sha}" BUILD_VAL="${BUILD_ID}" FILE_VAL="${file_name}" \
+            python3 -c 'import os,json,base64; b=base64.b64encode(open(os.environ["SRC_FILE"],"rb").read()).decode("ascii"); p={"message":f"Add SRF collateral {os.environ["FILE_VAL"]} for build {os.environ["BUILD_VAL"]}","content":b}; s=os.environ.get("SHA_VAL",""); p.update({"sha":s} if s else {}); print(json.dumps(p))' > "${payload_file}"
 
             put_code=$(curl -sS -o /tmp/put_result.json -w "%{http_code}" \
               -X PUT \
