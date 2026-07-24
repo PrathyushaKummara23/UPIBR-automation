@@ -37,7 +37,7 @@ jobs:
       INC_BASENAME: ${{ inputs.inc_basename }}
       TARGET_BRANCH_INPUT: ${{ inputs.target_branch }}
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.RELEASE_COLLATERALS_PUSH_TOKEN_SRF }}
+      GH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
 
     steps:
       - name: Verify tools
