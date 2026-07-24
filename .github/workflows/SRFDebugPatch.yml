@@ -705,41 +705,61 @@ jobs:
     if: ${{ success() }}
 
     steps:
-      - name: Upload Ingredients file via GitHub API
+      - name: Upload SRF INC file via GitHub API
         shell: bash
         env:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
 
+          {
+            echo "## SRF INC Upload"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
           if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
             echo "REPO_PUSH_TOKEN secret is empty or unavailable"
+            echo "- Token missing" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
           SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
-          TARGET_BASE="output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
-
-          [ -d "$SRC_RELEASE_DIR" ] || { echo "Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
-
-          INGREDIENTS_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -type f -name 'Ingredients_*.txt' | head -1)
-
-          [ -n "${INGREDIENTS_FILE:-}" ] || { echo "No Ingredients_*.txt file found in $SRC_RELEASE_DIR"; exit 1; }
-
-          FILE_NAME="$(basename "$INGREDIENTS_FILE")"
-          TARGET_PATH="${TARGET_BASE}/${FILE_NAME}"
+          INC_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
+          TARGET_PATH="output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
           API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
-          COMMIT_MESSAGE="Upload SRF release collateral ${CURRENT_VERSION}: ${FILE_NAME}"
+          COMMIT_MESSAGE="Upload SRF release collateral ${CURRENT_VERSION}: m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
 
+          {
+            echo "- Source: \`$INC_FILE\`"
+            echo "- Target: \`$TARGET_PATH\`"
+            echo "- API URL: \`$API_URL\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          [ -d "$SRC_RELEASE_DIR" ] || {
+            echo "Release directory not found: $SRC_RELEASE_DIR"
+            echo "- Release directory not found" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+
+          [ -f "$INC_FILE" ] || {
+            echo "INC file not found: $INC_FILE"
+            echo "- INC file not found" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+
+          FILE_NAME="$(basename "$INC_FILE")"
           echo "Uploading $FILE_NAME -> $TARGET_PATH"
 
-          CONTENT_B64=$(base64 -w 0 "$INGREDIENTS_FILE" 2>/dev/null || base64 "$INGREDIENTS_FILE" | tr -d '\n')
+          CONTENT_B64=$(base64 -w 0 "$INC_FILE" 2>/dev/null || base64 "$INC_FILE" | tr -d '\n')
 
           HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
             -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "$API_URL")
+
+          echo "- Existing file check HTTP code: \`$HTTP_CODE\`" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$HTTP_CODE" = "200" ]; then
             FILE_SHA=$(jq -r '.sha' existing_file.json)
@@ -779,6 +799,7 @@ jobs:
           else
             echo "Failed to query existing file for $TARGET_PATH. HTTP status: $HTTP_CODE"
             cat existing_file.json || true
+            echo "- Existing file lookup failed with HTTP $HTTP_CODE" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
@@ -789,12 +810,17 @@ jobs:
             -d @payload.json \
             "$API_URL")
 
+          echo "- Upload HTTP code: \`$RESPONSE_CODE\`" >> "$GITHUB_STEP_SUMMARY"
+
           if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
             echo "Uploaded successfully: $TARGET_PATH"
-            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
+            LINK=$(jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json)
+            echo "$LINK"
+            echo "- Result: $LINK" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "GitHub API upload failed for $TARGET_PATH. HTTP status: $RESPONSE_CODE"
             cat api_response.json || true
+            echo "- Upload failed with HTTP $RESPONSE_CODE" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
