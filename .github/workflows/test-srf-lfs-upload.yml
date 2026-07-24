@@ -1,0 +1,104 @@
+name: Test SRF Git LFS Upload
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-lfs-upload:
+    runs-on: [self-hosted, node16]
+
+    steps:
+      - name: Checkout repository
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          WORKDIR="${GITHUB_WORKSPACE}"
+          PARENT_DIR="$(dirname "$WORKDIR")"
+          REPO_DIR="$(basename "$WORKDIR")"
+          BRANCH="${{ github.ref_name }}"
+
+          mkdir -p "$PARENT_DIR"
+          cd "$PARENT_DIR"
+
+          if [ -d "$WORKDIR/.git" ]; then
+            cd "$WORKDIR"
+            git remote set-url origin "$REPO_URL"
+            git fetch --depth=1 origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          else
+            rm -rf "$WORKDIR"
+            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+            cd "$WORKDIR"
+          fi
+
+          git config --global --add safe.directory "$WORKDIR"
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+
+      - name: Verify Git LFS
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs version
+          git lfs install --local
+
+      - name: Prepare zipped SRF files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_VERSION="836003C4"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
+          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+
+          INC_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
+          PDB_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb"
+
+          [ -f "$INC_FILE" ] || { echo "INC file not found: $INC_FILE"; exit 1; }
+          [ -f "$PDB_FILE" ] || { echo "PDB file not found: $PDB_FILE"; exit 1; }
+
+          mkdir -p "output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
+
+          INC_ZIP="output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
+          PDB_ZIP="output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
+
+          rm -f "$INC_ZIP" "$PDB_ZIP"
+
+          zip -j "$INC_ZIP" "$INC_FILE"
+          zip -j "$PDB_ZIP" "$PDB_FILE"
+
+          ls -lh "output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
+
+      - name: Track zip files with Git LFS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git lfs track "*.zip"
+
+          echo "Contents of .gitattributes:"
+          cat .gitattributes
+
+      - name: Commit and push LFS files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add .gitattributes
+          git add output_paths/SRF_release_collaterals/
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git commit -m "Add SRF zipped collateral files for 836003C4 via Git LFS"
+          git push origin "${{ github.ref_name }}"
