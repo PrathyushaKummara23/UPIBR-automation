@@ -37,7 +37,7 @@ jobs:
       INC_BASENAME: ${{ inputs.inc_basename }}
       TARGET_BRANCH_INPUT: ${{ inputs.target_branch }}
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Verify tools
@@ -75,6 +75,16 @@ jobs:
 
           echo "Using BASE_BRANCH=${BASE_BRANCH}"
           echo "Using WORK_BRANCH=${WORK_BRANCH}"
+
+      - name: Validate token access
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GH_REPO}")"
+          [ "$code" = "200" ] || { echo "Token cannot access ${GH_REPO} (HTTP $code)"; exit 1; }
 
       - name: Prepare zipped SRF files
         shell: bash
@@ -115,6 +125,9 @@ jobs:
 
           cd "${WORK}"
           git checkout -B "${WORK_BRANCH}"
+
+          # Ensure push always uses authenticated remote
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
 
           echo "WORK_REPO=${WORK}" >> "${GITHUB_ENV}"
 
