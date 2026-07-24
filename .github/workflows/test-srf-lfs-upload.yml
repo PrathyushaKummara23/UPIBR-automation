@@ -1,4 +1,4 @@
-name: Test Push Auth
+name: Test Push Auth with PAT
 
 on:
   workflow_dispatch:
@@ -14,96 +14,71 @@ jobs:
 
     env:
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.GH_PAT_PUSH }}
 
     steps:
-      - name: Resolve default branch and test branch
+      - name: Verify PAT provided
         shell: bash
         run: |
           set -euo pipefail
+          [ -n "${GH_TOKEN}" ] || { echo "Missing PAT secret GH_PAT_PUSH"; exit 1; }
 
+      - name: Resolve default branch
+        shell: bash
+        run: |
+          set -euo pipefail
           DEFAULT_BRANCH="$(curl -sS \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')"
 
           test -n "${DEFAULT_BRANCH}" && [ "${DEFAULT_BRANCH}" != "null" ] || { echo "Could not resolve default branch"; exit 1; }
-
-          TEST_BRANCH="auth-test-$(date +%s)"
+          TEST_BRANCH="pat-auth-test-$(date +%s)"
 
           echo "DEFAULT_BRANCH=${DEFAULT_BRANCH}" >> "${GITHUB_ENV}"
           echo "TEST_BRANCH=${TEST_BRANCH}" >> "${GITHUB_ENV}"
 
-          echo "DEFAULT_BRANCH=${DEFAULT_BRANCH}"
-          echo "TEST_BRANCH=${TEST_BRANCH}"
-
-      - name: Validate token can read repo API
+      - name: Clone
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GH_REPO}")"
-          echo "Repo API status: ${code}"
-          [ "${code}" = "200" ] || { echo "Token cannot access repo API"; exit 1; }
-
-      - name: Clone repo
-        shell: bash
-        run: |
-          set -euo pipefail
-          WORK="${RUNNER_TEMP}/push-auth-test"
+          WORK="${RUNNER_TEMP}/push-auth-test-pat"
           rm -rf "${WORK}"
-
-          git clone --branch "${DEFAULT_BRANCH}" \
-            "https://github.com/${GH_REPO}.git" \
-            "${WORK}"
-
+          git clone --branch "${DEFAULT_BRANCH}" "https://github.com/${GH_REPO}.git" "${WORK}"
           cd "${WORK}"
           git checkout -B "${TEST_BRANCH}"
-
           echo "WORK_REPO=${WORK}" >> "${GITHUB_ENV}"
 
-      - name: Create test file
+      - name: Commit test change
         shell: bash
         run: |
           set -euo pipefail
           cd "${WORK_REPO}"
           mkdir -p .github/push-auth-test
-          cat > .github/push-auth-test/test-$(date +%s).txt <<EOF
-          push auth test
+          cat > .github/push-auth-test/pat-test-$(date +%s).txt <<EOF
+          PAT push test
           repo=${GH_REPO}
           actor=${GITHUB_ACTOR}
           run_id=${GITHUB_RUN_ID}
           time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           EOF
 
-      - name: Commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${WORK_REPO}"
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add .github/push-auth-test
-          git commit -m "Test push auth from self-hosted runner"
+          git commit -m "Test PAT push from self-hosted runner"
 
-      - name: Push with explicit auth header (key test)
+      - name: Push using PAT
         shell: bash
         run: |
           set -euo pipefail
           cd "${WORK_REPO}"
-
           git remote set-url origin "https://github.com/${GH_REPO}.git"
-
           git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf "x-access-token:${GH_TOKEN}" | base64 | tr -d '\n')" \
             push -u origin "${TEST_BRANCH}"
 
-      - name: Result
+      - name: Done
         shell: bash
         run: |
           set -euo pipefail
-          echo "SUCCESS: branch pushed"
-          echo "Branch URL: https://github.com/${GH_REPO}/tree/${TEST_BRANCH}"
+          echo "SUCCESS: https://github.com/${GH_REPO}/tree/${TEST_BRANCH}"
