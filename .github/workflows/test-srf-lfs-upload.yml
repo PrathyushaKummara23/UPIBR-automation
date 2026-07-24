@@ -1,22 +1,31 @@
-name: Proxy Unset Syntax Test
+- name: Commit and push work branch
+  shell: bash
+  run: |
+    set -euo pipefail
+    cd "${WORK_REPO}"
 
-on:
-  workflow_dispatch:
+    unset http_proxy
+    unset HTTP_PROXY
+    unset https_proxy
+    unset HTTPS_PROXY
+    export no_proxy="github.com,api.github.com"
+    export NO_PROXY="github.com,api.github.com"
 
-jobs:
-  test:
-    runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
-    steps:
-      - name: Network mode for GitHub
-        shell: bash
-        run: |
-          set -euo pipefail
-          unset http_proxy
-          unset HTTP_PROXY
-          unset https_proxy
-          unset HTTPS_PROXY
-          export no_proxy="github.com,api.github.com"
-          export NO_PROXY="github.com,api.github.com"
-          git config --global --unset-all http.proxy || true
-          git config --global --unset-all https.proxy || true
-          echo "Proxy unset for GitHub operations"
+    git config --global --unset-all http.proxy || true
+    git config --global --unset-all https.proxy || true
+
+    git config user.name "github-actions[bot]"
+    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+    git add "release-collaterals/${BUILD_ID}"
+
+    if git diff --cached --quiet; then
+      echo "No changes to commit."
+      echo "NO_CHANGES=true" >> "${GITHUB_ENV}"
+      exit 0
+    fi
+
+    git commit -m "Add SRF collaterals for build ${BUILD_ID}"
+
+    git remote set-url origin "https://
+
