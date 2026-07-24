@@ -18,13 +18,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          SUMMARY="$GITHUB_STEP_SUMMARY"
-          say() { echo "$1"; echo "$1" >> "$SUMMARY"; }
+          LOG_FILE="$RUNNER_TEMP/test-srf-lfs-upload.log"
+          mkdir -p "$RUNNER_TEMP"
+          : > "$LOG_FILE"
 
-          say "## Checkout repository"
+          log() {
+            echo "$1" | tee -a "$LOG_FILE"
+          }
+
+          log "## Checkout repository"
 
           if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            say "- REPO_PUSH_TOKEN is missing"
+            log "REPO_PUSH_TOKEN is missing"
             exit 1
           fi
 
@@ -34,9 +39,9 @@ jobs:
           REPO_DIR="$(basename "$WORKDIR")"
           BRANCH="${{ github.ref_name }}"
 
-          say "- Repository: \`${{ github.repository }}\`"
-          say "- Branch: \`$BRANCH\`"
-          say "- Workdir: \`$WORKDIR\`"
+          log "Repository: ${{ github.repository }}"
+          log "Branch: $BRANCH"
+          log "Workdir: $WORKDIR"
 
           mkdir -p "$PARENT_DIR"
           cd "$PARENT_DIR"
@@ -44,34 +49,37 @@ jobs:
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
-            git fetch --depth=1 origin "$BRANCH"
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
+            git fetch --depth=1 origin "$BRANCH" >> "$LOG_FILE" 2>&1
+            git checkout "$BRANCH" >> "$LOG_FILE" 2>&1
+            git reset --hard "origin/$BRANCH" >> "$LOG_FILE" 2>&1
           else
             rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR" >> "$LOG_FILE" 2>&1
             cd "$WORKDIR"
           fi
 
-          git config --global --add safe.directory "$WORKDIR"
-          git config user.name "GitHub Action"
-          git config user.email "action@github.com"
+          git config --global --add safe.directory "$WORKDIR" >> "$LOG_FILE" 2>&1
+          git config user.name "GitHub Action" >> "$LOG_FILE" 2>&1
+          git config user.email "action@github.com" >> "$LOG_FILE" 2>&1
 
-          say "- Checkout completed"
+          log "Checkout completed"
 
       - name: Prepare and track zipped SRF files with Git LFS
         shell: bash
         run: |
           set -euo pipefail
 
-          SUMMARY="$GITHUB_STEP_SUMMARY"
-          say() { echo "$1"; echo "$1" >> "$SUMMARY"; }
+          LOG_FILE="$RUNNER_TEMP/test-srf-lfs-upload.log"
 
-          say ""
-          say "## Prepare zipped files and configure Git LFS"
+          log() {
+            echo "$1" | tee -a "$LOG_FILE"
+          }
 
-          git lfs version >> "$SUMMARY" 2>&1
-          git lfs install --local >> "$SUMMARY" 2>&1
+          log ""
+          log "## Prepare zipped files and configure Git LFS"
+
+          git lfs version >> "$LOG_FILE" 2>&1
+          git lfs install --local >> "$LOG_FILE" 2>&1
 
           CURRENT_VERSION="836003C4"
           CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
@@ -84,34 +92,30 @@ jobs:
           INC_ZIP="${TARGET_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
           PDB_ZIP="${TARGET_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
 
-          say "- Source release dir: \`$SRC_RELEASE_DIR\`"
-          say "- INC file: \`$INC_FILE\`"
-          say "- PDB file: \`$PDB_FILE\`"
+          log "Source release dir: $SRC_RELEASE_DIR"
+          log "INC file: $INC_FILE"
+          log "PDB file: $PDB_FILE"
 
-          [ -d "$SRC_RELEASE_DIR" ] || { say "- Release directory missing"; exit 1; }
-          [ -f "$INC_FILE" ] || { say "- INC file missing"; exit 1; }
-          [ -f "$PDB_FILE" ] || { say "- PDB file missing"; exit 1; }
+          [ -d "$SRC_RELEASE_DIR" ] || { log "Release directory missing"; exit 1; }
+          [ -f "$INC_FILE" ] || { log "INC file missing"; exit 1; }
+          [ -f "$PDB_FILE" ] || { log "PDB file missing"; exit 1; }
 
           mkdir -p "$TARGET_DIR"
           rm -f "$INC_ZIP" "$PDB_ZIP"
 
-          zip -j "$INC_ZIP" "$INC_FILE" >> "$SUMMARY" 2>&1
-          zip -j "$PDB_ZIP" "$PDB_FILE" >> "$SUMMARY" 2>&1
+          zip -j "$INC_ZIP" "$INC_FILE" >> "$LOG_FILE" 2>&1
+          zip -j "$PDB_ZIP" "$PDB_FILE" >> "$LOG_FILE" 2>&1
 
-          [ -f "$INC_ZIP" ] || { say "- INC zip not created"; exit 1; }
-          [ -f "$PDB_ZIP" ] || { say "- PDB zip not created"; exit 1; }
+          [ -f "$INC_ZIP" ] || { log "INC zip not created"; exit 1; }
+          [ -f "$PDB_ZIP" ] || { log "PDB zip not created"; exit 1; }
 
-          say "- INC zip size: \`$(ls -lh "$INC_ZIP" | awk '{print $5}')\`"
-          say "- PDB zip size: \`$(ls -lh "$PDB_ZIP" | awk '{print $5}')\`"
+          log "INC zip size: $(ls -lh "$INC_ZIP" | awk '{print $5}')"
+          log "PDB zip size: $(ls -lh "$PDB_ZIP" | awk '{print $5}')"
 
-          git lfs track "*.zip" >> "$SUMMARY" 2>&1
+          git lfs track "*.zip" >> "$LOG_FILE" 2>&1
 
-          say "- .gitattributes contents:"
-          {
-            echo '```text'
-            cat .gitattributes
-            echo '```'
-          } >> "$SUMMARY"
+          log ".gitattributes contents:"
+          cat .gitattributes >> "$LOG_FILE" 2>&1
 
       - name: Commit and push LFS files
         shell: bash
@@ -120,56 +124,64 @@ jobs:
         run: |
           set -euo pipefail
 
-          SUMMARY="$GITHUB_STEP_SUMMARY"
-          say() { echo "$1"; echo "$1" >> "$SUMMARY"; }
+          LOG_FILE="$RUNNER_TEMP/test-srf-lfs-upload.log"
 
-          say ""
-          say "## Commit and push LFS files"
+          log() {
+            echo "$1" | tee -a "$LOG_FILE"
+          }
+
+          log ""
+          log "## Commit and push LFS files"
 
           if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            say "- REPO_PUSH_TOKEN is missing"
+            log "REPO_PUSH_TOKEN is missing"
             exit 1
           fi
 
           BRANCH="${{ github.ref_name }}"
           REPO_URL="https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
 
-          git remote set-url origin "$REPO_URL"
-          git remote -v >> "$SUMMARY" 2>&1 || true
+          git remote set-url origin "$REPO_URL" >> "$LOG_FILE" 2>&1
+          git remote -v >> "$LOG_FILE" 2>&1 || true
 
-          git add .gitattributes
-          git add output_paths/SRF_release_collaterals/
+          git add .gitattributes >> "$LOG_FILE" 2>&1
+          git add output_paths/SRF_release_collaterals/ >> "$LOG_FILE" 2>&1
 
           if git diff --cached --quiet; then
-            say "- No changes to commit"
+            log "No changes to commit"
             exit 0
           fi
 
-          say "- Cached changes:"
+          log "Cached changes:"
+          git status --short >> "$LOG_FILE" 2>&1
+          git diff --cached --stat >> "$LOG_FILE" 2>&1
+
+          git commit -m "Add SRF zipped collateral files for 836003C4 via Git LFS" >> "$LOG_FILE" 2>&1
+
+          log "Commit created"
+
+          git lfs ls-files >> "$LOG_FILE" 2>&1 || true
+          git lfs env >> "$LOG_FILE" 2>&1 || true
+
+          log "Attempting push"
+          git push origin "$BRANCH" >> "$LOG_FILE" 2>&1
+
+      - name: Publish debug log to step summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LOG_FILE="$RUNNER_TEMP/test-srf-lfs-upload.log"
+
           {
-            echo '```text'
-            git status --short
-            echo
-            git diff --cached --stat
-            echo '```'
-          } >> "$SUMMARY"
-
-          git commit -m "Add SRF zipped collateral files for 836003C4 via Git LFS" >> "$SUMMARY" 2>&1
-
-          say "- Commit created"
-
-          git lfs ls-files >> "$SUMMARY" 2>&1 || true
-          say "- Attempting push"
-
-          if git push origin "$BRANCH" >> "$SUMMARY" 2>&1; then
-            say "- Push succeeded"
-          else
-            say "- Push failed"
-            say "- Git LFS env:"
-            {
+            echo "## Test SRF Git LFS Upload Debug Log"
+            echo ""
+            if [ -f "$LOG_FILE" ]; then
               echo '```text'
-              git lfs env || true
+              cat "$LOG_FILE"
               echo '```'
-            } >> "$SUMMARY"
-            exit 1
-          fi
+            else
+              echo "No debug log file was created."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
