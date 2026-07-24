@@ -1,4 +1,4 @@
-name: Test SRF Git LFS Upload
+name: Test Basic Git Push
 
 on:
   workflow_dispatch:
@@ -7,10 +7,11 @@ permissions:
   contents: write
 
 env:
-  DEBUG_LOG_PATH: /nfs/site/disks/dcsg_0729/users/pkummara/test-srf-lfs-upload.log
+  DEBUG_LOG_PATH: /nfs/site/disks/dcsg_0729/users/pkummara/test-basic-push.log
+  TARGET_BRANCH: copilot/test-basic-push
 
 jobs:
-  test-lfs-upload:
+  test-basic-push:
     runs-on: [self-hosted, node16]
 
     steps:
@@ -42,10 +43,12 @@ jobs:
           WORKDIR="${GITHUB_WORKSPACE}"
           PARENT_DIR="$(dirname "$WORKDIR")"
           REPO_DIR="$(basename "$WORKDIR")"
-          BRANCH="${{ github.ref_name }}"
+          BASE_BRANCH="${{ github.ref_name }}"
+          TARGET_BRANCH="${{ env.TARGET_BRANCH }}"
 
           log "Repository: ${{ github.repository }}"
-          log "Branch: $BRANCH"
+          log "Base branch: $BASE_BRANCH"
+          log "Target branch: $TARGET_BRANCH"
           log "Workdir: $WORKDIR"
 
           mkdir -p "$PARENT_DIR"
@@ -54,12 +57,12 @@ jobs:
           if [ -d "$WORKDIR/.git" ]; then
             cd "$WORKDIR"
             git remote set-url origin "$REPO_URL"
-            git fetch --depth=1 origin "$BRANCH" >> "$LOG_FILE" 2>&1
-            git checkout "$BRANCH" >> "$LOG_FILE" 2>&1
-            git reset --hard "origin/$BRANCH" >> "$LOG_FILE" 2>&1
+            git fetch --depth=1 origin "$BASE_BRANCH" >> "$LOG_FILE" 2>&1
+            git checkout "$BASE_BRANCH" >> "$LOG_FILE" 2>&1
+            git reset --hard "origin/$BASE_BRANCH" >> "$LOG_FILE" 2>&1
           else
             rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR" >> "$LOG_FILE" 2>&1
+            git clone --depth=1 --branch "$BASE_BRANCH" "$REPO_URL" "$REPO_DIR" >> "$LOG_FILE" 2>&1
             cd "$WORKDIR"
           fi
 
@@ -67,9 +70,11 @@ jobs:
           git config user.name "GitHub Action" >> "$LOG_FILE" 2>&1
           git config user.email "action@github.com" >> "$LOG_FILE" 2>&1
 
+          git checkout -B "$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
+
           log "Checkout completed"
 
-      - name: Prepare zipped files, configure LFS, commit and push
+      - name: Create test file and push branch
         shell: bash
         env:
           RELEASE_COLLATERALS_PUSH_TOKEN_SRF: ${{ secrets.release_collaterals_push_token_srf }}
@@ -77,81 +82,32 @@ jobs:
           set -euo pipefail
 
           LOG_FILE="${{ env.DEBUG_LOG_PATH }}"
-          BRANCH="${{ github.ref_name }}"
+          TARGET_BRANCH="${{ env.TARGET_BRANCH }}"
           REPO_URL="https://x-access-token:${RELEASE_COLLATERALS_PUSH_TOKEN_SRF}@github.com/${{ github.repository }}.git"
 
           log() {
             echo "$1" | tee -a "$LOG_FILE"
           }
 
-          trap 'rc=$?; log ""; log "FAILED in Prepare zipped files, configure LFS, commit and push with exit code $rc"; log "=== git status --short ==="; git status --short >> "$LOG_FILE" 2>&1 || true; log "=== git lfs env ==="; git lfs env >> "$LOG_FILE" 2>&1 || true; exit $rc' ERR
+          trap 'rc=$?; log ""; log "FAILED in Create test file and push branch with exit code $rc"; log "=== git status --short ==="; git status --short >> "$LOG_FILE" 2>&1 || true; exit $rc' ERR
 
           log ""
-          log "=== Prepare zipped files, configure LFS, commit and push ==="
+          log "=== Create test file and push branch ==="
 
-          if [ -z "${RELEASE_COLLATERALS_PUSH_TOKEN_SRF:-}" ]; then
-            log "release_collaterals_push_token_srf is missing"
-            exit 1
-          fi
+          mkdir -p output_paths/push_test
 
-          log "=== Git versions ==="
-          git --version >> "$LOG_FILE" 2>&1
-          git lfs version >> "$LOG_FILE" 2>&1
+          TEST_FILE="output_paths/push_test/branch_push_test.txt"
 
-          log "=== Install/configure Git LFS ==="
-          git lfs install --local >> "$LOG_FILE" 2>&1
-          git lfs track "*.zip" >> "$LOG_FILE" 2>&1
+          {
+            echo "repo=${{ github.repository }}"
+            echo "branch=$TARGET_BRANCH"
+            echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner=$(hostname)"
+          } > "$TEST_FILE"
 
-          log "=== .gitattributes ==="
-          cat .gitattributes >> "$LOG_FILE" 2>&1 || true
+          log "Created test file: $TEST_FILE"
 
-          CURRENT_VERSION="836003C4"
-          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
-          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
-
-          INC_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
-          PDB_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb"
-
-          TARGET_DIR="output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
-          INC_ZIP="${TARGET_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
-          PDB_ZIP="${TARGET_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
-
-          log "=== Source paths ==="
-          log "SRC_RELEASE_DIR=$SRC_RELEASE_DIR"
-          log "INC_FILE=$INC_FILE"
-          log "PDB_FILE=$PDB_FILE"
-          log "TARGET_DIR=$TARGET_DIR"
-          log "INC_ZIP=$INC_ZIP"
-          log "PDB_ZIP=$PDB_ZIP"
-
-          [ -d "$SRC_RELEASE_DIR" ] || { log "Release directory missing"; exit 1; }
-          [ -f "$INC_FILE" ] || { log "INC file missing"; exit 1; }
-          [ -f "$PDB_FILE" ] || { log "PDB file missing"; exit 1; }
-
-          log "=== Source file sizes ==="
-          ls -lh "$INC_FILE" >> "$LOG_FILE" 2>&1
-          ls -lh "$PDB_FILE" >> "$LOG_FILE" 2>&1
-
-          mkdir -p "$TARGET_DIR"
-          rm -f "$INC_ZIP" "$PDB_ZIP"
-
-          log "=== Create zip files ==="
-          zip -j "$INC_ZIP" "$INC_FILE" >> "$LOG_FILE" 2>&1
-          zip -j "$PDB_ZIP" "$PDB_FILE" >> "$LOG_FILE" 2>&1
-
-          [ -f "$INC_ZIP" ] || { log "INC zip not created"; exit 1; }
-          [ -f "$PDB_ZIP" ] || { log "PDB zip not created"; exit 1; }
-
-          log "=== Zip sizes ==="
-          ls -lh "$INC_ZIP" >> "$LOG_FILE" 2>&1
-          ls -lh "$PDB_ZIP" >> "$LOG_FILE" 2>&1
-
-          rm -f existing_file.json payload.json api_response.json
-
-          log "=== git add ==="
-          git add .gitattributes >> "$LOG_FILE" 2>&1 || true
-          git add "$INC_ZIP" >> "$LOG_FILE" 2>&1
-          git add "$PDB_ZIP" >> "$LOG_FILE" 2>&1
+          git add "$TEST_FILE" >> "$LOG_FILE" 2>&1
 
           log "=== git status --short after add ==="
           git status --short >> "$LOG_FILE" 2>&1
@@ -161,24 +117,15 @@ jobs:
             exit 0
           fi
 
-          log "=== git diff --cached --stat ==="
-          git diff --cached --stat >> "$LOG_FILE" 2>&1
-
           log "=== git commit ==="
-          git commit -m "Add SRF zipped collateral files for 836003C4 via Git LFS" >> "$LOG_FILE" 2>&1
-
-          log "=== git lfs ls-files ==="
-          git lfs ls-files >> "$LOG_FILE" 2>&1 || true
-
-          log "=== git lfs env ==="
-          git lfs env >> "$LOG_FILE" 2>&1 || true
+          git commit -m "Test basic push to branch" >> "$LOG_FILE" 2>&1
 
           log "=== git remote set-url ==="
           git remote set-url origin "$REPO_URL" >> "$LOG_FILE" 2>&1
           git remote -v >> "$LOG_FILE" 2>&1
 
-          log "=== git push ==="
-          git push origin "$BRANCH" >> "$LOG_FILE" 2>&1
+          log "=== git push to target branch ==="
+          git push -u origin "$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
 
           log "Push completed successfully"
 
