@@ -1,84 +1,124 @@
-name: Test SRF Artifact Upload
+name: SRF Artifact Upload
 
 on:
   workflow_dispatch:
-
-env:
-  DEBUG_LOG_PATH: /nfs/site/disks/dcsg_0729/users/pkummara/test-srf-artifact-upload.log
+    inputs:
+      build_id:
+        description: "Build ID (example: 836003C4)"
+        required: true
+        type: string
+      src_release_dir:
+        description: "Source release directory"
+        required: false
+        default: "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build"
+        type: string
+      inc_basename:
+        description: "Base file name without extension (example: m_01_a06f3_836003c4)"
+        required: true
+        type: string
 
 jobs:
-  test-artifact-upload:
-    runs-on: [self-hosted, node16]
+  srf-artifact-upload:
+    name: Prepare and upload SRF zip artifacts
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    env:
+      BUILD_ID: ${{ inputs.build_id }}
+      ROOT_RELEASE_BASE: ${{ inputs.src_release_dir }}
+      INC_BASENAME: ${{ inputs.inc_basename }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Prepare zipped SRF files
+        id: prepare
         shell: bash
         run: |
           set -euo pipefail
 
-          LOG_FILE="${{ env.DEBUG_LOG_PATH }}"
-          mkdir -p "$(dirname "$LOG_FILE")"
-          : > "$LOG_FILE"
+          LOG_FILE="${RUNNER_TEMP}/test-srf-artifact-upload.log"
+          exec > >(tee -a "${LOG_FILE}") 2>&1
 
-          log() {
-            echo "$1" | tee -a "$LOG_FILE"
-          }
+          echo "=== Prepare zipped SRF files ==="
 
-          trap 'rc=$?; log ""; log "FAILED in Prepare zipped SRF files with exit code $rc"; exit $rc' ERR
+          SRC_RELEASE_DIR="${ROOT_RELEASE_BASE}/${BUILD_ID}/release"
+          INC_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.inc"
+          PDB_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.pdb"
+          ARTIFACT_DIR="/tmp/srf-release-collaterals/${BUILD_ID}"
 
-          log "=== Prepare zipped SRF files ==="
+          echo "SRC_RELEASE_DIR=${SRC_RELEASE_DIR}"
+          echo "INC_FILE=${INC_FILE}"
+          echo "PDB_FILE=${PDB_FILE}"
+          echo "ARTIFACT_DIR=${ARTIFACT_DIR}"
 
-          CURRENT_VERSION="836003C4"
-          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
-          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+          # Preconditions
+          test -d "${SRC_RELEASE_DIR}" || { echo "ERROR: Source directory missing: ${SRC_RELEASE_DIR}"; exit 1; }
+          test -f "${INC_FILE}" || { echo "ERROR: INC file missing: ${INC_FILE}"; exit 1; }
+          test -f "${PDB_FILE}" || { echo "ERROR: PDB file missing: ${PDB_FILE}"; exit 1; }
 
-          INC_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
-          PDB_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb"
+          mkdir -p "${ARTIFACT_DIR}"
 
-          ARTIFACT_DIR="/tmp/srf-release-collaterals/${CURRENT_VERSION}"
-          INC_ZIP="${ARTIFACT_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
-          PDB_ZIP="${ARTIFACT_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
+          echo "=== Source file sizes ==="
+          ls -lh "${INC_FILE}" "${PDB_FILE}"
 
-          log "SRC_RELEASE_DIR=$SRC_RELEASE_DIR"
-          log "INC_FILE=$INC_FILE"
-          log "PDB_FILE=$PDB_FILE"
-          log "ARTIFACT_DIR=$ARTIFACT_DIR"
+          echo "=== Create zip files ==="
+          INC_ZIP="${ARTIFACT_DIR}/$(basename "${INC_FILE}").zip"
+          PDB_ZIP="${ARTIFACT_DIR}/$(basename "${PDB_FILE}").zip"
 
-          [ -d "$SRC_RELEASE_DIR" ] || { log "Release directory missing"; exit 1; }
-          [ -f "$INC_FILE" ] || { log "INC file missing"; exit 1; }
-          [ -f "$PDB_FILE" ] || { log "PDB file missing"; exit 1; }
+          zip -j "${INC_ZIP}" "${INC_FILE}"
+          zip -j "${PDB_ZIP}" "${PDB_FILE}"
 
-          mkdir -p "$ARTIFACT_DIR"
-          rm -f "$INC_ZIP" "$PDB_ZIP"
+          echo "=== Zip sizes ==="
+          ls -lh "${INC_ZIP}" "${PDB_ZIP}"
 
-          log "=== Source file sizes ==="
-          ls -lh "$INC_FILE" >> "$LOG_FILE" 2>&1
-          ls -lh "$PDB_FILE" >> "$LOG_FILE" 2>&1
+          # Ensure readability for upload action on self-hosted environments
+          chmod 644 "${INC_ZIP}" "${PDB_ZIP}"
 
-          log "=== Create zip files ==="
-          zip -j "$INC_ZIP" "$INC_FILE" >> "$LOG_FILE" 2>&1
-          zip -j "$PDB_ZIP" "$PDB_FILE" >> "$LOG_FILE" 2>&1
+          # Export for later steps
+          echo "SRC_RELEASE_DIR=${SRC_RELEASE_DIR}" >> "${GITHUB_ENV}"
+          echo "ARTIFACT_DIR=${ARTIFACT_DIR}" >> "${GITHUB_ENV}"
+          echo "INC_FILE=${INC_FILE}" >> "${GITHUB_ENV}"
+          echo "PDB_FILE=${PDB_FILE}" >> "${GITHUB_ENV}"
+          echo "INC_ZIP=${INC_ZIP}" >> "${GITHUB_ENV}"
+          echo "PDB_ZIP=${PDB_ZIP}" >> "${GITHUB_ENV}"
+          echo "LOG_FILE=${LOG_FILE}" >> "${GITHUB_ENV}"
 
-          [ -f "$INC_ZIP" ] || { log "INC zip not created"; exit 1; }
-          [ -f "$PDB_ZIP" ] || { log "PDB zip not created"; exit 1; }
+          echo "Zipped files prepared successfully"
 
-          log "=== Zip sizes ==="
-          ls -lh "$INC_ZIP" >> "$LOG_FILE" 2>&1
-          ls -lh "$PDB_ZIP" >> "$LOG_FILE" 2>&1
+      - name: Verify zipped outputs
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          log "Zipped files prepared successfully"
+          echo "=== Verify zipped outputs ==="
+          echo "ARTIFACT_DIR=${ARTIFACT_DIR}"
+          echo "INC_ZIP=${INC_ZIP}"
+          echo "PDB_ZIP=${PDB_ZIP}"
 
-      - name: Upload zipped files as workflow artifact
+          test -d "${ARTIFACT_DIR}" || { echo "ERROR: Missing artifact directory: ${ARTIFACT_DIR}"; exit 1; }
+          test -f "${INC_ZIP}" || { echo "ERROR: Missing file: ${INC_ZIP}"; exit 1; }
+          test -f "${PDB_ZIP}" || { echo "ERROR: Missing file: ${PDB_ZIP}"; exit 1; }
+
+          ls -lah "${ARTIFACT_DIR}"
+
+      - name: Upload SRF zip artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: srf-release-collaterals-836003C4
-          path: /tmp/srf-release-collaterals/836003C4/
+          name: srf-release-${{ env.BUILD_ID }}
           if-no-files-found: error
-          retention-days: 30
+          compression-level: 0
+          retention-days: 14
+          path: |
+            ${{ env.INC_ZIP }}
+            ${{ env.PDB_ZIP }}
 
-      - name: Final marker
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Workflow finished. Check local debug log at: ${{ env.DEBUG_LOG_PATH }}"
+      - name: Upload preparation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: srf-upload-log-${{ env.BUILD_ID }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: ${{ env.LOG_FILE }}
