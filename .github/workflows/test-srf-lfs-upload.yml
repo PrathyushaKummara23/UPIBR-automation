@@ -1,31 +1,163 @@
-- name: Commit and push work branch
-  shell: bash
-  run: |
-    set -euo pipefail
-    cd "${WORK_REPO}"
+name: SRF Collateral Commit via Git Push (Working)
 
-    unset http_proxy
-    unset HTTP_PROXY
-    unset https_proxy
-    unset HTTPS_PROXY
-    export no_proxy="github.com,api.github.com"
-    export NO_PROXY="github.com,api.github.com"
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: "Build ID (example: 830003C4)"
+        required: true
+        type: string
+      src_release_dir:
+        description: "Source release directory base"
+        required: true
+        default: "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build"
+        type: string
+      inc_basename:
+        description: "Base file name without extension (example: m_01_a06f3_830003c4)"
+        required: true
+        type: string
+      target_branch:
+        description: "Optional branch to push to (leave empty for repo default branch)"
+        required: false
+        default: ""
+        type: string
 
-    git config --global --unset-all http.proxy || true
-    git config --global --unset-all https.proxy || true
+permissions:
+  contents: write
+  pull-requests: write
 
-    git config user.name "github-actions[bot]"
-    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+jobs:
+  prepare:
+    runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
+    timeout-minutes: 30
+    env:
+      BUILD_ID: ${{ inputs.build_id }}
+      ROOT_RELEASE_BASE: ${{ inputs.src_release_dir }}
+      INC_BASENAME: ${{ inputs.inc_basename }}
+    outputs:
+      build_id: ${{ steps.out.outputs.build_id }}
+      target_branch: ${{ steps.out.outputs.target_branch }}
+    steps:
+      - name: Prepare files
+        id: out
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC_RELEASE_DIR="${ROOT_RELEASE_BASE}/${BUILD_ID}/release"
+          INC_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.inc"
+          PDB_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.pdb"
+          OUT_DIR="${RUNNER_TEMP}/srf-${BUILD_ID}"
 
-    git add "release-collaterals/${BUILD_ID}"
+          test -d "${SRC_RELEASE_DIR}"
+          test -f "${INC_FILE}"
+          test -f "${PDB_FILE}"
 
-    if git diff --cached --quiet; then
-      echo "No changes to commit."
-      echo "NO_CHANGES=true" >> "${GITHUB_ENV}"
-      exit 0
-    fi
+          mkdir -p "${OUT_DIR}"
+          zip -j "${OUT_DIR}/$(basename "${INC_FILE}").zip" "${INC_FILE}"
+          zip -j "${OUT_DIR}/$(basename "${PDB_FILE}").zip" "${PDB_FILE}"
 
-    git commit -m "Add SRF collaterals for build ${BUILD_ID}"
+          echo "build_id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
+          echo "target_branch=${{ inputs.target_branch }}" >> "$GITHUB_OUTPUT"
 
-    git remote set-url origin "https://
-
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: srf-${{ inputs.build_id }}
+          path: ${{ runner.temp }}/srf-${{ inputs.build_id }}/*
+          if-no-files-found: error
+
+  push:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_REPO: ${{ github.repository }}
+      BUILD_ID: ${{ needs.prepare.outputs.build_id }}
+      TARGET_BRANCH_INPUT: ${{ needs.prepare.outputs.target_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Resolve branch names
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEFAULT_BRANCH="$(curl -sS \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')"
+
+          [ -n "${DEFAULT_BRANCH}" ] && [ "${DEFAULT_BRANCH}" != "null" ]
+
+          if [ -n "${TARGET_BRANCH_INPUT}" ]; then
+            BASE_BRANCH="${TARGET_BRANCH_INPUT}"
+          else
+            BASE_BRANCH="${DEFAULT_BRANCH}"
+          fi
+
+          WORK_BRANCH="collateral-${BUILD_ID}"
+
+          echo "BASE_BRANCH=${BASE_BRANCH}" >> "${GITHUB_ENV}"
+          echo "WORK_BRANCH=${WORK_BRANCH}" >> "${GITHUB_ENV}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+          token: ${{ github.token }}
+          fetch-depth: 0
+
+      - name: Create branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B "${WORK_BRANCH}"
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: srf-${{ env.BUILD_ID }}
+          path: release-collaterals/${{ env.BUILD_ID }}
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "release-collaterals/${BUILD_ID}"
+          if git diff --cached --quiet; then
+            echo "NO_CHANGES=true" >> "${GITHUB_ENV}"
+            exit 0
+          fi
+
+          git commit -m "Add SRF collaterals for build ${BUILD_ID}"
+          git push -u origin "${WORK_BRANCH}"
+
+      - name: Create or update PR
+        if: env.NO_CHANGES != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GH_REPO}"
+          PR_TITLE="Add SRF collaterals for build ${BUILD_ID}"
+          PR_BODY="Automated upload of SRF collaterals for build ${BUILD_ID} into release-collaterals/${BUILD_ID}."
+
+          existing_pr="$(curl -sS \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${API}/pulls?state=open&head=${GH_REPO%%/*}:${WORK_BRANCH}&base=${BASE_BRANCH}")"
+
+          pr_url="$(echo "${existing_pr}" | jq -r '.[0].html_url // empty')"
+          if [ -n "${pr_url}" ]; then
+            echo "PR already exists: ${pr_url}"
+            exit 0
+          fi
+
+          create_resp="$(curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${API}/pulls" \
+            -d "$(jq -n --arg title "${PR_TITLE}" --arg head "${WORK_BRANCH}" --arg base "${BASE_BRANCH}" --arg body "${PR_BODY}" \
+              '{title:$title, head:$head, base:$base, body:$body}')")"
+
+          echo "${create_resp}" | jq -r '.html_url'
