@@ -1,71 +1,22 @@
-name: Diagnose Git Push via Proxy
+name: Proxy Unset Syntax Test
 
 on:
   workflow_dispatch:
 
 jobs:
-  diagnose:
+  test:
     runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
-    timeout-minutes: 20
-    env:
-      GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.GH_PAT_PUSH }}
-
     steps:
-      - name: Show proxy and git env
+      - name: Network mode for GitHub
         shell: bash
         run: |
           set -euo pipefail
-          echo "HTTPS_PROXY=${HTTPS_PROXY:-<unset>}"
-          echo "HTTP_PROXY=${HTTP_PROXY:-<unset>}"
-          echo "https_proxy=${https_proxy:-<unset>}"
-          echo "http_proxy=${http_proxy:-<unset>}"
-          git --version
-
-      - name: API check with PAT
-        shell: bash
-        run: |
-          set -euo pipefail
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GH_REPO}")
-          echo "API status: $code"
-          [ "$code" = "200" ] || exit 1
-
-      - name: Clone and prepare commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          DEFAULT_BRANCH=$(curl -sS \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')
-          TEST_BRANCH="proxy-diag-$(date +%s)"
-          WORK="${RUNNER_TEMP}/proxy-diag"
-          rm -rf "$WORK"
-
-          git clone --branch "$DEFAULT_BRANCH" "https://github.com/${GH_REPO}.git" "$WORK"
-          cd "$WORK"
-          git checkout -B "$TEST_BRANCH"
-
-          mkdir -p .github/push-auth-test
-          echo "proxy diag $(date -u)" > .github/push-auth-test/proxy-diag.txt
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/push-auth-test/proxy-diag.txt
-          git commit -m "Proxy push diag"
-
-          echo "WORK_REPO=$WORK" >> "$GITHUB_ENV"
-          echo "TEST_BRANCH=$TEST_BRANCH" >> "$GITHUB_ENV"
-
-      - name: Push with verbose curl trace
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$WORK_REPO"
-          git remote set-url origin "https://github.com/${GH_REPO}.git"
-          GIT_TRACE=1 GIT_CURL_VERBOSE=1 \
-          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf "x-access-token:${GH_TOKEN}" | base64 | tr -d '\n')" \
-            push -u origin "$TEST_BRANCH"
+          unset http_proxy
+          unset HTTP_PROXY
+          unset https_proxy
+          unset HTTPS_PROXY
+          export no_proxy="github.com,api.github.com"
+          export NO_PROXY="github.com,api.github.com"
+          git config --global --unset-all http.proxy || true
+          git config --global --unset-all https.proxy || true
+          echo "Proxy unset for GitHub operations"
