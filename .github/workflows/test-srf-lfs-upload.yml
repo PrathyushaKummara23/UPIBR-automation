@@ -24,18 +24,20 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   push-collaterals:
     runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
     timeout-minutes: 30
+
     env:
       BUILD_ID: ${{ inputs.build_id }}
       ROOT_RELEASE_BASE: ${{ inputs.src_release_dir }}
       INC_BASENAME: ${{ inputs.inc_basename }}
       TARGET_BRANCH_INPUT: ${{ inputs.target_branch }}
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.RELEASE_COLLATERALS_PUSH_TOKEN_SRF }}
 
     steps:
       - name: Verify tools
@@ -44,26 +46,35 @@ jobs:
           set -euo pipefail
           command -v git >/dev/null || { echo "git not found"; exit 1; }
           command -v zip >/dev/null || { echo "zip not found"; exit 1; }
+          command -v curl >/dev/null || { echo "curl not found"; exit 1; }
           command -v jq >/dev/null || { echo "jq not found"; exit 1; }
 
-      - name: Resolve target branch
+      - name: Resolve base/default branch
         shell: bash
         run: |
           set -euo pipefail
 
+          DEFAULT_BRANCH="$(curl -sS \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')"
+
+          test -n "${DEFAULT_BRANCH}" && [ "${DEFAULT_BRANCH}" != "null" ] || { echo "Could not resolve default branch"; exit 1; }
+
           if [ -n "${TARGET_BRANCH_INPUT}" ]; then
-            TARGET_BRANCH="${TARGET_BRANCH_INPUT}"
+            BASE_BRANCH="${TARGET_BRANCH_INPUT}"
           else
-            TARGET_BRANCH="$(curl -sS \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')"
+            BASE_BRANCH="${DEFAULT_BRANCH}"
           fi
 
-          test -n "${TARGET_BRANCH}" && [ "${TARGET_BRANCH}" != "null" ] || { echo "Could not resolve target branch"; exit 1; }
+          WORK_BRANCH="collateral-${BUILD_ID}"
 
-          echo "Using TARGET_BRANCH=${TARGET_BRANCH}"
-          echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "${GITHUB_ENV}"
+          echo "DEFAULT_BRANCH=${DEFAULT_BRANCH}" >> "${GITHUB_ENV}"
+          echo "BASE_BRANCH=${BASE_BRANCH}" >> "${GITHUB_ENV}"
+          echo "WORK_BRANCH=${WORK_BRANCH}" >> "${GITHUB_ENV}"
+
+          echo "Using BASE_BRANCH=${BASE_BRANCH}"
+          echo "Using WORK_BRANCH=${WORK_BRANCH}"
 
       - name: Prepare zipped SRF files
         shell: bash
@@ -90,18 +101,20 @@ jobs:
           echo "INC_ZIP=${INC_ZIP}" >> "${GITHUB_ENV}"
           echo "PDB_ZIP=${PDB_ZIP}" >> "${GITHUB_ENV}"
 
-      - name: Clone target branch
+      - name: Clone base branch and create work branch
         shell: bash
         run: |
           set -euo pipefail
 
           WORK="${RUNNER_TEMP}/repo-work-${BUILD_ID}"
           rm -rf "${WORK}"
-          mkdir -p "${WORK}"
 
-          git -c http.sslVerify=true clone --branch "${TARGET_BRANCH}" \
+          git -c http.sslVerify=true clone --branch "${BASE_BRANCH}" \
             "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
             "${WORK}"
+
+          cd "${WORK}"
+          git checkout -B "${WORK_BRANCH}"
 
           echo "WORK_REPO=${WORK}" >> "${GITHUB_ENV}"
 
@@ -109,16 +122,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           DEST_DIR="${WORK_REPO}/release-collaterals/${BUILD_ID}"
           mkdir -p "${DEST_DIR}"
-
           cp -f "${INC_ZIP}" "${DEST_DIR}/"
           cp -f "${PDB_ZIP}" "${DEST_DIR}/"
-
           ls -lah "${DEST_DIR}"
 
-      - name: Commit and push
+      - name: Commit and push work branch
         shell: bash
         run: |
           set -euo pipefail
@@ -131,13 +141,58 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
+            echo "NO_CHANGES=true" >> "${GITHUB_ENV}"
             exit 0
           fi
 
           git commit -m "Add SRF collaterals for build ${BUILD_ID}"
-          git push origin "${TARGET_BRANCH}"
+          git push -u origin "${WORK_BRANCH}"
 
-      - name: Print committed path
+      - name: Create or update pull request
+        if: env.NO_CHANGES != 'true'
         shell: bash
         run: |
-          echo "https://github.com/${GH_REPO}/tree/${TARGET_BRANCH}/release-collaterals/${BUILD_ID}"
+          set -euo pipefail
+
+          API="https://api.github.com/repos/${GH_REPO}"
+          PR_TITLE="Add SRF collaterals for build ${BUILD_ID}"
+          PR_BODY="Automated upload of SRF collaterals for build ${BUILD_ID} into release-collaterals/${BUILD_ID}."
+
+          existing_pr="$(curl -sS \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${API}/pulls?state=open&head=${GH_REPO%%/*}:${WORK_BRANCH}&base=${BASE_BRANCH}")"
+
+          pr_url="$(echo "${existing_pr}" | jq -r '.[0].html_url // empty')"
+
+          if [ -n "${pr_url}" ]; then
+            echo "PR already exists: ${pr_url}"
+            echo "PR_URL=${pr_url}" >> "${GITHUB_ENV}"
+            exit 0
+          fi
+
+          create_resp="$(curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${API}/pulls" \
+            -d "$(jq -n \
+              --arg title "${PR_TITLE}" \
+              --arg head "${WORK_BRANCH}" \
+              --arg base "${BASE_BRANCH}" \
+              --arg body "${PR_BODY}" \
+              '{title:$title, head:$head, base:$base, body:$body}')")"
+
+          pr_url="$(echo "${create_resp}" | jq -r '.html_url // empty')"
+          test -n "${pr_url}" || { echo "Failed to create PR"; echo "${create_resp}"; exit 1; }
+
+          echo "PR_URL=${pr_url}" >> "${GITHUB_ENV}"
+          echo "Created PR: ${pr_url}"
+
+      - name: Final output
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Collateral path (branch): https://github.com/${GH_REPO}/tree/${WORK_BRANCH}/release-collaterals/${BUILD_ID}"
+          if [ -n "${PR_URL:-}" ]; then
+            echo "Pull Request: ${PR_URL}"
+          fi
