@@ -1,84 +1,71 @@
-name: Test Push Auth with PAT
+name: Diagnose Git Push via Proxy
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
-  test-push:
+  diagnose:
     runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
-    timeout-minutes: 15
-
+    timeout-minutes: 20
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GH_PAT_PUSH }}
 
     steps:
-      - name: Verify PAT provided
+      - name: Show proxy and git env
         shell: bash
         run: |
           set -euo pipefail
-          [ -n "${GH_TOKEN}" ] || { echo "Missing PAT secret GH_PAT_PUSH"; exit 1; }
+          echo "HTTPS_PROXY=${HTTPS_PROXY:-<unset>}"
+          echo "HTTP_PROXY=${HTTP_PROXY:-<unset>}"
+          echo "https_proxy=${https_proxy:-<unset>}"
+          echo "http_proxy=${http_proxy:-<unset>}"
+          git --version
 
-      - name: Resolve default branch
+      - name: API check with PAT
         shell: bash
         run: |
           set -euo pipefail
-          DEFAULT_BRANCH="$(curl -sS \
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')"
+            "https://api.github.com/repos/${GH_REPO}")
+          echo "API status: $code"
+          [ "$code" = "200" ] || exit 1
 
-          test -n "${DEFAULT_BRANCH}" && [ "${DEFAULT_BRANCH}" != "null" ] || { echo "Could not resolve default branch"; exit 1; }
-          TEST_BRANCH="pat-auth-test-$(date +%s)"
-
-          echo "DEFAULT_BRANCH=${DEFAULT_BRANCH}" >> "${GITHUB_ENV}"
-          echo "TEST_BRANCH=${TEST_BRANCH}" >> "${GITHUB_ENV}"
-
-      - name: Clone
+      - name: Clone and prepare commit
         shell: bash
         run: |
           set -euo pipefail
-          WORK="${RUNNER_TEMP}/push-auth-test-pat"
-          rm -rf "${WORK}"
-          git clone --branch "${DEFAULT_BRANCH}" "https://github.com/${GH_REPO}.git" "${WORK}"
-          cd "${WORK}"
-          git checkout -B "${TEST_BRANCH}"
-          echo "WORK_REPO=${WORK}" >> "${GITHUB_ENV}"
+          DEFAULT_BRANCH=$(curl -sS \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GH_REPO}" | jq -r '.default_branch')
+          TEST_BRANCH="proxy-diag-$(date +%s)"
+          WORK="${RUNNER_TEMP}/proxy-diag"
+          rm -rf "$WORK"
 
-      - name: Commit test change
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${WORK_REPO}"
+          git clone --branch "$DEFAULT_BRANCH" "https://github.com/${GH_REPO}.git" "$WORK"
+          cd "$WORK"
+          git checkout -B "$TEST_BRANCH"
+
           mkdir -p .github/push-auth-test
-          cat > .github/push-auth-test/pat-test-$(date +%s).txt <<EOF
-          PAT push test
-          repo=${GH_REPO}
-          actor=${GITHUB_ACTOR}
-          run_id=${GITHUB_RUN_ID}
-          time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          EOF
+          echo "proxy diag $(date -u)" > .github/push-auth-test/proxy-diag.txt
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/push-auth-test
-          git commit -m "Test PAT push from self-hosted runner"
+          git add .github/push-auth-test/proxy-diag.txt
+          git commit -m "Proxy push diag"
 
-      - name: Push using PAT
+          echo "WORK_REPO=$WORK" >> "$GITHUB_ENV"
+          echo "TEST_BRANCH=$TEST_BRANCH" >> "$GITHUB_ENV"
+
+      - name: Push with verbose curl trace
         shell: bash
         run: |
           set -euo pipefail
-          cd "${WORK_REPO}"
+          cd "$WORK_REPO"
           git remote set-url origin "https://github.com/${GH_REPO}.git"
+          GIT_TRACE=1 GIT_CURL_VERBOSE=1 \
           git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf "x-access-token:${GH_TOKEN}" | base64 | tr -d '\n')" \
-            push -u origin "${TEST_BRANCH}"
-
-      - name: Done
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "SUCCESS: https://github.com/${GH_REPO}/tree/${TEST_BRANCH}"
+            push -u origin "$TEST_BRANCH"
