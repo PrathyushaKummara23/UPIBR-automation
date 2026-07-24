@@ -756,13 +756,19 @@ jobs:
       - name: Commit and push release collaterals
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
+
+          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
+            echo "REPO_PUSH_TOKEN secret is empty or unavailable"
+            exit 1
+          fi
 
           cd "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
 
           git add output_paths/SRF_release_collaterals/
 
