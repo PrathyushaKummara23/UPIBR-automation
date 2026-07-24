@@ -3,100 +3,15 @@ name: Test Upload SRF INC File
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   upload-srf-inc-test:
     runs-on: [self-hosted, node16]
-
     steps:
-      - name: Upload SRF INC file via GitHub API
+      - name: Basic debug
         shell: bash
-        env:
-          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
-          set -euo pipefail
-
-          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            echo "REPO_PUSH_TOKEN secret is empty or unavailable"
-            exit 1
-          fi
-
-          CURRENT_VERSION="83000132"
-          SRC_FILE="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release/m_01_a06f3_${CURRENT_VERSION,,}.inc"
-          TARGET_PATH="output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION,,}.inc"
-          API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
-          COMMIT_MESSAGE="Upload SRF INC test file for ${CURRENT_VERSION}"
-
-          [ -f "$SRC_FILE" ] || { echo "INC file not found: $SRC_FILE"; exit 1; }
-
-          echo "Uploading:"
-          echo "  Source: $SRC_FILE"
-          echo "  Target: $TARGET_PATH"
-
-          CONTENT_B64=$(base64 -w 0 "$SRC_FILE" 2>/dev/null || base64 "$SRC_FILE" | tr -d '\n')
-
-          HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "$API_URL")
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            FILE_SHA=$(jq -r '.sha' existing_file.json)
-            jq -n \
-              --arg message "$COMMIT_MESSAGE" \
-              --arg content "$CONTENT_B64" \
-              --arg sha "$FILE_SHA" \
-              --arg branch "${{ github.ref_name }}" \
-              --arg name "GitHub Action" \
-              --arg email "action@github.com" \
-              '{
-                message: $message,
-                content: $content,
-                sha: $sha,
-                branch: $branch,
-                committer: {
-                  name: $name,
-                  email: $email
-                }
-              }' > payload.json
-          elif [ "$HTTP_CODE" = "404" ]; then
-            jq -n \
-              --arg message "$COMMIT_MESSAGE" \
-              --arg content "$CONTENT_B64" \
-              --arg branch "${{ github.ref_name }}" \
-              --arg name "GitHub Action" \
-              --arg email "action@github.com" \
-              '{
-                message: $message,
-                content: $content,
-                branch: $branch,
-                committer: {
-                  name: $name,
-                  email: $email
-                }
-              }' > payload.json
-          else
-            echo "Failed to query existing file. HTTP status: $HTTP_CODE"
-            cat existing_file.json || true
-            exit 1
-          fi
-
-          RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
-            -X PUT \
-            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -d @payload.json \
-            "$API_URL")
-
-          if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
-            echo "INC file uploaded successfully"
-            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
-          else
-            echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
-            cat api_response.json || true
-            exit 1
-          fi
-
-          rm -f existing_file.json payload.json api_response.json
+          set -euxo pipefail
+          echo "hello"
+          whoami
+          pwd
+          ls -l /nfs/site/disks/dcsg_0729/patches/SRF/C0/build/83000132/release
