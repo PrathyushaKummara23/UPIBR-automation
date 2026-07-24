@@ -819,8 +819,8 @@ jobs:
           mapfile -t INC_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | sort)
           mapfile -t PDB_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | sort)
 
-          [ "${#INC_FILES[@]}" -gt 0 ] || { log "- No INC files found for version suffix: ${CURRENT_VERSION_LOWER}"; exit 1; }
-          [ "${#PDB_FILES[@]}" -gt 0 ] || { log "- No PDB files found for version suffix: ${CURRENT_VERSION_LOWER}"; exit 1; }
+          [ "${#INC_FILES[@]}" -gt 0 ] || { log "- No INC files matching pattern m_*_*_${CURRENT_VERSION_LOWER}.inc found in ${SRC_RELEASE_DIR}"; exit 1; }
+          [ "${#PDB_FILES[@]}" -gt 0 ] || { log "- No PDB files matching pattern m_*_*_${CURRENT_VERSION_LOWER}.pdb found in ${SRC_RELEASE_DIR}"; exit 1; }
 
           for INC_FILE in "${INC_FILES[@]}"; do
             INC_FILENAME="$(basename "$INC_FILE")"
