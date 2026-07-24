@@ -1,4 +1,4 @@
-name: SRF Artifact Upload (Linux -> GitHub Release Assets)
+name: SRF Collateral Commit to Repo (Linux)
 
 on:
   workflow_dispatch:
@@ -21,8 +21,8 @@ permissions:
   contents: write
 
 jobs:
-  srf-artifact-upload:
-    name: Prepare and upload SRF zip assets
+  commit-collaterals:
+    name: Zip and commit collaterals to repository
     runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
     timeout-minutes: 30
 
@@ -31,6 +31,8 @@ jobs:
       ROOT_RELEASE_BASE: ${{ inputs.src_release_dir }}
       INC_BASENAME: ${{ inputs.inc_basename }}
       GH_REPO: ${{ github.repository }}
+      GH_OWNER: ${{ github.repository_owner }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Prepare zipped SRF files
@@ -41,21 +43,21 @@ jobs:
           SRC_RELEASE_DIR="${ROOT_RELEASE_BASE}/${BUILD_ID}/release"
           INC_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.inc"
           PDB_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.pdb"
-          ARTIFACT_DIR="${RUNNER_TEMP}/srf-release-collaterals/${BUILD_ID}"
+          WORK_DIR="${RUNNER_TEMP}/srf-release-collaterals/${BUILD_ID}"
 
           echo "SRC_RELEASE_DIR=${SRC_RELEASE_DIR}"
           echo "INC_FILE=${INC_FILE}"
           echo "PDB_FILE=${PDB_FILE}"
-          echo "ARTIFACT_DIR=${ARTIFACT_DIR}"
+          echo "WORK_DIR=${WORK_DIR}"
 
-          test -d "${SRC_RELEASE_DIR}" || { echo "Missing source directory"; exit 1; }
-          test -f "${INC_FILE}" || { echo "Missing INC file"; exit 1; }
-          test -f "${PDB_FILE}" || { echo "Missing PDB file"; exit 1; }
+          test -d "${SRC_RELEASE_DIR}" || { echo "Missing source dir: ${SRC_RELEASE_DIR}"; exit 1; }
+          test -f "${INC_FILE}" || { echo "Missing file: ${INC_FILE}"; exit 1; }
+          test -f "${PDB_FILE}" || { echo "Missing file: ${PDB_FILE}"; exit 1; }
 
-          mkdir -p "${ARTIFACT_DIR}"
+          mkdir -p "${WORK_DIR}"
 
-          INC_ZIP="${ARTIFACT_DIR}/$(basename "${INC_FILE}").zip"
-          PDB_ZIP="${ARTIFACT_DIR}/$(basename "${PDB_FILE}").zip"
+          INC_ZIP="${WORK_DIR}/$(basename "${INC_FILE}").zip"
+          PDB_ZIP="${WORK_DIR}/$(basename "${PDB_FILE}").zip"
 
           zip -j "${INC_ZIP}" "${INC_FILE}"
           zip -j "${PDB_ZIP}" "${PDB_FILE}"
@@ -63,93 +65,86 @@ jobs:
           test -f "${INC_ZIP}" || { echo "INC zip not created"; exit 1; }
           test -f "${PDB_ZIP}" || { echo "PDB zip not created"; exit 1; }
 
-          ls -lah "${ARTIFACT_DIR}"
-
           echo "INC_ZIP=${INC_ZIP}" >> "${GITHUB_ENV}"
           echo "PDB_ZIP=${PDB_ZIP}" >> "${GITHUB_ENV}"
 
-      - name: Check jq
+          ls -lah "${WORK_DIR}"
+
+      - name: Commit zip files to repository via GitHub API
         shell: bash
         run: |
           set -euo pipefail
-          command -v jq >/dev/null || { echo "jq not found on runner"; exit 1; }
 
-      - name: Create or get release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          TAG="srf-${BUILD_ID}"
           API="https://api.github.com/repos/${GH_REPO}"
+          DEST_DIR="release-collaterals/${BUILD_ID}"
 
-          http_code=$(curl -sS -o /tmp/release_create.json -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${API}/releases" \
-            -d "{\"tag_name\":\"${TAG}\",\"name\":\"SRF ${BUILD_ID}\",\"draft\":false,\"prerelease\":false}")
+          upload_file () {
+            local src_file="$1"
+            local file_name
+            local path
+            local content_b64
+            local get_code
+            local sha
+            local payload_file
 
-          if [ "${http_code}" != "201" ] && [ "${http_code}" != "422" ]; then
-            echo "Release create failed HTTP ${http_code}"
-            cat /tmp/release_create.json
-            exit 1
-          fi
+            file_name="$(basename "${src_file}")"
+            path="${DEST_DIR}/${file_name}"
+            payload_file="/tmp/payload-${file_name}.json"
 
-          curl -sS \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${API}/releases/tags/${TAG}" > /tmp/release_get.json
+            # base64 as single line
+            content_b64="$(base64 -w 0 "${src_file}")"
 
-          UPLOAD_URL="$(jq -r '.upload_url | split("{")[0]' /tmp/release_get.json)"
-          test -n "${UPLOAD_URL}" && [ "${UPLOAD_URL}" != "null" ] || { echo "UPLOAD_URL missing"; cat /tmp/release_get.json; exit 1; }
-
-          echo "UPLOAD_URL=${UPLOAD_URL}" >> "${GITHUB_ENV}"
-          echo "TAG=${TAG}" >> "${GITHUB_ENV}"
-
-      - name: Upload zip assets to GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          upload_one () {
-            local file="$1"
-            local name
-            local asset_id
-
-            name="$(basename "$file")"
-
-            curl -sS \
+            # check if file exists (to include sha on update)
+            get_code=$(curl -sS -o /tmp/existing.json -w "%{http_code}" \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GH_REPO}/releases/tags/${TAG}" > /tmp/release_assets.json
+              "${API}/contents/${path}")
 
-            asset_id="$(jq -r --arg n "$name" '.assets[]? | select(.name==$n) | .id' /tmp/release_assets.json | head -n1)"
-
-            if [ -n "${asset_id:-}" ] && [ "${asset_id}" != "null" ]; then
-              curl -sS -X DELETE \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "Accept: application/vnd.github+json" \
-                "https://api.github.com/repos/${GH_REPO}/releases/assets/${asset_id}" >/dev/null
+            if [ "${get_code}" = "200" ]; then
+              sha="$(jq -r '.sha' /tmp/existing.json)"
+              jq -n \
+                --arg msg "Add SRF collateral ${file_name} for build ${BUILD_ID}" \
+                --arg content "${content_b64}" \
+                --arg sha "${sha}" \
+                '{
+                  message: $msg,
+                  content: $content,
+                  sha: $sha
+                }' > "${payload_file}"
+            elif [ "${get_code}" = "404" ]; then
+              jq -n \
+                --arg msg "Add SRF collateral ${file_name} for build ${BUILD_ID}" \
+                --arg content "${content_b64}" \
+                '{
+                  message: $msg,
+                  content: $content
+                }' > "${payload_file}"
+            else
+              echo "Failed checking existing file ${path}, HTTP ${get_code}"
+              cat /tmp/existing.json
+              exit 1
             fi
 
-            curl -sS -f \
-              -X POST \
+            put_code=$(curl -sS -o /tmp/put_result.json -w "%{http_code}" \
+              -X PUT \
               -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Content-Type: application/zip" \
-              --data-binary @"${file}" \
-              "${UPLOAD_URL}?name=${name}" >/dev/null
+              -H "Accept: application/vnd.github+json" \
+              "${API}/contents/${path}" \
+              -d @"${payload_file}")
 
-            echo "Uploaded: ${name}"
+            if [ "${put_code}" != "200" ] && [ "${put_code}" != "201" ]; then
+              echo "Upload failed for ${path}, HTTP ${put_code}"
+              cat /tmp/put_result.json
+              exit 1
+            fi
+
+            echo "Committed: ${path}"
           }
 
-          upload_one "${INC_ZIP}"
-          upload_one "${PDB_ZIP}"
+          upload_file "${INC_ZIP}"
+          upload_file "${PDB_ZIP}"
 
-      - name: Print release URL
+      - name: Print repo paths
         shell: bash
         run: |
-          echo "https://github.com/${GH_REPO}/releases/tag/${TAG}"
+          echo "https://github.com/${GH_REPO}/tree/${GITHUB_REF_NAME}/release-collaterals/${BUILD_ID}"
