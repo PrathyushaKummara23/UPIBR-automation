@@ -1,55 +1,23 @@
-name: SRF Collateral Commit via Git Push (Linux)
+name: Test Push Auth
 
 on:
   workflow_dispatch:
-    inputs:
-      build_id:
-        description: "Build ID (example: 830003C4)"
-        required: true
-        type: string
-      src_release_dir:
-        description: "Source release directory base"
-        required: true
-        default: "/nfs/site/disks/dcsg_0729/patches/SRF/C0/build"
-        type: string
-      inc_basename:
-        description: "Base file name without extension (example: m_01_a06f3_830003c4)"
-        required: true
-        type: string
-      target_branch:
-        description: "Optional branch to push to (leave empty for repo default branch)"
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  push-collaterals:
+  test-push:
     runs-on: [self-hosted, Linux, X64, gnr_r1s-prod-runner]
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     env:
-      BUILD_ID: ${{ inputs.build_id }}
-      ROOT_RELEASE_BASE: ${{ inputs.src_release_dir }}
-      INC_BASENAME: ${{ inputs.inc_basename }}
-      TARGET_BRANCH_INPUT: ${{ inputs.target_branch }}
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
 
     steps:
-      - name: Verify tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          command -v git >/dev/null || { echo "git not found"; exit 1; }
-          command -v zip >/dev/null || { echo "zip not found"; exit 1; }
-          command -v curl >/dev/null || { echo "curl not found"; exit 1; }
-          command -v jq >/dev/null || { echo "jq not found"; exit 1; }
-
-      - name: Resolve base/default branch
+      - name: Resolve default branch and test branch
         shell: bash
         run: |
           set -euo pipefail
@@ -61,22 +29,15 @@ jobs:
 
           test -n "${DEFAULT_BRANCH}" && [ "${DEFAULT_BRANCH}" != "null" ] || { echo "Could not resolve default branch"; exit 1; }
 
-          if [ -n "${TARGET_BRANCH_INPUT}" ]; then
-            BASE_BRANCH="${TARGET_BRANCH_INPUT}"
-          else
-            BASE_BRANCH="${DEFAULT_BRANCH}"
-          fi
-
-          WORK_BRANCH="collateral-${BUILD_ID}"
+          TEST_BRANCH="auth-test-$(date +%s)"
 
           echo "DEFAULT_BRANCH=${DEFAULT_BRANCH}" >> "${GITHUB_ENV}"
-          echo "BASE_BRANCH=${BASE_BRANCH}" >> "${GITHUB_ENV}"
-          echo "WORK_BRANCH=${WORK_BRANCH}" >> "${GITHUB_ENV}"
+          echo "TEST_BRANCH=${TEST_BRANCH}" >> "${GITHUB_ENV}"
 
-          echo "Using BASE_BRANCH=${BASE_BRANCH}"
-          echo "Using WORK_BRANCH=${WORK_BRANCH}"
+          echo "DEFAULT_BRANCH=${DEFAULT_BRANCH}"
+          echo "TEST_BRANCH=${TEST_BRANCH}"
 
-      - name: Validate token access
+      - name: Validate token can read repo API
         shell: bash
         run: |
           set -euo pipefail
@@ -84,64 +45,40 @@ jobs:
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${GH_REPO}")"
-          [ "$code" = "200" ] || { echo "Token cannot access ${GH_REPO} (HTTP $code)"; exit 1; }
+          echo "Repo API status: ${code}"
+          [ "${code}" = "200" ] || { echo "Token cannot access repo API"; exit 1; }
 
-      - name: Prepare zipped SRF files
+      - name: Clone repo
         shell: bash
         run: |
           set -euo pipefail
-
-          SRC_RELEASE_DIR="${ROOT_RELEASE_BASE}/${BUILD_ID}/release"
-          INC_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.inc"
-          PDB_FILE="${SRC_RELEASE_DIR}/${INC_BASENAME}.pdb"
-          ZIP_DIR="${RUNNER_TEMP}/srf-release-collaterals/${BUILD_ID}"
-
-          test -d "${SRC_RELEASE_DIR}" || { echo "Missing source directory: ${SRC_RELEASE_DIR}"; exit 1; }
-          test -f "${INC_FILE}" || { echo "Missing INC file: ${INC_FILE}"; exit 1; }
-          test -f "${PDB_FILE}" || { echo "Missing PDB file: ${PDB_FILE}"; exit 1; }
-
-          mkdir -p "${ZIP_DIR}"
-
-          INC_ZIP="${ZIP_DIR}/$(basename "${INC_FILE}").zip"
-          PDB_ZIP="${ZIP_DIR}/$(basename "${PDB_FILE}").zip"
-
-          zip -j "${INC_ZIP}" "${INC_FILE}"
-          zip -j "${PDB_ZIP}" "${PDB_FILE}"
-
-          echo "INC_ZIP=${INC_ZIP}" >> "${GITHUB_ENV}"
-          echo "PDB_ZIP=${PDB_ZIP}" >> "${GITHUB_ENV}"
-
-      - name: Clone base branch and create work branch
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          WORK="${RUNNER_TEMP}/repo-work-${BUILD_ID}"
+          WORK="${RUNNER_TEMP}/push-auth-test"
           rm -rf "${WORK}"
 
-          git -c http.sslVerify=true clone --branch "${BASE_BRANCH}" \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
+          git clone --branch "${DEFAULT_BRANCH}" \
+            "https://github.com/${GH_REPO}.git" \
             "${WORK}"
 
           cd "${WORK}"
-          git checkout -B "${WORK_BRANCH}"
-
-          # Ensure push always uses authenticated remote
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          git checkout -B "${TEST_BRANCH}"
 
           echo "WORK_REPO=${WORK}" >> "${GITHUB_ENV}"
 
-      - name: Copy collaterals into repository path
+      - name: Create test file
         shell: bash
         run: |
           set -euo pipefail
-          DEST_DIR="${WORK_REPO}/release-collaterals/${BUILD_ID}"
-          mkdir -p "${DEST_DIR}"
-          cp -f "${INC_ZIP}" "${DEST_DIR}/"
-          cp -f "${PDB_ZIP}" "${DEST_DIR}/"
-          ls -lah "${DEST_DIR}"
+          cd "${WORK_REPO}"
+          mkdir -p .github/push-auth-test
+          cat > .github/push-auth-test/test-$(date +%s).txt <<EOF
+          push auth test
+          repo=${GH_REPO}
+          actor=${GITHUB_ACTOR}
+          run_id=${GITHUB_RUN_ID}
+          time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
 
-      - name: Commit and push work branch
+      - name: Commit
         shell: bash
         run: |
           set -euo pipefail
@@ -150,62 +87,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add "release-collaterals/${BUILD_ID}"
+          git add .github/push-auth-test
+          git commit -m "Test push auth from self-hosted runner"
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            echo "NO_CHANGES=true" >> "${GITHUB_ENV}"
-            exit 0
-          fi
-
-          git commit -m "Add SRF collaterals for build ${BUILD_ID}"
-          git push -u origin "${WORK_BRANCH}"
-
-      - name: Create or update pull request
-        if: env.NO_CHANGES != 'true'
+      - name: Push with explicit auth header (key test)
         shell: bash
         run: |
           set -euo pipefail
+          cd "${WORK_REPO}"
 
-          API="https://api.github.com/repos/${GH_REPO}"
-          PR_TITLE="Add SRF collaterals for build ${BUILD_ID}"
-          PR_BODY="Automated upload of SRF collaterals for build ${BUILD_ID} into release-collaterals/${BUILD_ID}."
+          git remote set-url origin "https://github.com/${GH_REPO}.git"
 
-          existing_pr="$(curl -sS \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${API}/pulls?state=open&head=${GH_REPO%%/*}:${WORK_BRANCH}&base=${BASE_BRANCH}")"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf "x-access-token:${GH_TOKEN}" | base64 | tr -d '\n')" \
+            push -u origin "${TEST_BRANCH}"
 
-          pr_url="$(echo "${existing_pr}" | jq -r '.[0].html_url // empty')"
-
-          if [ -n "${pr_url}" ]; then
-            echo "PR already exists: ${pr_url}"
-            echo "PR_URL=${pr_url}" >> "${GITHUB_ENV}"
-            exit 0
-          fi
-
-          create_resp="$(curl -sS -X POST \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${API}/pulls" \
-            -d "$(jq -n \
-              --arg title "${PR_TITLE}" \
-              --arg head "${WORK_BRANCH}" \
-              --arg base "${BASE_BRANCH}" \
-              --arg body "${PR_BODY}" \
-              '{title:$title, head:$head, base:$base, body:$body}')")"
-
-          pr_url="$(echo "${create_resp}" | jq -r '.html_url // empty')"
-          test -n "${pr_url}" || { echo "Failed to create PR"; echo "${create_resp}"; exit 1; }
-
-          echo "PR_URL=${pr_url}" >> "${GITHUB_ENV}"
-          echo "Created PR: ${pr_url}"
-
-      - name: Final output
+      - name: Result
         shell: bash
         run: |
           set -euo pipefail
-          echo "Collateral path (branch): https://github.com/${GH_REPO}/tree/${WORK_BRANCH}/release-collaterals/${BUILD_ID}"
-          if [ -n "${PR_URL:-}" ]; then
-            echo "Pull Request: ${PR_URL}"
-          fi
+          echo "SUCCESS: branch pushed"
+          echo "Branch URL: https://github.com/${GH_REPO}/tree/${TEST_BRANCH}"
