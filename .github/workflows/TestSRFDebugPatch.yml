@@ -1,17 +1,18 @@
-name: SRF Debug UP Build - Complete Pipeline
+name: Test SRF Debug Patch Build
 
 on:
   workflow_dispatch:
     inputs:
       json_filename:
-        description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
+        description: 'JSON filename (e.g., srf_testing.json)'
         required: true
         type: string
+        default: 'srf_testing.json'
       build_description:
         description: 'Build description'
         required: false
         type: string
-        default: 'SRF Debug UP Automated Build'
+        default: 'SRF Debug Patch Test Build'
       environment:
         description: 'Environment'
         required: false
@@ -143,7 +144,6 @@ jobs:
           set -euo pipefail
 
           JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
-
           if [ ! -f "$JSON_FILE" ]; then
             echo "Error: JSON file '${{ github.event.inputs.json_filename }}' not found"
             exit 1
@@ -194,7 +194,7 @@ jobs:
 
           JSON_FILE="${{ steps.validate.outputs.json_path }}"
           {
-            echo "# SRF Debug UP Build Pipeline"
+            echo "# Test SRF Debug Patch Build Pipeline"
             echo ""
             echo "**Session ID:** \`${{ needs.session-management.outputs.session_id }}\`"
             echo "**Trigger Source:** \`${{ needs.session-management.outputs.trigger_source }}\`"
@@ -205,33 +205,6 @@ jobs:
             echo "|-------|-------|"
             jq -r '.section_1 | to_entries[] | "| \(.key) | \(.value) |"' "$JSON_FILE"
           } >> "$GITHUB_STEP_SUMMARY"
-
-  notify-build-start:
-    runs-on: [self-hosted, node16]
-    needs: [session-management, read-json]
-    if: ${{ needs.session-management.outputs.callback_url != '' }}
-
-    steps:
-      - name: Send Build Start Notification
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
-          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
-          START_PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"SRF Debug UP build has started","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","json_filename":"%s","build_description":"%s"}' \
-            "$SESSION_ID" \
-            "${{ github.run_id }}" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "${{ needs.read-json.outputs.current_version }}" \
-            "${{ needs.session-management.outputs.trigger_source }}" \
-            "${{ github.event.inputs.json_filename }}" \
-            "${{ github.event.inputs.build_description }}")
-
-          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$START_PAYLOAD" || echo "Failed to send start notification"
 
   copy-config:
     runs-on: [self-hosted, node16]
@@ -251,7 +224,7 @@ jobs:
           RELEASE_PATH="$VERSION_PATH/release"
           CONFIG_FILE="config_${PREV_VERSION}.ini"
           SOURCE_CONFIG="$RELEASE_PATH/$CONFIG_FILE"
-          DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+          DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           DEST_CONFIG="$DEST_PATH/$CONFIG_FILE"
           FINAL_CONFIG="$DEST_PATH/config_${CURRENT_VERSION}.ini"
 
@@ -309,7 +282,7 @@ jobs:
 
           JSON_FILE="${{ needs.read-json.outputs.json_path }}"
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+          DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
 
           [ -f "$CONFIG_FILE" ] || { echo "Config not found: $CONFIG_FILE"; exit 1; }
@@ -401,7 +374,7 @@ jobs:
           set -euo pipefail
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          CONFIG_FILE="/nfs/site/disks/dcsg_0729/users/pkummara/config_${CURRENT_VERSION}.ini"
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${CURRENT_VERSION}.ini"
           cat "$CONFIG_FILE"
 
   upload-config:
@@ -410,13 +383,6 @@ jobs:
     if: ${{ needs.read-json.outputs.current_version != '' }}
 
     steps:
-      - name: Session Info Display
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Session ID: ${{ needs.session-management.outputs.session_id }}"
-          echo "Triggered by: ${{ needs.session-management.outputs.trigger_source }}"
-
       - name: Upload Config File via GitHub API
         shell: bash
         env:
@@ -430,7 +396,7 @@ jobs:
           fi
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          DEST_PATH="/nfs/site/disks/dcsg_0729/users/pkummara"
+          DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
           TARGET_PATH="output_paths/config_${CURRENT_VERSION}.ini"
           API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
@@ -454,16 +420,7 @@ jobs:
               --arg branch "${{ github.ref_name }}" \
               --arg name "GitHub Action" \
               --arg email "action@github.com" \
-              '{
-                message: $message,
-                content: $content,
-                sha: $sha,
-                branch: $branch,
-                committer: {
-                  name: $name,
-                  email: $email
-                }
-              }' > payload.json
+              '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
           elif [ "$HTTP_CODE" = "404" ]; then
             jq -n \
               --arg message "$COMMIT_MESSAGE" \
@@ -471,15 +428,7 @@ jobs:
               --arg branch "${{ github.ref_name }}" \
               --arg name "GitHub Action" \
               --arg email "action@github.com" \
-              '{
-                message: $message,
-                content: $content,
-                branch: $branch,
-                committer: {
-                  name: $name,
-                  email: $email
-                }
-              }' > payload.json
+              '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
           else
             echo "Failed to query existing file. HTTP status: $HTTP_CODE"
             cat existing_file.json || true
@@ -583,7 +532,6 @@ jobs:
           " )
 
           echo "$KTAB_RESULT"
-
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
@@ -600,7 +548,6 @@ jobs:
           " )
 
           echo "$KCRON_RESULT"
-
           if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
@@ -672,7 +619,7 @@ jobs:
               send \"\$css_password\r\"
               exp_continue
             }
-            -re \".*assword.*\" {
+            -re ".*assword.*" {
               send \"\$css_password\r\"
               exp_continue
             }
@@ -712,27 +659,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          SUMMARY="$GITHUB_STEP_SUMMARY"
-          log() {
-            echo "$1"
-            echo "$1" >> "$SUMMARY"
-          }
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
+          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
 
-          trap 'rc=$?; log ""; log "### Failure"; log "- Exit code: $rc"; [ -f existing_file.json ] && { log "- existing_file.json:"; echo "```json" >> "$SUMMARY"; cat existing_file.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; [ -f api_response.json ] && { log "- api_response.json:"; echo "```json" >> "$SUMMARY"; cat api_response.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; exit $rc' ERR
+          [ -d "$SRC_RELEASE_DIR" ] || { echo "Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
+
+          INC_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | head -n 1)
+          PDB_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | head -n 1)
+
+          [ -n "$INC_FILE" ] || { echo "No INC file matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"; exit 1; }
+          [ -n "$PDB_FILE" ] || { echo "No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
 
           upload_file() {
             local src_file="$1"
             local target_path="$2"
             local commit_message="$3"
-
-            rm -f existing_file.json payload.json api_response.json
-
-            log ""
-            log "### Uploading \`$(basename "$src_file")\`"
-            log "- Source: \`$src_file\`"
-            log "- Target: \`$target_path\`"
-
-            [ -f "$src_file" ] || { log "- Source file not found"; exit 1; }
 
             CONTENT_B64=$(base64 -w 0 "$src_file" 2>/dev/null || base64 "$src_file" | tr -d '\n')
             API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
@@ -741,8 +683,6 @@ jobs:
               -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               "$API_URL")
-
-            log "- Existing file check HTTP code: \`$HTTP_CODE\`"
 
             if [ "$HTTP_CODE" = "200" ]; then
               FILE_SHA=$(jq -r '.sha' existing_file.json)
@@ -753,16 +693,7 @@ jobs:
                 --arg branch "${{ github.ref_name }}" \
                 --arg name "GitHub Action" \
                 --arg email "action@github.com" \
-                '{
-                  message: $message,
-                  content: $content,
-                  sha: $sha,
-                  branch: $branch,
-                  committer: {
-                    name: $name,
-                    email: $email
-                  }
-                }' > payload.json
+                '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
             elif [ "$HTTP_CODE" = "404" ]; then
               jq -n \
                 --arg message "$commit_message" \
@@ -770,17 +701,10 @@ jobs:
                 --arg branch "${{ github.ref_name }}" \
                 --arg name "GitHub Action" \
                 --arg email "action@github.com" \
-                '{
-                  message: $message,
-                  content: $content,
-                  branch: $branch,
-                  committer: {
-                    name: $name,
-                    email: $email
-                  }
-                }' > payload.json
+                '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
             else
-              log "- Existing file lookup failed"
+              echo "Failed to query existing file. HTTP status: $HTTP_CODE"
+              cat existing_file.json || true
               exit 1
             fi
 
@@ -791,67 +715,24 @@ jobs:
               -d @payload.json \
               "$API_URL")
 
-            log "- Upload HTTP code: \`$RESPONSE_CODE\`"
-
-            if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
-              LINK=$(jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json)
-              log "- Upload succeeded"
-              log "- Result: $LINK"
-            else
-              log "- Upload failed"
+            if [ "$RESPONSE_CODE" != "200" ] && [ "$RESPONSE_CODE" != "201" ]; then
+              echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
+              cat api_response.json || true
               exit 1
             fi
           }
 
-          log "## SRF Zipped Collateral Upload"
-
-          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            log "- REPO_PUSH_TOKEN secret is empty or unavailable"
-            exit 1
-          fi
-
-          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
-          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
-
-          [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
-
-          # Discover actual filenames via glob (family/model prefix varies per build),
-          # matching the same pattern used by copy-release-collaterals.
-          INC_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | head -n 1)
-          PDB_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | head -n 1)
-
-          [ -n "$INC_FILE" ] || { log "- No INC file matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"; exit 1; }
-          [ -n "$PDB_FILE" ] || { log "- No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
-
-          log "- Found INC file: \`$INC_FILE\`"
-          log "- Found PDB file: \`$PDB_FILE\`"
-
           INC_BASENAME=$(basename "$INC_FILE")
           PDB_BASENAME=$(basename "$PDB_FILE")
-
           INC_ZIP="/tmp/${INC_BASENAME}.zip"
           PDB_ZIP="/tmp/${PDB_BASENAME}.zip"
 
           rm -f "$INC_ZIP" "$PDB_ZIP"
-
           zip -j "$INC_ZIP" "$INC_FILE"
           zip -j "$PDB_ZIP" "$PDB_FILE"
 
-          log "- Created zip: \`$INC_ZIP\`"
-          log "- Created zip: \`$PDB_ZIP\`"
-          log "- INC zip size: \`$(ls -lh "$INC_ZIP" | awk '{print $5}')\`"
-          log "- PDB zip size: \`$(ls -lh "$PDB_ZIP" | awk '{print $5}')\`"
-
-          upload_file \
-            "$INC_ZIP" \
-            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${INC_BASENAME}.zip" \
-            "Upload SRF zipped collateral ${CURRENT_VERSION}: ${INC_BASENAME}.zip"
-
-          upload_file \
-            "$PDB_ZIP" \
-            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${PDB_BASENAME}.zip" \
-            "Upload SRF zipped collateral ${CURRENT_VERSION}: ${PDB_BASENAME}.zip"
+          upload_file "$INC_ZIP" "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${INC_BASENAME}.zip" "Upload SRF zipped collateral ${CURRENT_VERSION}: ${INC_BASENAME}.zip"
+          upload_file "$PDB_ZIP" "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${PDB_BASENAME}.zip" "Upload SRF zipped collateral ${CURRENT_VERSION}: ${PDB_BASENAME}.zip"
 
           rm -f "$INC_ZIP" "$PDB_ZIP" existing_file.json payload.json api_response.json
 
@@ -932,92 +813,3 @@ jobs:
             export WINDOWS_DEST="$WINDOWS_DEST"
             /usr/bin/expect .github/scripts/scp_transfer.exp || exit 1
           done
-
-  call-srf-login:
-    needs: [session-management, copy-release-collaterals]
-    if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/loginsrf.yml@master
-    secrets: inherit
-    with:
-      session_id: ${{ needs.session-management.outputs.session_id }}
-      trigger_source: ${{ needs.session-management.outputs.trigger_source }}
-      callback_url: ${{ needs.session-management.outputs.callback_url }}
-
-  call-read-pipeline-result:
-    needs: [session-management, call-srf-login]
-    if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/Read_Pipeline_Result.yml@master
-    secrets: inherit
-    with:
-      session_id: ${{ needs.session-management.outputs.session_id }}
-      trigger_source: ${{ needs.session-management.outputs.trigger_source }}
-      callback_url: ${{ needs.session-management.outputs.callback_url }}
-
-  notify-final-result:
-    runs-on: [self-hosted, node16]
-    needs: [session-management, read-json, patch-build, upload-release-collaterals, copy-release-collaterals, call-srf-login, call-read-pipeline-result]
-    if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
-
-    steps:
-      - name: Send Final Result Notification
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
-          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-          PIPELINE_STATUS="UNKNOWN"
-
-          if [ "${{ needs.call-read-pipeline-result.result }}" = "success" ]; then
-            PIPELINE_STATUS="PASSED"
-          elif [ "${{ needs.call-read-pipeline-result.result }}" = "failure" ]; then
-            PIPELINE_STATUS="FAILED"
-          elif [ "${{ needs.call-read-pipeline-result.result }}" = "cancelled" ]; then
-            PIPELINE_STATUS="CANCELLED"
-          fi
-
-          BUILD_STATUS="unknown"
-          BUILD_MESSAGE="Build completed with unknown status"
-
-          if [ "${{ needs.patch-build.result }}" = "success" ] && [ "${{ needs.copy-release-collaterals.result }}" = "success" ]; then
-            if [ "$PIPELINE_STATUS" = "PASSED" ]; then
-              BUILD_STATUS="success"
-              BUILD_MESSAGE="SRF Debug UP build and pipeline completed successfully"
-            elif [ "$PIPELINE_STATUS" = "FAILED" ]; then
-              BUILD_STATUS="pipeline_failed"
-              BUILD_MESSAGE="SRF Debug UP build completed but pipeline failed"
-            elif [ "$PIPELINE_STATUS" = "CANCELLED" ]; then
-              BUILD_STATUS="pipeline_cancelled"
-              BUILD_MESSAGE="SRF Debug UP build completed but pipeline was cancelled"
-            else
-              BUILD_STATUS="build_success_pipeline_unknown"
-              BUILD_MESSAGE="SRF Debug UP build completed successfully, pipeline status unknown"
-            fi
-          else
-            BUILD_STATUS="build_failed"
-            BUILD_MESSAGE="SRF Debug UP build failed"
-          fi
-
-          PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","pipeline_status":"%s","build_results":{"patch_build":"%s","upload_release_collaterals":"%s","copy_collaterals":"%s","srf_login":"%s","pipeline_result":"%s"},"final_summary":{"json_filename":"%s","build_description":"%s","config_file":"%s","github_repository":"%s","workflow_url":"%s"}}' \
-            "$SESSION_ID" \
-            "$BUILD_STATUS" \
-            "$BUILD_MESSAGE" \
-            "${{ github.run_id }}" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "${{ needs.read-json.outputs.current_version }}" \
-            "${{ needs.session-management.outputs.trigger_source }}" \
-            "$PIPELINE_STATUS" \
-            "${{ needs.patch-build.result }}" \
-            "${{ needs.upload-release-collaterals.result }}" \
-            "${{ needs.copy-release-collaterals.result }}" \
-            "${{ needs.call-srf-login.result }}" \
-            "${{ needs.call-read-pipeline-result.result }}" \
-            "${{ github.event.inputs.json_filename }}" \
-            "${{ github.event.inputs.build_description }}" \
-            "config_${{ needs.read-json.outputs.current_version }}.ini" \
-            "${{ github.repository }}" \
-            "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
-
-          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" || echo "Failed to send final notification"
