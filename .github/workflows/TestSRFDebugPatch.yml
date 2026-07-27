@@ -672,55 +672,62 @@ jobs:
           [ -n "$PDB_FILE" ] || { echo "No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
 
           upload_file() {
-            local src_file="$1"
-            local target_path="$2"
-            local commit_message="$3"
+  local src_file="$1"
+  local target_path="$2"
+  local commit_message="$3"
 
-            CONTENT_B64=$(base64 -w 0 "$src_file" 2>/dev/null || base64 "$src_file" | tr -d '\n')
-            API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
+  API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
 
-            HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
-              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "$API_URL")
+  # 1) Put base64 into a temp file (not shell arg)
+  local content_file
+  content_file="$(mktemp)"
+  base64 -w 0 "$src_file" 2>/dev/null > "$content_file" || base64 "$src_file" | tr -d '\n' > "$content_file"
 
-            if [ "$HTTP_CODE" = "200" ]; then
-              FILE_SHA=$(jq -r '.sha' existing_file.json)
-              jq -n \
-                --arg message "$commit_message" \
-                --arg content "$CONTENT_B64" \
-                --arg sha "$FILE_SHA" \
-                --arg branch "${{ github.ref_name }}" \
-                --arg name "GitHub Action" \
-                --arg email "action@github.com" \
-                '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
-            elif [ "$HTTP_CODE" = "404" ]; then
-              jq -n \
-                --arg message "$commit_message" \
-                --arg content "$CONTENT_B64" \
-                --arg branch "${{ github.ref_name }}" \
-                --arg name "GitHub Action" \
-                --arg email "action@github.com" \
-                '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
-            else
-              echo "Failed to query existing file. HTTP status: $HTTP_CODE"
-              cat existing_file.json || true
-              exit 1
-            fi
+  HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
+    -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+    -H "Accept: application/vnd.github+json" \
+    "$API_URL")
 
-            RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
-              -X PUT \
-              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -d @payload.json \
-              "$API_URL")
+  if [ "$HTTP_CODE" = "200" ]; then
+    FILE_SHA=$(jq -r '.sha' existing_file.json)
+    jq -n \
+      --arg message "$commit_message" \
+      --rawfile content "$content_file" \
+      --arg sha "$FILE_SHA" \
+      --arg branch "${{ github.ref_name }}" \
+      --arg name "GitHub Action" \
+      --arg email "action@github.com" \
+      '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
+  elif [ "$HTTP_CODE" = "404" ]; then
+    jq -n \
+      --arg message "$commit_message" \
+      --rawfile content "$content_file" \
+      --arg branch "${{ github.ref_name }}" \
+      --arg name "GitHub Action" \
+      --arg email "action@github.com" \
+      '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
+  else
+    echo "Failed to query existing file. HTTP status: $HTTP_CODE"
+    cat existing_file.json || true
+    rm -f "$content_file"
+    exit 1
+  fi
 
-            if [ "$RESPONSE_CODE" != "200" ] && [ "$RESPONSE_CODE" != "201" ]; then
-              echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
-              cat api_response.json || true
-              exit 1
-            fi
-          }
+  RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
+    -X PUT \
+    -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+    -H "Accept: application/vnd.github+json" \
+    -d @payload.json \
+    "$API_URL")
+
+  rm -f "$content_file"
+
+  if [ "$RESPONSE_CODE" != "200" ] && [ "$RESPONSE_CODE" != "201" ]; then
+    echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
+    cat api_response.json || true
+    exit 1
+  fi
+}
 
           INC_BASENAME=$(basename "$INC_FILE")
           PDB_BASENAME=$(basename "$PDB_FILE")
