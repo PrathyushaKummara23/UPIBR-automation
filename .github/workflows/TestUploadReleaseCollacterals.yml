@@ -23,7 +23,16 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          SUMMARY="$GITHUB_STEP_SUMMARY"
+          # GITHUB_STEP_SUMMARY may be unset/empty on older self-hosted runner
+          # agent versions. Fall back to /dev/null so summary writes never crash
+          # the whole step - the ::error:: annotations are the real diagnostic
+          # channel and don't depend on this at all.
+          SUMMARY="${GITHUB_STEP_SUMMARY:-}"
+          if [ -z "$SUMMARY" ]; then
+            echo "::warning::GITHUB_STEP_SUMMARY is empty/unset on this runner - summary output will be skipped. Check runner agent version."
+            SUMMARY="/dev/null"
+          fi
+
           log() {
             echo "$1"
             echo "$1" >> "$SUMMARY"
