@@ -21,7 +21,7 @@ jobs:
         env:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
 
           SUMMARY="$GITHUB_STEP_SUMMARY"
           log() {
@@ -39,7 +39,27 @@ jobs:
             exit 1
           }
 
-          trap 'rc=$?; echo "::error::Step exited with code $rc"; log ""; log "### Failure"; log "- Exit code: $rc"; [ -f existing_file.json ] && { log "- existing_file.json:"; echo "```json" >> "$SUMMARY"; cat existing_file.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; [ -f api_response.json ] && { log "- api_response.json:"; echo "```json" >> "$SUMMARY"; cat api_response.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; exit $rc' ERR
+          on_err() {
+            local rc=$?
+            echo "::error::Step exited with code ${rc} (unhandled failure - see Summary for details)"
+            log ""
+            log "### Failure"
+            log "- Exit code: ${rc}"
+            if [ -f existing_file.json ]; then
+              log "- existing_file.json:"
+              printf '%s\n' '```json' >> "$SUMMARY"
+              cat existing_file.json >> "$SUMMARY"
+              printf '%s\n' '```' >> "$SUMMARY"
+            fi
+            if [ -f api_response.json ]; then
+              log "- api_response.json:"
+              printf '%s\n' '```json' >> "$SUMMARY"
+              cat api_response.json >> "$SUMMARY"
+              printf '%s\n' '```' >> "$SUMMARY"
+            fi
+            exit "${rc}"
+          }
+          trap on_err ERR
 
           upload_file() {
             local src_file="$1"
@@ -138,9 +158,9 @@ jobs:
           [ -d "$SRC_RELEASE_DIR" ] || fail "Release directory not found: $SRC_RELEASE_DIR"
 
           log "- Directory listing:"
-          echo '```' >> "$SUMMARY"
+          printf '%s\n' '```' >> "$SUMMARY"
           ls -la "$SRC_RELEASE_DIR" >> "$SUMMARY" 2>&1 || true
-          echo '```' >> "$SUMMARY"
+          printf '%s\n' '```' >> "$SUMMARY"
 
           INC_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | head -n 1)
           PDB_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | head -n 1)
