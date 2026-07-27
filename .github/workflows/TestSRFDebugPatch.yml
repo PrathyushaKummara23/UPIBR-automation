@@ -652,6 +652,36 @@ jobs:
     if: ${{ success() }}
 
     steps:
+      - name: Checkout repository
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          WORKDIR="${GITHUB_WORKSPACE}"
+          PARENT_DIR="$(dirname "$WORKDIR")"
+          REPO_DIR="$(basename "$WORKDIR")"
+          BRANCH="${{ github.ref_name }}"
+
+          mkdir -p "$PARENT_DIR"
+          cd "$PARENT_DIR"
+
+          if [ -d "$WORKDIR/.git" ]; then
+            cd "$WORKDIR"
+            git remote set-url origin "$REPO_URL"
+            git fetch --depth=1 origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          else
+            rm -rf "$WORKDIR"
+            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+            cd "$WORKDIR"
+          fi
+
+          git config --global --add safe.directory "$WORKDIR"
+
       - name: Zip and upload SRF INC/PDB files via GitHub API
         shell: bash
         env:
@@ -671,76 +701,39 @@ jobs:
           [ -n "$INC_FILE" ] || { echo "No INC file matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"; exit 1; }
           [ -n "$PDB_FILE" ] || { echo "No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
 
-          upload_file() {
-            local src_file="$1"
-            local target_path="$2"
-            local commit_message="$3"
-
-            local content_file
-            content_file="$(mktemp)"
-            base64 -w 0 "$src_file" 2>/dev/null > "$content_file" || base64 "$src_file" | tr -d '\n' > "$content_file"
-
-            API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
-
-            HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
-              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "$API_URL")
-
-            if [ "$HTTP_CODE" = "200" ]; then
-              FILE_SHA=$(jq -r '.sha' existing_file.json)
-              jq -n \
-                --arg message "$commit_message" \
-                --rawfile content "$content_file" \
-                --arg sha "$FILE_SHA" \
-                --arg branch "${{ github.ref_name }}" \
-                --arg name "GitHub Action" \
-                --arg email "action@github.com" \
-                '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
-            elif [ "$HTTP_CODE" = "404" ]; then
-              jq -n \
-                --arg message "$commit_message" \
-                --rawfile content "$content_file" \
-                --arg branch "${{ github.ref_name }}" \
-                --arg name "GitHub Action" \
-                --arg email "action@github.com" \
-                '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
-            else
-              echo "Failed to query existing file. HTTP status: $HTTP_CODE"
-              cat existing_file.json || true
-              rm -f "$content_file"
-              exit 1
-            fi
-
-            RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
-              -X PUT \
-              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -d @payload.json \
-              "$API_URL")
-
-            rm -f "$content_file"
-
-            if [ "$RESPONSE_CODE" != "200" ] && [ "$RESPONSE_CODE" != "201" ]; then
-              echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
-              cat api_response.json || true
-              exit 1
-            fi
-          }
-
           INC_BASENAME=$(basename "$INC_FILE")
           PDB_BASENAME=$(basename "$PDB_FILE")
           INC_ZIP="/tmp/${INC_BASENAME}.zip"
           PDB_ZIP="/tmp/${PDB_BASENAME}.zip"
+          TARGET_DIR="$GITHUB_WORKSPACE/output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
+          TARGET_INC_ZIP="$TARGET_DIR/${INC_BASENAME}.zip"
+          TARGET_PDB_ZIP="$TARGET_DIR/${PDB_BASENAME}.zip"
+
+          if [ -f "$TARGET_INC_ZIP" ] && [ -f "$TARGET_PDB_ZIP" ]; then
+            echo "Release collateral zip files already exist, skipping upload job"
+            exit 0
+          fi
 
           rm -f "$INC_ZIP" "$PDB_ZIP"
           zip -j "$INC_ZIP" "$INC_FILE"
           zip -j "$PDB_ZIP" "$PDB_FILE"
 
-          upload_file "$INC_ZIP" "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${INC_BASENAME}.zip" "Upload SRF zipped collateral ${CURRENT_VERSION}: ${INC_BASENAME}.zip"
-          upload_file "$PDB_ZIP" "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${PDB_BASENAME}.zip" "Upload SRF zipped collateral ${CURRENT_VERSION}: ${PDB_BASENAME}.zip"
+          mkdir -p "$TARGET_DIR"
+          cp "$INC_ZIP" "$TARGET_INC_ZIP"
+          cp "$PDB_ZIP" "$TARGET_PDB_ZIP"
 
-          rm -f "$INC_ZIP" "$PDB_ZIP" existing_file.json payload.json api_response.json
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+          git add "$TARGET_INC_ZIP" "$TARGET_PDB_ZIP"
+
+          if git diff --cached --quiet; then
+            echo "No release collateral changes to commit"
+          else
+            git commit -m "Upload SRF zipped collaterals for ${CURRENT_VERSION}"
+            git push origin "${{ github.ref_name }}"
+          fi
+
+          rm -f "$INC_ZIP" "$PDB_ZIP"
 
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
