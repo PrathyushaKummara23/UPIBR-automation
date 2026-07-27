@@ -29,7 +29,17 @@ jobs:
             echo "$1" >> "$SUMMARY"
           }
 
-          trap 'rc=$?; log ""; log "### Failure"; log "- Exit code: $rc"; [ -f existing_file.json ] && { log "- existing_file.json:"; echo "```json" >> "$SUMMARY"; cat existing_file.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; [ -f api_response.json ] && { log "- api_response.json:"; echo "```json" >> "$SUMMARY"; cat api_response.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; exit $rc' ERR
+          # Emits a GitHub Actions error annotation (visible in the "Annotations" panel
+          # at the top of the run page, no log-read permission required) AND writes to
+          # the summary/stdout, then exits 1.
+          fail() {
+            local msg="$1"
+            echo "::error::${msg}"
+            log "- ${msg}"
+            exit 1
+          }
+
+          trap 'rc=$?; echo "::error::Step exited with code $rc"; log ""; log "### Failure"; log "- Exit code: $rc"; [ -f existing_file.json ] && { log "- existing_file.json:"; echo "```json" >> "$SUMMARY"; cat existing_file.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; [ -f api_response.json ] && { log "- api_response.json:"; echo "```json" >> "$SUMMARY"; cat api_response.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; exit $rc' ERR
 
           upload_file() {
             local src_file="$1"
@@ -43,7 +53,7 @@ jobs:
             log "- Source: \`$src_file\`"
             log "- Target: \`$target_path\`"
 
-            [ -f "$src_file" ] || { log "- Source file not found"; exit 1; }
+            [ -f "$src_file" ] || fail "Source file not found: $src_file"
 
             CONTENT_B64=$(base64 -w 0 "$src_file" 2>/dev/null || base64 "$src_file" | tr -d '\n')
             API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
@@ -91,8 +101,7 @@ jobs:
                   }
                 }' > payload.json
             else
-              log "- Existing file lookup failed"
-              exit 1
+              fail "Existing file lookup failed (HTTP $HTTP_CODE) for $target_path"
             fi
 
             RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
@@ -109,16 +118,14 @@ jobs:
               log "- Upload succeeded"
               log "- Result: $LINK"
             else
-              log "- Upload failed"
-              exit 1
+              fail "Upload failed (HTTP $RESPONSE_CODE) for $target_path"
             fi
           }
 
           log "## SRF Zipped Collateral Upload (standalone test)"
 
           if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            log "- REPO_PUSH_TOKEN secret is empty or unavailable"
-            exit 1
+            fail "REPO_PUSH_TOKEN secret is empty or unavailable"
           fi
 
           CURRENT_VERSION="${{ github.event.inputs.version }}"
@@ -128,7 +135,7 @@ jobs:
           log "- Version: \`$CURRENT_VERSION\`"
           log "- Release directory: \`$SRC_RELEASE_DIR\`"
 
-          [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
+          [ -d "$SRC_RELEASE_DIR" ] || fail "Release directory not found: $SRC_RELEASE_DIR"
 
           log "- Directory listing:"
           echo '```' >> "$SUMMARY"
@@ -138,8 +145,8 @@ jobs:
           INC_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | head -n 1)
           PDB_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | head -n 1)
 
-          [ -n "$INC_FILE" ] || { log "- No INC file matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"; exit 1; }
-          [ -n "$PDB_FILE" ] || { log "- No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
+          [ -n "$INC_FILE" ] || fail "No INC file matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"
+          [ -n "$PDB_FILE" ] || fail "No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"
 
           log "- Found INC file: \`$INC_FILE\`"
           log "- Found PDB file: \`$PDB_FILE\`"
