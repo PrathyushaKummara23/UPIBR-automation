@@ -1,0 +1,173 @@
+name: Test - Upload Release Collaterals
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Current version (no 0x prefix, e.g. 836003C4)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  upload-release-collaterals:
+    runs-on: [self-hosted, node16]
+
+    steps:
+      - name: Zip and upload SRF INC/PDB files via GitHub API
+        shell: bash
+        env:
+          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+          log() {
+            echo "$1"
+            echo "$1" >> "$SUMMARY"
+          }
+
+          trap 'rc=$?; log ""; log "### Failure"; log "- Exit code: $rc"; [ -f existing_file.json ] && { log "- existing_file.json:"; echo "```json" >> "$SUMMARY"; cat existing_file.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; [ -f api_response.json ] && { log "- api_response.json:"; echo "```json" >> "$SUMMARY"; cat api_response.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; exit $rc' ERR
+
+          upload_file() {
+            local src_file="$1"
+            local target_path="$2"
+            local commit_message="$3"
+
+            rm -f existing_file.json payload.json api_response.json
+
+            log ""
+            log "### Uploading \`$(basename "$src_file")\`"
+            log "- Source: \`$src_file\`"
+            log "- Target: \`$target_path\`"
+
+            [ -f "$src_file" ] || { log "- Source file not found"; exit 1; }
+
+            CONTENT_B64=$(base64 -w 0 "$src_file" 2>/dev/null || base64 "$src_file" | tr -d '\n')
+            API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
+
+            HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
+              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL")
+
+            log "- Existing file check HTTP code: \`$HTTP_CODE\`"
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              FILE_SHA=$(jq -r '.sha' existing_file.json)
+              jq -n \
+                --arg message "$commit_message" \
+                --arg content "$CONTENT_B64" \
+                --arg sha "$FILE_SHA" \
+                --arg branch "${{ github.ref_name }}" \
+                --arg name "GitHub Action" \
+                --arg email "action@github.com" \
+                '{
+                  message: $message,
+                  content: $content,
+                  sha: $sha,
+                  branch: $branch,
+                  committer: {
+                    name: $name,
+                    email: $email
+                  }
+                }' > payload.json
+            elif [ "$HTTP_CODE" = "404" ]; then
+              jq -n \
+                --arg message "$commit_message" \
+                --arg content "$CONTENT_B64" \
+                --arg branch "${{ github.ref_name }}" \
+                --arg name "GitHub Action" \
+                --arg email "action@github.com" \
+                '{
+                  message: $message,
+                  content: $content,
+                  branch: $branch,
+                  committer: {
+                    name: $name,
+                    email: $email
+                  }
+                }' > payload.json
+            else
+              log "- Existing file lookup failed"
+              exit 1
+            fi
+
+            RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
+              -X PUT \
+              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @payload.json \
+              "$API_URL")
+
+            log "- Upload HTTP code: \`$RESPONSE_CODE\`"
+
+            if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+              LINK=$(jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json)
+              log "- Upload succeeded"
+              log "- Result: $LINK"
+            else
+              log "- Upload failed"
+              exit 1
+            fi
+          }
+
+          log "## SRF Zipped Collateral Upload (standalone test)"
+
+          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
+            log "- REPO_PUSH_TOKEN secret is empty or unavailable"
+            exit 1
+          fi
+
+          CURRENT_VERSION="${{ github.event.inputs.version }}"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
+          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+
+          log "- Version: \`$CURRENT_VERSION\`"
+          log "- Release directory: \`$SRC_RELEASE_DIR\`"
+
+          [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
+
+          log "- Directory listing:"
+          echo '```' >> "$SUMMARY"
+          ls -la "$SRC_RELEASE_DIR" >> "$SUMMARY" 2>&1 || true
+          echo '```' >> "$SUMMARY"
+
+          INC_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | head -n 1)
+          PDB_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | head -n 1)
+
+          [ -n "$INC_FILE" ] || { log "- No INC file matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"; exit 1; }
+          [ -n "$PDB_FILE" ] || { log "- No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
+
+          log "- Found INC file: \`$INC_FILE\`"
+          log "- Found PDB file: \`$PDB_FILE\`"
+
+          INC_BASENAME=$(basename "$INC_FILE")
+          PDB_BASENAME=$(basename "$PDB_FILE")
+
+          INC_ZIP="/tmp/${INC_BASENAME}.zip"
+          PDB_ZIP="/tmp/${PDB_BASENAME}.zip"
+
+          rm -f "$INC_ZIP" "$PDB_ZIP"
+
+          zip -j "$INC_ZIP" "$INC_FILE"
+          zip -j "$PDB_ZIP" "$PDB_FILE"
+
+          log "- Created zip: \`$INC_ZIP\`"
+          log "- Created zip: \`$PDB_ZIP\`"
+          log "- INC zip size: \`$(ls -lh "$INC_ZIP" | awk '{print $5}')\`"
+          log "- PDB zip size: \`$(ls -lh "$PDB_ZIP" | awk '{print $5}')\`"
+
+          upload_file \
+            "$INC_ZIP" \
+            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${INC_BASENAME}.zip" \
+            "Upload SRF zipped collateral ${CURRENT_VERSION}: ${INC_BASENAME}.zip"
+
+          upload_file \
+            "$PDB_ZIP" \
+            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/${PDB_BASENAME}.zip" \
+            "Upload SRF zipped collateral ${CURRENT_VERSION}: ${PDB_BASENAME}.zip"
+
+          rm -f "$INC_ZIP" "$PDB_ZIP" existing_file.json payload.json api_response.json
