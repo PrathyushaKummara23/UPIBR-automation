@@ -110,7 +110,7 @@ jobs:
       - name: Checkout repository
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -248,7 +248,7 @@ jobs:
       - name: Checkout repository
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
 
