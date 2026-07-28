@@ -422,7 +422,8 @@ jobs:
 
           sed -i "s/^soc_sign = .*/soc_sign = css-debug/" "$CONFIG_FILE"
           sed -i "s/^fit1_sign = .*/fit1_sign = css-debug/" "$CONFIG_FILE"
-
+          sed -i "s/^release = .*/release = no/" "$CONFIG_FILE"
+          sed -i "s/^fiv_register = .*/fiv_register = no/" "$CONFIG_FILE"
       - name: Display Final Prepared Config
         shell: bash
         run: |
