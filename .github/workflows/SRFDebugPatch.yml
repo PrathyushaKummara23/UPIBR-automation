@@ -7,145 +7,150 @@ on:
         description: 'JSON filename (e.g., entry_criteria_UPLR4.6.json)'
         required: true
         type: string
-      build_description:
-        description: 'Build description'
-        required: false
-        type: string
-        default: 'SRF Debug UP Automated Build'
-      environment:
-        description: 'Environment'
-        required: false
-        type: string
-        default: 'production'
-      trigger_source:
-        description: 'Source that triggered this workflow (python_script, web_gui, api_call, manual)'
-        required: true
-        type: choice
-        options:
-          - python_script
-          - web_gui
-          - api_call
-          - manual
-        default: 'manual'
-      callback_url:
-        description: 'Callback URL for sending results back to trigger source'
-        required: false
-        type: string
-      session_id:
-        description: 'Session ID for tracking this build request'
-        required: false
-        type: string
-      requester_info:
-        description: 'Information about who/what requested this build (JSON format)'
-        required: false
-        type: string
-        default: '{"user": "unknown", "timestamp": ""}'
+          upload_file() {
+            local src_file="$1"
+            local target_path="$2"
+            local commit_message="$3"
 
-permissions:
-  contents: write
+            rm -f existing_file.json payload.json api_response.json
 
-env:
-  BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
-  KTAB_PATH: /usr/intel/bin/ktab
-  KCRON_PATH: /usr/intel/bin/kcron
-  PYTHON_PATH: /usr/intel/bin/python3.7.4
-  FXT_TOOL_PATH: /nfs/site/disks/dcsg_0729/fxt-tools_releases/26ww07b/MUPPT_ATOM/fxtMuppt.py
-  EXPECT_PATH: /usr/bin/expect
+            echo ""
+            echo "Uploading $(basename "$src_file")"
+            echo "Source: $src_file"
+            echo "Target: $target_path"
 
-jobs:
-  session-management:
-    runs-on: [self-hosted, node16]
-    outputs:
-      session_id: ${{ steps.session.outputs.session_id }}
-      trigger_source: ${{ steps.session.outputs.trigger_source }}
-      callback_url: ${{ steps.session.outputs.callback_url }}
-      requester_info: ${{ steps.session.outputs.requester_info }}
+            [ -f "$src_file" ] || { echo "Source file not found: $src_file"; exit 1; }
 
-    steps:
-      - name: Initialize Session Information
-        id: session
-        shell: bash
-        run: |
-          set -euo pipefail
+            CONTENT_B64=$(base64 -w 0 "$src_file" 2>/dev/null || base64 "$src_file" | tr -d '\n')
+            API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
 
-          if [ -n "${{ github.event.inputs.session_id }}" ]; then
-            SESSION_ID="${{ github.event.inputs.session_id }}"
-          else
-            SESSION_ID="session_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
-          fi
+            HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL")
 
-          TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
-          CALLBACK_URL="${{ github.event.inputs.callback_url }}"
-          REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
+            if [ "$HTTP_CODE" = "200" ]; then
+              FILE_SHA=$(jq -r '.sha' existing_file.json)
+              jq -n \
+                --arg message "$commit_message" \
+                --arg content "$CONTENT_B64" \
+                --arg sha "$FILE_SHA" \
+                --arg branch "${{ github.ref_name }}" \
+                --arg name "GitHub Action" \
+                --arg email "action@github.com" \
+                '{
+                  message: $message,
+                  content: $content,
+                  sha: $sha,
+                  branch: $branch,
+                  committer: {
+                    name: $name,
+                    email: $email
+                  }
+                }' > payload.json
+            elif [ "$HTTP_CODE" = "404" ]; then
+              jq -n \
+                --arg message "$commit_message" \
+                --arg content "$CONTENT_B64" \
+                --arg branch "${{ github.ref_name }}" \
+                --arg name "GitHub Action" \
+                --arg email "action@github.com" \
+                '{
+                  message: $message,
+                  content: $content,
+                  branch: $branch,
+                  committer: {
+                    name: $name,
+                    email: $email
+                  }
+                }' > payload.json
+            else
+              echo "Failed to query existing file. HTTP status: $HTTP_CODE"
+              cat existing_file.json || true
+              exit 1
+            fi
 
-          echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
-          echo "trigger_source=$TRIGGER_SOURCE" >> "$GITHUB_OUTPUT"
-          echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
-          echo "requester_info=$REQUESTER_INFO" >> "$GITHUB_OUTPUT"
+            RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
+              -X PUT \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @payload.json \
+              "$API_URL")
 
-          SESSION_FILE="/tmp/build_session_${SESSION_ID}.json"
-          cat > "$SESSION_FILE" <<EOF
-          {
-            "session_id": "$SESSION_ID",
-            "trigger_source": "$TRIGGER_SOURCE",
-            "callback_url": "$CALLBACK_URL",
-            "requester_info": $REQUESTER_INFO,
-            "workflow_run_id": "${{ github.run_id }}",
-            "repository": "${{ github.repository }}",
-            "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "json_filename": "${{ github.event.inputs.json_filename }}"
+            if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+              echo "Upload succeeded"
+              jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
+            else
+              echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
+              cat api_response.json || true
+              exit 1
+            fi
           }
-          EOF
 
-  read-json:
-    runs-on: [self-hosted, node16]
-    needs: session-management
-    outputs:
-      json_path: ${{ steps.validate.outputs.json_path }}
-      previous_version: ${{ steps.extract_version.outputs.previous_version }}
-      current_version: ${{ steps.extract_version.outputs.current_version }}
-
-    steps:
-      - name: Checkout repository
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          WORKDIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "$WORKDIR")"
-          REPO_DIR="$(basename "$WORKDIR")"
-          BRANCH="${{ github.ref_name }}"
-
-          mkdir -p "$PARENT_DIR"
-          cd "$PARENT_DIR"
-
-          if [ -d "$WORKDIR/.git" ]; then
-            cd "$WORKDIR"
-            git remote set-url origin "$REPO_URL"
-            git fetch --depth=1 origin "$BRANCH"
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-          else
-            rm -rf "$WORKDIR"
-            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
-            cd "$WORKDIR"
+          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
+            echo "REPO_PUSH_TOKEN secret is empty or unavailable"
+            exit 1
           fi
 
-          git config --global --add safe.directory "$WORKDIR"
+          AUTH_TOKEN="${REPO_PUSH_TOKEN:-}"
 
-      - name: Validate JSON file exists
-        id: validate
-        shell: bash
-        run: |
-          set -euo pipefail
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
+          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
 
-          JSON_FILE=".github/json_files/${{ github.event.inputs.json_filename }}"
+          INC_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
+          PDB_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb"
 
-          if [ ! -f "$JSON_FILE" ]; then
-            echo "Error: JSON file '${{ github.event.inputs.json_filename }}' not found"
+          INC_ZIP="/tmp/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
+          PDB_ZIP="/tmp/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
+
+          [ -d "$SRC_RELEASE_DIR" ] || { echo "Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
+          [ -f "$INC_FILE" ] || { echo "INC file not found: $INC_FILE"; exit 1; }
+          [ -f "$PDB_FILE" ] || { echo "PDB file not found: $PDB_FILE"; exit 1; }
+
+          rm -f "$INC_ZIP" "$PDB_ZIP"
+
+          zip -j "$INC_ZIP" "$INC_FILE"
+          zip -j "$PDB_ZIP" "$PDB_FILE"
+
+          echo "Created zip: $INC_ZIP"
+          echo "Created zip: $PDB_ZIP"
+          echo "INC zip size: $(ls -lh "$INC_ZIP" | awk '{print $5}')"
+          echo "PDB zip size: $(ls -lh "$PDB_ZIP" | awk '{print $5}')"
+
+          upload_file \
+            "$INC_ZIP" \
+            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip" \
+            "Upload SRF zipped collateral ${CURRENT_VERSION}: m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
+
+          upload_file \
+            "$PDB_ZIP" \
+            "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip" \
+            "Upload SRF zipped collateral ${CURRENT_VERSION}: m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
+
+          rm -f "$INC_ZIP" "$PDB_ZIP" existing_file.json payload.json api_response.json
+            "build and release project/.github/json_files/$INPUT_JSON"
+            "build and release project/github/jsonfiles/$INPUT_JSON"
+            "build and release project/backend/entry_config/$INPUT_JSON"
+            "build and release project/backend/workflow_output/$INPUT_JSON"
+            "backend/entry_config/$INPUT_JSON"
+            "backend/workflow_output/$INPUT_JSON"
+          )
+
+          JSON_FILE=""
+          for candidate in "${CANDIDATES[@]}"; do
+            if [ -f "$candidate" ]; then
+              JSON_FILE="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$JSON_FILE" ]; then
+            echo "Error: JSON file '$INPUT_JSON' not found in any expected location"
+            echo "Searched paths:"
+            printf '  - %s\n' "${CANDIDATES[@]}"
+            echo "Available JSON files near the repo:"
+            find . -type f -name '*.json' | sort | head -n 50
             exit 1
           fi
 
@@ -209,7 +214,6 @@ jobs:
   notify-build-start:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json]
-    if: ${{ needs.session-management.outputs.callback_url != '' }}
 
     steps:
       - name: Send Build Start Notification
@@ -219,6 +223,11 @@ jobs:
 
           CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
+
+          if [ -z "$CALLBACK_URL" ]; then
+            echo "No callback URL provided; skipping start notification POST"
+            exit 0
+          fi
 
           START_PAYLOAD=$(printf '{"session_id":"%s","status":"build_started","message":"SRF Debug UP build has started","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","json_filename":"%s","build_description":"%s"}' \
             "$SESSION_ID" \
@@ -403,7 +412,7 @@ jobs:
           set -euo pipefail
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          CONFIG_FILE="/nfs/site/disks/dcsg_0729/users/pkummara/config_${CURRENT_VERSION}.ini"
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${CURRENT_VERSION}.ini"
           cat "$CONFIG_FILE"
 
   upload-config:
@@ -426,7 +435,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
+          AUTH_TOKEN="${REPO_PUSH_TOKEN:-}"
+
+          if [ -z "$AUTH_TOKEN" ]; then
             echo "REPO_PUSH_TOKEN secret is empty or unavailable"
             exit 1
           fi
@@ -443,7 +454,7 @@ jobs:
           COMMIT_MESSAGE="Add prepared config file: config_${CURRENT_VERSION}.ini"
 
           HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "$API_URL")
 
@@ -490,7 +501,7 @@ jobs:
 
           RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
             -X PUT \
-            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -d @payload.json \
             "$API_URL")
@@ -522,6 +533,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CONFIG_FILE="config_${CURRENT_VERSION}.ini"
           CONFIG_PATH="${{ env.BUILD_BASE_PATH }}/$CONFIG_FILE"
@@ -549,6 +565,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
           CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
           CONFIG_CONTENTS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cat '$CONFIG_PATH'
@@ -569,8 +590,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
-          [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          if ! printf '%s\n' "$BUILD_PASSWORD" | sudo -S -k -u grp_srf_fit1_build -v >/dev/null 2>&1; then
+            echo "Failed to authenticate sudo as grp_srf_fit1_build"
+            exit 1
+          fi
+
+          CURRENT_USER=$(printf '%s\n' "$BUILD_PASSWORD" | sudo -S -u grp_srf_fit1_build whoami 2>/dev/null | tr -d '\r\n')
+          if [ "$CURRENT_USER" != "grp_srf_fit1_build" ]; then
+            echo "Failed to switch to grp_srf_fit1_build (got: '$CURRENT_USER')"
+            exit 1
+          fi
 
       - name: Initialize Kerberos Ticket
         env:
@@ -580,13 +614,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
-            echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
-          " )
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
 
-          echo "$KTAB_RESULT"
+          if [ -z "${FA_PASSWORD:-}" ]; then
+            echo "FA_PASSWORD secret is missing; cannot initialize Kerberos ticket"
+            exit 1
+          fi
 
-          if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
+          if KTAB_RESULT=$(printf '%s\n' "$BUILD_PASSWORD" | sudo -S -u grp_srf_fit1_build env FA_PASSWORD="$FA_PASSWORD" bash -c '
+            printf "%s\n" "$FA_PASSWORD" | '${{ env.KTAB_PATH }}' -i 2>&1
+          '); then
+            echo "$KTAB_RESULT"
+          else
+            KTAB_EXIT_CODE=$?
+            echo "$KTAB_RESULT"
+            echo "Kerberos initialization failed with exit code $KTAB_EXIT_CODE"
             exit 1
           fi
 
@@ -596,6 +641,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
 
           KCRON_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
@@ -620,6 +670,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
           CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
           [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
 
@@ -629,6 +684,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
 
           PYTHON_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
@@ -652,8 +712,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
-          CONFIG_FILE="config_${CURRENT_VERSION}.ini"
+          CONFIG_FILE="${{ env.BUILD_BASE_PATH }}/config_${CURRENT_VERSION}.ini"
 
           BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
             cd '${{ env.BUILD_BASE_PATH }}'
@@ -736,59 +801,62 @@ jobs:
 
             [ -f "$src_file" ] || { log "- Source file not found"; exit 1; }
 
-            CONTENT_B64=$(base64 -w 0 "$src_file" 2>/dev/null || base64 "$src_file" | tr -d '\n')
             API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
 
             HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
-              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               "$API_URL")
 
             log "- Existing file check HTTP code: \`$HTTP_CODE\`"
 
+            FILE_SHA=""
+
             if [ "$HTTP_CODE" = "200" ]; then
               FILE_SHA=$(jq -r '.sha' existing_file.json)
-              jq -n \
-                --arg message "$commit_message" \
-                --arg content "$CONTENT_B64" \
-                --arg sha "$FILE_SHA" \
-                --arg branch "${{ github.ref_name }}" \
-                --arg name "GitHub Action" \
-                --arg email "action@github.com" \
-                '{
-                  message: $message,
-                  content: $content,
-                  sha: $sha,
-                  branch: $branch,
-                  committer: {
-                    name: $name,
-                    email: $email
-                  }
-                }' > payload.json
             elif [ "$HTTP_CODE" = "404" ]; then
-              jq -n \
-                --arg message "$commit_message" \
-                --arg content "$CONTENT_B64" \
-                --arg branch "${{ github.ref_name }}" \
-                --arg name "GitHub Action" \
-                --arg email "action@github.com" \
-                '{
-                  message: $message,
-                  content: $content,
-                  branch: $branch,
-                  committer: {
-                    name: $name,
-                    email: $email
-                  }
-                }' > payload.json
             else
               log "- Existing file lookup failed"
               exit 1
             fi
 
+            export SRC_FILE
+            export COMMIT_MESSAGE
+            export FILE_SHA
+            export TARGET_BRANCH="${{ github.ref_name }}"
+
+            ${{ env.PYTHON_PATH }} - <<'PY' > payload.json
+import base64
+import json
+import os
+
+src_file = os.environ["SRC_FILE"]
+commit_message = os.environ["COMMIT_MESSAGE"]
+target_branch = os.environ["TARGET_BRANCH"]
+file_sha = os.environ.get("FILE_SHA", "")
+
+with open(src_file, "rb") as file_handle:
+    content_b64 = base64.b64encode(file_handle.read()).decode("ascii")
+
+payload = {
+    "message": commit_message,
+    "content": content_b64,
+    "branch": target_branch,
+    "committer": {
+        "name": "GitHub Action",
+        "email": "action@github.com",
+    },
+}
+
+if file_sha:
+    payload["sha"] = file_sha
+
+print(json.dumps(payload))
+PY
+
             RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
               -X PUT \
-              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               -d @payload.json \
               "$API_URL")
@@ -807,26 +875,30 @@ jobs:
 
           log "## SRF Zipped Collateral Upload"
 
-          if [ -z "${REPO_PUSH_TOKEN:-}" ]; then
-            log "- REPO_PUSH_TOKEN secret is empty or unavailable"
+          AUTH_TOKEN="${REPO_PUSH_TOKEN:-}"
+
+          if [ -z "$AUTH_TOKEN" ]; then
+            log "- No GitHub token available for collateral upload"
             exit 1
           fi
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
           SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+          ARTIFACT_TMP="${RUNNER_TEMP:-$GITHUB_WORKSPACE/.tmp}"
+          mkdir -p "$ARTIFACT_TMP"
+          [ -w "$ARTIFACT_TMP" ] || { log "- Temp dir not writable: $ARTIFACT_TMP"; exit 1; }
+          log "- Using temp dir: \`$ARTIFACT_TMP\`"
 
           INC_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc"
           PDB_FILE="${SRC_RELEASE_DIR}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb"
 
-          INC_ZIP="/tmp/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
-          PDB_ZIP="/tmp/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
+          INC_ZIP="${ARTIFACT_TMP}/m_01_a06f3_${CURRENT_VERSION_LOWER}.inc.zip"
+          PDB_ZIP="${ARTIFACT_TMP}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
 
           [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
           [ -f "$INC_FILE" ] || { log "- INC file not found: $INC_FILE"; exit 1; }
           [ -f "$PDB_FILE" ] || { log "- PDB file not found: $PDB_FILE"; exit 1; }
-
-          rm -f "$INC_ZIP" "$PDB_ZIP"
 
           zip -j "$INC_ZIP" "$INC_FILE"
           zip -j "$PDB_ZIP" "$PDB_FILE"
@@ -845,8 +917,6 @@ jobs:
             "$PDB_ZIP" \
             "output_paths/SRF_release_collaterals/${CURRENT_VERSION}/m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip" \
             "Upload SRF zipped collateral ${CURRENT_VERSION}: m_01_a06f3_${CURRENT_VERSION_LOWER}.pdb.zip"
-
-          rm -f "$INC_ZIP" "$PDB_ZIP" existing_file.json payload.json api_response.json
 
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
