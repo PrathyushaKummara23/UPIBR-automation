@@ -51,7 +51,7 @@ env:
   SRF_PORT: ${{ vars.SRF_PORT || '22' }}
   SRF_USER: ${{ secrets.SRF_USERNAME || vars.SRF_USER || 'cefls_user' }}
   SRF_STRICT_PRECHECK: ${{ vars.SRF_STRICT_PRECHECK || 'false' }}
-  WINDOWS_DEST: ${{ vars.WINDOWS_DEST || 'C:/pkummara/IFWI_INC_PDB/Test' }}
+  WINDOWS_DEST: C:/Users/CEFLS_User
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
   PYTHON_PATH: /usr/intel/bin/python3.7.4
