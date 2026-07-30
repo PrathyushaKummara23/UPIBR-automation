@@ -381,7 +381,6 @@ jobs:
   upload-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config, prepare-config]
-    if: ${{ false }}
     if: ${{ needs.read-json.outputs.current_version != '' }}
 
     steps:
