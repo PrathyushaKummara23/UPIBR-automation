@@ -381,6 +381,7 @@ jobs:
   upload-config:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, copy-config, prepare-config]
+    if: ${{ false }}
     if: ${{ needs.read-json.outputs.current_version != '' }}
 
     steps:
@@ -456,7 +457,7 @@ jobs:
 
   validate-config:
     runs-on: [self-hosted, node16]
-    needs: [session-management, read-json, copy-config, prepare-config, upload-config]
+    needs: [session-management, read-json, copy-config, prepare-config]
     outputs:
       config_validated: ${{ steps.validate.outputs.config_validated }}
       config_path: ${{ steps.validate.outputs.config_path }}
@@ -683,62 +684,54 @@ jobs:
 
           git config --global --add safe.directory "$WORKDIR"
 
-      - name: Zip and upload SRF INC/PDB files via GitHub API
+      - name: Zip and stage all SRF INC/PDB files in output_paths
         shell: bash
-        env:
-          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
 
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
           SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+          TARGET_DIR="$GITHUB_WORKSPACE/output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
 
           [ -d "$SRC_RELEASE_DIR" ] || { echo "Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
-
-          INC_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | head -n 1)
-          PDB_FILE=$(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | head -n 1)
-
-          [ -n "$INC_FILE" ] || { echo "No INC file matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"; exit 1; }
-          [ -n "$PDB_FILE" ] || { echo "No PDB file matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
-
-          INC_BASENAME=$(basename "$INC_FILE")
-          PDB_BASENAME=$(basename "$PDB_FILE")
-          INC_ZIP="/tmp/${INC_BASENAME}.zip"
-          PDB_ZIP="/tmp/${PDB_BASENAME}.zip"
-          TARGET_DIR="$GITHUB_WORKSPACE/output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
-          TARGET_INC_ZIP="$TARGET_DIR/${INC_BASENAME}.zip"
-          TARGET_PDB_ZIP="$TARGET_DIR/${PDB_BASENAME}.zip"
-
-          if [ -f "$TARGET_INC_ZIP" ] && [ -f "$TARGET_PDB_ZIP" ]; then
-            echo "Release collateral zip files already exist, skipping upload job"
-            exit 0
-          fi
-
-          rm -f "$INC_ZIP" "$PDB_ZIP"
-          zip -j "$INC_ZIP" "$INC_FILE"
-          zip -j "$PDB_ZIP" "$PDB_FILE"
-
           mkdir -p "$TARGET_DIR"
-          cp "$INC_ZIP" "$TARGET_INC_ZIP"
-          cp "$PDB_ZIP" "$TARGET_PDB_ZIP"
 
-          git config user.name "GitHub Action"
-          git config user.email "action@github.com"
-          git add "$TARGET_INC_ZIP" "$TARGET_PDB_ZIP"
+          mapfile -t INC_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | sort)
+          mapfile -t PDB_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | sort)
 
-          if git diff --cached --quiet; then
-            echo "No release collateral changes to commit"
-          else
-            git commit -m "Upload SRF zipped collaterals for ${CURRENT_VERSION}"
-            git push origin "${{ github.ref_name }}"
-          fi
+          [ "${#INC_FILES[@]}" -gt 0 ] || { echo "No INC files matching m_*_*_${CURRENT_VERSION_LOWER}.inc found in $SRC_RELEASE_DIR"; exit 1; }
+          [ "${#PDB_FILES[@]}" -gt 0 ] || { echo "No PDB files matching m_*_*_${CURRENT_VERSION_LOWER}.pdb found in $SRC_RELEASE_DIR"; exit 1; }
 
-          rm -f "$INC_ZIP" "$PDB_ZIP"
+          for INC_FILE in "${INC_FILES[@]}"; do
+            INC_BASENAME=$(basename "$INC_FILE")
+            INC_ZIP="/tmp/${INC_BASENAME}.zip"
+            TARGET_INC_ZIP="$TARGET_DIR/${INC_BASENAME}.zip"
+
+            rm -f "$INC_ZIP"
+            zip -j "$INC_ZIP" "$INC_FILE"
+            cp "$INC_ZIP" "$TARGET_INC_ZIP"
+            rm -f "$INC_ZIP"
+            echo "Staged INC zip: $TARGET_INC_ZIP"
+          done
+
+          for PDB_FILE in "${PDB_FILES[@]}"; do
+            PDB_BASENAME=$(basename "$PDB_FILE")
+            PDB_ZIP="/tmp/${PDB_BASENAME}.zip"
+            TARGET_PDB_ZIP="$TARGET_DIR/${PDB_BASENAME}.zip"
+
+            rm -f "$PDB_ZIP"
+            zip -j "$PDB_ZIP" "$PDB_FILE"
+            cp "$PDB_ZIP" "$TARGET_PDB_ZIP"
+            rm -f "$PDB_ZIP"
+            echo "Staged PDB zip: $TARGET_PDB_ZIP"
+          done
+
+          echo "All matching INC/PDB files were zipped and staged under: $TARGET_DIR"
 
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
-    needs: [session-management, read-json, patch-build, upload-release-collaterals]
+    needs: [session-management, read-json, patch-build]
     if: ${{ success() }}
 
     steps:
