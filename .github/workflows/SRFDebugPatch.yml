@@ -47,9 +47,9 @@ permissions:
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   CONFIG_STAGE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
-  SRF_HOST: ${{ secrets.SRF_RELEASE_HOST || secrets.SRF_HOST || vars.SRF_HOST || '10.138.186.133' }}
+  SRF_HOST: ${{ secrets.SRF_HOST || vars.SRF_HOST || '10.138.186.133' }}
   SRF_PORT: ${{ vars.SRF_PORT || '22' }}
-  SRF_USER: ${{ secrets.SRF_RELEASE_USER || secrets.SRF_USERNAME || vars.SRF_USER || 'cefls_user' }}
+  SRF_USER: ${{ secrets.SRF_USERNAME || vars.SRF_USER || 'cefls_user' }}
   SRF_STRICT_PRECHECK: ${{ vars.SRF_STRICT_PRECHECK || 'false' }}
   WINDOWS_DEST: ${{ vars.WINDOWS_DEST || 'C:/pkummara/IFWI_INC_PDB/Test' }}
   KTAB_PATH: /usr/intel/bin/ktab
@@ -1102,7 +1102,7 @@ jobs:
 
       - name: Copy Release Collaterals to SRF Host
         env:
-          SRF_PASSWORD: ${{ secrets.SRF_RELEASE_PASSWORD || secrets.SRF_PASSWORD }}
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
