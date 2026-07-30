@@ -47,9 +47,9 @@ permissions:
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   CONFIG_STAGE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
-  SRF_HOST: ${{ secrets.SRF_HOST || vars.SRF_HOST || '10.138.186.133' }}
+  SRF_HOST: ${{ secrets.SRF_HOST }}
   SRF_PORT: ${{ vars.SRF_PORT || '22' }}
-  SRF_USER: ${{ secrets.SRF_USERNAME || vars.SRF_USER || 'cefls_user' }}
+  SRF_USER: ${{ secrets.SRF_USERNAME }}
   SRF_STRICT_PRECHECK: ${{ vars.SRF_STRICT_PRECHECK || 'false' }}
   WINDOWS_DEST: C:/Users/CEFLS_User
   KTAB_PATH: /usr/intel/bin/ktab
