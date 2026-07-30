@@ -47,9 +47,10 @@ permissions:
 env:
   BUILD_BASE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
   CONFIG_STAGE_PATH: /nfs/site/disks/dcsg_0729/users/pkummara
-  SRF_HOST: ${{ secrets.SRF_RELEASE_HOST || vars.SRF_HOST || '10.138.186.133' }}
+  SRF_HOST: ${{ secrets.SRF_RELEASE_HOST || secrets.SRF_HOST || vars.SRF_HOST || '10.138.186.133' }}
   SRF_PORT: ${{ vars.SRF_PORT || '22' }}
-  SRF_USER: ${{ secrets.SRF_RELEASE_USER || vars.SRF_USER || 'cefls_user' }}
+  SRF_USER: ${{ secrets.SRF_RELEASE_USER || secrets.SRF_USERNAME || vars.SRF_USER || 'cefls_user' }}
+  SRF_STRICT_PRECHECK: ${{ vars.SRF_STRICT_PRECHECK || 'false' }}
   WINDOWS_DEST: ${{ vars.WINDOWS_DEST || 'C:/pkummara/IFWI_INC_PDB/Test' }}
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
@@ -1101,7 +1102,7 @@ jobs:
 
       - name: Copy Release Collaterals to SRF Host
         env:
-          SRF_PASSWORD: ${{ secrets.SRF_RELEASE_PASSWORD }}
+          SRF_PASSWORD: ${{ secrets.SRF_RELEASE_PASSWORD || secrets.SRF_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1111,6 +1112,7 @@ jobs:
           WINDOWS_DEST="${{ env.WINDOWS_DEST }}"
           SRF_HOST="${{ env.SRF_HOST }}"
           SRF_PORT="${{ env.SRF_PORT }}"
+          SRF_STRICT_PRECHECK="${{ env.SRF_STRICT_PRECHECK }}"
           SRF_USER="${{ env.SRF_USER }}"
           SCP_EXPECT_SCRIPT=".github/scripts/scp_transfer.exp"
           CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
@@ -1120,12 +1122,25 @@ jobs:
           SRF_HOST="$(echo "$SRF_HOST" | xargs)"
           SRF_PORT="$(echo "$SRF_PORT" | xargs)"
           SRF_USER="$(echo "$SRF_USER" | xargs)"
+          SRF_STRICT_PRECHECK="$(echo "$SRF_STRICT_PRECHECK" | tr '[:upper:]' '[:lower:]' | xargs)"
+
+          # Normalize Windows-style usernames for OpenSSH/SCP usage.
+          # Examples:
+          #   .\CEFLS_User -> CEFLS_User
+          #   \CEFLS_User  -> CEFLS_User
+          if [[ "$SRF_USER" == .\\* ]]; then
+            SRF_USER="${SRF_USER#.\\}"
+          elif [[ "$SRF_USER" == \\* ]]; then
+            SRF_USER="${SRF_USER#\\}"
+          fi
 
           [ -n "$WINDOWS_DEST" ] || { echo "WINDOWS_DEST is empty"; exit 1; }
           [ -n "$SRF_HOST" ] || { echo "SRF_HOST is empty"; exit 1; }
           [ -n "$SRF_PORT" ] || { echo "SRF_PORT is empty"; exit 1; }
           [ -n "$SRF_USER" ] || { echo "SRF_USER is empty"; exit 1; }
           [ -n "${SRF_PASSWORD:-}" ] || { echo "SRF_PASSWORD secret is empty"; exit 1; }
+
+          echo "Using SSH user: ${SRF_USER}"
 
           [ -d "$RELEASE_PATH" ] || exit 1
 
@@ -1228,8 +1243,13 @@ jobs:
           done
 
           if [ "$PRECHECK_OK" -ne 1 ]; then
-            echo "ERROR: Cannot reach ${SRF_HOST}:${SRF_PORT} from runner after 3 attempts. Check host availability/firewall/VPN/routing."
-            exit 1
+            if [ "$SRF_STRICT_PRECHECK" = "true" ]; then
+              echo "ERROR: Cannot reach ${SRF_HOST}:${SRF_PORT} from runner after 3 attempts. Check host availability/firewall/VPN/routing."
+              echo "SRF_STRICT_PRECHECK=true, stopping before SCP attempts."
+              exit 1
+            fi
+
+            echo "WARNING: SSH precheck failed for ${SRF_HOST}:${SRF_PORT}, but continuing to SCP retries (SRF_STRICT_PRECHECK=${SRF_STRICT_PRECHECK})."
           fi
 
           for INC_FILE in $INC_FILES; do
