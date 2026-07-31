@@ -57,6 +57,132 @@ jobs:
           echo "Triggered by: ${{ inputs.trigger_source }}"
           echo "Callback URL: ${{ inputs.callback_url }}"
 
+      - name: Download Python installer on runner
+        shell: bash
+        run: |
+          set -e
+          curl -L --fail -o /tmp/python310.exe https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe
+          ls -lh /tmp/python310.exe
+
+      - name: Copy and install Python on SRF host
+        env:
+          SRF_HOST: ${{ secrets.SRF_HOST }}
+          SRF_USER: ${{ secrets.SRF_USERNAME }}
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        shell: bash
+        run: |
+          set -e
+
+          cat > /tmp/python_bootstrap_${{ github.run_id }}.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 3600
+          set srf_host $env(SRF_HOST)
+          set srf_user $env(SRF_USER)
+          set password $env(SRF_PASSWORD)
+          set installer_local "/tmp/python310.exe"
+          set installer_remote "C:/Users/Public/python310.exe"
+          set prompt_re {(?m).*[>#] ?$}
+
+          if {$srf_host eq "" || $srf_user eq "" || $password eq ""} {
+            puts "FAILURE: SRF credentials are incomplete"
+            exit 20
+          }
+
+          spawn scp -o StrictHostKeyChecking=no $installer_local $srf_user@$srf_host:$installer_remote
+          expect {
+            -re "(?i)are you sure you want to continue connecting" {
+              send "yes\r"
+              exp_continue
+            }
+            -re "(?i)password:" {
+              send "$password\r"
+              exp_continue
+            }
+            timeout {
+              puts "FAILURE: SCP timed out while uploading python installer"
+              exit 124
+            }
+            eof { }
+          }
+          catch wait scp_result
+          set scp_rc [lindex $scp_result 3]
+          if {$scp_rc != 0} {
+            puts "FAILURE: SCP upload failed (rc=$scp_rc)"
+            exit $scp_rc
+          }
+
+          spawn ssh -T -o StrictHostKeyChecking=no $srf_user@$srf_host
+          expect {
+            -re "(?i)are you sure you want to continue connecting" {
+              send "yes\r"
+              exp_continue
+            }
+            -re "(?i)password:" {
+              send "$password\r"
+              exp_continue
+            }
+            timeout {
+              puts "FAILURE: SSH timed out during python install"
+              exit 124
+            }
+            eof {
+              catch wait ssh_result
+              set ssh_rc [lindex $ssh_result 3]
+              puts "FAILURE: SSH closed during python install (rc=$ssh_rc)"
+              exit $ssh_rc
+            }
+            -re $prompt_re { }
+          }
+
+          send "if exist C:\\Python310\\python.exe (echo PYTHON_ALREADY_PRESENT) else (start /wait \"\" C:\\Users\\Public\\python310.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0 SimpleInstall=1 TargetDir=C:\\Python310 & if exist C:\\Python310\\python.exe (echo PYTHON_INSTALL_OK) else (echo PYTHON_INSTALL_FAILED & exit /b 1))\r"
+          expect {
+            -re "PYTHON_ALREADY_PRESENT|PYTHON_INSTALL_OK" { }
+            -re "PYTHON_INSTALL_FAILED" {
+              puts "FAILURE: Python install command completed but python.exe is missing"
+              exit 21
+            }
+            timeout {
+              puts "FAILURE: Python install command timed out"
+              exit 124
+            }
+            eof {
+              catch wait ssh_result
+              set ssh_rc [lindex $ssh_result 3]
+              puts "FAILURE: SSH closed while installing python (rc=$ssh_rc)"
+              exit $ssh_rc
+            }
+          }
+
+          send "if exist C:\\Python310\\python.exe (C:\\Python310\\python.exe --version) else (echo PYTHON_VERIFY_FAILED & exit /b 1)\r"
+          expect {
+            -re "Python 3\\.[0-9]+\\.[0-9]+" { }
+            -re "PYTHON_VERIFY_FAILED" {
+              puts "FAILURE: Python verification failed"
+              exit 22
+            }
+            timeout {
+              puts "FAILURE: Python verification timed out"
+              exit 124
+            }
+            eof {
+              catch wait ssh_result
+              set ssh_rc [lindex $ssh_result 3]
+              puts "FAILURE: SSH closed during python verification (rc=$ssh_rc)"
+              exit $ssh_rc
+            }
+          }
+
+          send -- "exit\r"
+          expect eof
+          catch wait ssh_result
+          set ssh_rc [lindex $ssh_result 3]
+          exit $ssh_rc
+          EOF
+
+          chmod +x /tmp/python_bootstrap_${{ github.run_id }}.exp
+          /usr/bin/expect /tmp/python_bootstrap_${{ github.run_id }}.exp
+          rm -f /tmp/python_bootstrap_${{ github.run_id }}.exp
+
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_HOST: ${{ secrets.SRF_HOST }}
@@ -149,11 +275,12 @@ jobs:
           run_cmd "for %I in (\"%DEPLOY_SCRIPT%\") do set DEPLOY_DIR=%~dpI" $prompt_re
           run_cmd "for %I in (\"%DEPLOY_DIR%..\") do set PK_BASE=%~fI" $prompt_re
           run_cmd "echo Using pkummara base: %PK_BASE%" $prompt_re
-          run_cmd "if not exist %PK_BASE%\\apis\\automation_config.ini (echo REQUIRED_FILE_MISSING: %PK_BASE%\\apis\\automation_config.ini & exit /b 5) else if not exist %PK_BASE%\\scripts\\ospl.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ospl.py & exit /b 5) else if not exist %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py & exit /b 5)" $prompt_re
+          run_cmd "if not exist %PK_BASE%\\apis\\automation_config.py if not exist %PK_BASE%\\apis\\automation_config.ini (echo REQUIRED_FILE_MISSING: %PK_BASE%\\apis\\automation_config.py_or_ini & exit /b 5) else if not exist %PK_BASE%\\scripts\\ospl.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ospl.py & exit /b 5) else if not exist %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py & exit /b 5)" $prompt_re
           run_cmd "if not exist %PK_BASE%\\IFWI_INC_PDB\\test (echo REQUIRED_FOLDER_MISSING: %PK_BASE%\\IFWI_INC_PDB\\test & exit /b 6)" $prompt_re
-          run_cmd "if exist C:\\Python310\\python.exe (C:\\Python310\\python.exe -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)) else if exist C:\\Python311\\python.exe (C:\\Python311\\python.exe -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)) else if exist C:\\Python312\\python.exe (C:\\Python312\\python.exe -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)) else if exist C:\\Python39\\python.exe (C:\\Python39\\python.exe -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)) else (where python >nul 2>&1 && (python -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)) || (where py >nul 2>&1 && (py -3 -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)) || (echo PYTHON_NOT_FOUND & exit /b 4)))" $prompt_re
-          run_cmd "if exist C:\\Python310\\python.exe (echo Using python: C:\\Python310\\python.exe) else if exist C:\\Python311\\python.exe (echo Using python: C:\\Python311\\python.exe) else if exist C:\\Python312\\python.exe (echo Using python: C:\\Python312\\python.exe) else if exist C:\\Python39\\python.exe (echo Using python: C:\\Python39\\python.exe) else (where python >nul 2>&1 && echo Using python: python || (where py >nul 2>&1 && echo Using python: py -3 || echo Using python: NOT_FOUND))" $prompt_re
-          run_cmd "if exist C:\\Python310\\python.exe (C:\\Python310\\python.exe -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)) else if exist C:\\Python311\\python.exe (C:\\Python311\\python.exe -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)) else if exist C:\\Python312\\python.exe (C:\\Python312\\python.exe -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)) else if exist C:\\Python39\\python.exe (C:\\Python39\\python.exe -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)) else (where python >nul 2>&1 && (python -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)) || (where py >nul 2>&1 && (py -3 -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)) || (echo PYTHON_NOT_FOUND & exit /b 4)))" $prompt_re
+          run_cmd "if exist C:\\Python310\\python.exe (set PYEXE=C:\\Python310\\python.exe) else if exist C:\\Python311\\python.exe (set PYEXE=C:\\Python311\\python.exe) else if exist C:\\Python312\\python.exe (set PYEXE=C:\\Python312\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe) else (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
+          run_cmd "%PYEXE% -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)" $prompt_re
+          run_cmd "echo Using python: %PYEXE%" $prompt_re
+          run_cmd "%PYEXE% -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)" $prompt_re
 
           send -- "exit\r"
           expect eof
