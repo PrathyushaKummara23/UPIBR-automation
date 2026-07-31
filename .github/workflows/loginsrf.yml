@@ -138,11 +138,30 @@ jobs:
           }
 
           run_cmd "whoami" $prompt_re
-          run_cmd "cd C:\\pkummara\\scripts" $prompt_re
-          run_cmd "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py" $prompt_re
-          run_cmd "exit" $prompt_re
+          run_cmd "if exist C:\\pkummara\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\pkummara\\scripts\\deploy_reboot_wrapper.py) else if exist %USERPROFILE%\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=%USERPROFILE%\\scripts\\deploy_reboot_wrapper.py) else if exist C:\\Users\\CEFLS_User\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\Users\\CEFLS_User\\scripts\\deploy_reboot_wrapper.py) else (echo DEPLOY_SCRIPT_NOT_FOUND & exit /b 2)" $prompt_re
+          run_cmd "echo Using deploy script: %DEPLOY_SCRIPT%" $prompt_re
+          run_cmd "if not exist C:\\Python310\\python.exe (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
+          run_cmd "C:\\Python310\\python.exe -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)" $prompt_re
 
+          send -- "exit\r"
           expect eof
+          catch wait result
+          set rc [lindex $result 3]
+
+          if {$rc == 2} {
+            puts "FAILURE: deploy_reboot_wrapper.py not found in expected directories"
+            exit 12
+          }
+          if {$rc == 3} {
+            puts "FAILURE: deploy_reboot_wrapper.py execution failed"
+            exit 14
+          }
+          if {$rc == 4} {
+            puts "FAILURE: C:\\Python310\\python.exe not found"
+            exit 15
+          }
+
+          exit $rc
           EOF
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
