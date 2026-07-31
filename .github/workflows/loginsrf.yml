@@ -380,6 +380,8 @@ jobs:
           run_cmd "set IFWI_INPUT=%IFWI_SOURCE%" $prompt_re
           run_cmd "if not exist \"%IFWI_INPUT%\" (echo REQUIRED_FOLDER_MISSING: %IFWI_INPUT% & exit /b 6)" $prompt_re
           run_cmd "if not exist C:\\pkummara\\IFWI_INC_PDB\\Test (if not exist C:\\pkummara mkdir C:\\pkummara & if not exist C:\\pkummara\\IFWI_INC_PDB mkdir C:\\pkummara\\IFWI_INC_PDB & xcopy /E /I /Y \"%IFWI_SOURCE%\" \"C:\\pkummara\\IFWI_INC_PDB\\Test\" >nul)" $prompt_re
+          run_cmd "if not exist C:\\pkummara\\IFWI_INC_PDB\\Test (echo IFWI_COPY_FAILED: C:\\pkummara\\IFWI_INC_PDB\\Test_not_created_after_xcopy & exit /b 6)" $prompt_re
+          run_cmd "set IFWI_INPUT=C:\\pkummara\\IFWI_INC_PDB\\Test" $prompt_re
           run_cmd "echo Using IFWI input: %IFWI_INPUT%" $prompt_re
           run_cmd "if exist C:\\Python310\\python.exe (set PYEXE=C:\\Python310\\python.exe) else if exist C:\\Python311\\python.exe (set PYEXE=C:\\Python311\\python.exe) else if exist C:\\Python312\\python.exe (set PYEXE=C:\\Python312\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe) else (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
           run_cmd "if not exist C:\\Users\\Public\\pydeps (echo PYDEPS_DIR_MISSING & exit /b 8)" $prompt_re
