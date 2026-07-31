@@ -17,6 +17,10 @@ on:
         required: false
         type: string
     secrets:
+      SRF_HOST:
+        required: true
+      SRF_USERNAME:
+        required: true
       SRF_PASSWORD:
         required: true
 
@@ -38,6 +42,8 @@ jobs:
       - name: Read pipeline_result.txt from Windows host
         id: read-result
         env:
+          SRF_HOST: ${{ secrets.SRF_HOST }}
+          SRF_USER: ${{ secrets.SRF_USERNAME }}
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         run: |
           echo "================================================="
@@ -47,6 +53,8 @@ jobs:
           cat > /tmp/read_result_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
           set timeout 60
+          set srf_host $env(SRF_HOST)
+          set srf_user $env(SRF_USER)
           set password $env(SRF_PASSWORD)
 
           log_user 0
@@ -54,7 +62,7 @@ jobs:
             -o StrictHostKeyChecking=no \
             -o ForwardX11=no \
             -o ForwardX11Trusted=no \
-            CEFLS_User@10.138.186.133
+            $srf_user@$srf_host
           log_user 1
 
           expect {
