@@ -90,11 +90,11 @@ jobs:
 
           spawn scp -o StrictHostKeyChecking=no $installer_local $srf_user@$srf_host:$installer_remote
           expect {
-            -re "(?i)are you sure you want to continue connecting" {
+            -re {(?i)are you sure you want to continue connecting} {
               send "yes\r"
               exp_continue
             }
-            -re "(?i)password:" {
+            -re {(?i)password:} {
               send "$password\r"
               exp_continue
             }
@@ -113,11 +113,11 @@ jobs:
 
           spawn ssh -T -o StrictHostKeyChecking=no $srf_user@$srf_host
           expect {
-            -re "(?i)are you sure you want to continue connecting" {
+            -re {(?i)are you sure you want to continue connecting} {
               send "yes\r"
               exp_continue
             }
-            -re "(?i)password:" {
+            -re {(?i)password:} {
               send "$password\r"
               exp_continue
             }
@@ -136,8 +136,8 @@ jobs:
 
           send "if exist C:\\Python310\\python.exe (echo PYTHON_ALREADY_PRESENT) else (start /wait \"\" C:\\Users\\Public\\python310.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0 SimpleInstall=1 TargetDir=C:\\Python310 & if exist C:\\Python310\\python.exe (echo PYTHON_INSTALL_OK) else (echo PYTHON_INSTALL_FAILED & exit /b 1))\r"
           expect {
-            -re "PYTHON_ALREADY_PRESENT|PYTHON_INSTALL_OK" { }
-            -re "PYTHON_INSTALL_FAILED" {
+            -re {PYTHON_ALREADY_PRESENT|PYTHON_INSTALL_OK} { }
+            -re {PYTHON_INSTALL_FAILED} {
               puts "FAILURE: Python install command completed but python.exe is missing"
               exit 21
             }
@@ -155,8 +155,8 @@ jobs:
 
           send "if exist C:\\Python310\\python.exe (C:\\Python310\\python.exe --version) else (echo PYTHON_VERIFY_FAILED & exit /b 1)\r"
           expect {
-            -re "Python 3\\.[0-9]+\\.[0-9]+" { }
-            -re "PYTHON_VERIFY_FAILED" {
+            -re {Python 3\.[0-9]+\.[0-9]+} { }
+            -re {PYTHON_VERIFY_FAILED} {
               puts "FAILURE: Python verification failed"
               exit 22
             }
