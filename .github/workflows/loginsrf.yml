@@ -140,8 +140,12 @@ jobs:
           run_cmd "whoami" $prompt_re
           run_cmd "if exist C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py) else if exist C:\\pkummara\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\pkummara\\scripts\\deploy_reboot_wrapper.py) else if exist %USERPROFILE%\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=%USERPROFILE%\\scripts\\deploy_reboot_wrapper.py) else if exist C:\\Users\\CEFLS_User\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\Users\\CEFLS_User\\scripts\\deploy_reboot_wrapper.py) else (echo DEPLOY_SCRIPT_NOT_FOUND & exit /b 2)" $prompt_re
           run_cmd "echo Using deploy script: %DEPLOY_SCRIPT%" $prompt_re
-          run_cmd "if not exist C:\\Python310\\python.exe (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
-          run_cmd "C:\\Python310\\python.exe -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)" $prompt_re
+          run_cmd "set PY_CMD=" $prompt_re
+          run_cmd "if exist C:\\Python310\\python.exe (set PY_CMD=C:\\Python310\\python.exe) else if exist C:\\Python311\\python.exe (set PY_CMD=C:\\Python311\\python.exe) else if exist C:\\Python312\\python.exe (set PY_CMD=C:\\Python312\\python.exe) else if exist C:\\Python39\\python.exe (set PY_CMD=C:\\Python39\\python.exe)" $prompt_re
+          run_cmd "if not \"%PY_CMD%\"==\"\" (echo Using python executable: %PY_CMD%) else (where python >nul 2>&1 && set PY_CMD=python)" $prompt_re
+          run_cmd "if not \"%PY_CMD%\"==\"\" (echo Using python command: %PY_CMD%) else (where py >nul 2>&1 && set PY_CMD=py -3)" $prompt_re
+          run_cmd "if \"%PY_CMD%\"==\"\" (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
+          run_cmd "%PY_CMD% -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)" $prompt_re
 
           send -- "exit\r"
           expect eof
@@ -157,7 +161,7 @@ jobs:
             exit 14
           }
           if {$rc == 4} {
-            puts "FAILURE: C:\\Python310\\python.exe not found"
+            puts "FAILURE: Python runtime not found (checked fixed paths, python, and py -3)"
             exit 15
           }
 
