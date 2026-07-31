@@ -64,6 +64,71 @@ jobs:
           curl -L --fail -o /tmp/python310.exe https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe
           ls -lh /tmp/python310.exe
 
+      - name: Download Python dependency wheels on runner
+        shell: bash
+        run: |
+          set -e
+          rm -rf /tmp/pydeps
+          mkdir -p /tmp/pydeps
+          python3 -m pip download \
+            --dest /tmp/pydeps \
+            --only-binary=:all: \
+            --platform win_amd64 \
+            --python-version 310 \
+            --implementation cp \
+            --abi cp310 \
+            paramiko cryptography selenium urllib3 pywin32
+          ls -lh /tmp/pydeps
+
+      - name: Copy Python dependency wheels to SRF host
+        env:
+          SRF_HOST: ${{ secrets.SRF_HOST }}
+          SRF_USER: ${{ secrets.SRF_USERNAME }}
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        shell: bash
+        run: |
+          set -e
+
+          cat > /tmp/python_deps_copy_${{ github.run_id }}.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 1800
+          set srf_host $env(SRF_HOST)
+          set srf_user $env(SRF_USER)
+          set password $env(SRF_PASSWORD)
+
+          if {$srf_host eq "" || $srf_user eq "" || $password eq ""} {
+            puts "FAILURE: SRF credentials are incomplete"
+            exit 20
+          }
+
+          spawn scp -r -o StrictHostKeyChecking=no /tmp/pydeps $srf_user@$srf_host:C:/Users/Public/
+          expect {
+            -re {(?i)are you sure you want to continue connecting} {
+              send "yes\r"
+              exp_continue
+            }
+            -re {(?i)password:} {
+              send "$password\r"
+              exp_continue
+            }
+            timeout {
+              puts "FAILURE: SCP timed out while uploading python wheels"
+              exit 124
+            }
+            eof { }
+          }
+          catch wait result
+          set rc [lindex $result 3]
+          if {$rc != 0} {
+            puts "FAILURE: SCP wheels upload failed (rc=$rc)"
+          }
+          exit $rc
+          EOF
+
+          chmod +x /tmp/python_deps_copy_${{ github.run_id }}.exp
+          /usr/bin/expect /tmp/python_deps_copy_${{ github.run_id }}.exp
+          rm -f /tmp/python_deps_copy_${{ github.run_id }}.exp
+
       - name: Copy and install Python on SRF host
         env:
           SRF_HOST: ${{ secrets.SRF_HOST }}
@@ -310,6 +375,11 @@ jobs:
           run_cmd "if not exist %PK_BASE%\\apis\\automation_config.py if not exist %PK_BASE%\\apis\\automation_config.ini (echo REQUIRED_FILE_MISSING: %PK_BASE%\\apis\\automation_config.py_or_ini & exit /b 5) else if not exist %PK_BASE%\\scripts\\ospl.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ospl.py & exit /b 5) else if not exist %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py & exit /b 5)" $prompt_re
           run_cmd "if not exist %PK_BASE%\\IFWI_INC_PDB\\test (echo REQUIRED_FOLDER_MISSING: %PK_BASE%\\IFWI_INC_PDB\\test & exit /b 6)" $prompt_re
           run_cmd "if exist C:\\Python310\\python.exe (set PYEXE=C:\\Python310\\python.exe) else if exist C:\\Python311\\python.exe (set PYEXE=C:\\Python311\\python.exe) else if exist C:\\Python312\\python.exe (set PYEXE=C:\\Python312\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe) else (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
+          run_cmd "if not exist C:\\Users\\Public\\pydeps (echo PYDEPS_DIR_MISSING & exit /b 8)" $prompt_re
+          run_cmd "%PYEXE% -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || set DEPS_MISSING=1" $prompt_re
+          run_cmd "if \"%DEPS_MISSING%\"==\"1\" (%PYEXE% -m pip --version >nul 2>&1 || %PYEXE% -m ensurepip --upgrade)" $prompt_re
+          run_cmd "if \"%DEPS_MISSING%\"==\"1\" (%PYEXE% -m pip install --no-index --find-links C:\\Users\\Public\\pydeps paramiko cryptography selenium urllib3 pywin32 || (echo PYTHON_DEPS_INSTALL_FAILED & exit /b 8))" $prompt_re
+          run_cmd "%PYEXE% -m pip -V" $prompt_re
           run_cmd "%PYEXE% -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)" $prompt_re
           run_cmd "echo Using python: %PYEXE%" $prompt_re
           run_cmd "%PYEXE% -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)" $prompt_re
@@ -342,6 +412,10 @@ jobs:
           if {$rc == 7} {
             puts "FAILURE: Python dependencies missing (paramiko/cryptography/selenium/urllib3/pywin32)"
             exit 19
+          }
+          if {$rc == 8} {
+            puts "FAILURE: Python dependency installation failed from local wheelhouse"
+            exit 20
           }
 
           exit $rc
