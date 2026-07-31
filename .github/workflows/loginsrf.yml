@@ -77,7 +77,7 @@ jobs:
             --python-version 310 \
             --implementation cp \
             --abi cp310 \
-            paramiko cryptography selenium urllib3 pywin32
+            paramiko cryptography selenium urllib3 pywin32 exceptiongroup
           ls -lh /tmp/pydeps
 
       - name: Copy Python dependency wheels to SRF host
@@ -378,7 +378,7 @@ jobs:
           run_cmd "if not exist C:\\Users\\Public\\pydeps (echo PYDEPS_DIR_MISSING & exit /b 8)" $prompt_re
           run_cmd "%PYEXE% -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || set DEPS_MISSING=1" $prompt_re
           run_cmd "if \"%DEPS_MISSING%\"==\"1\" (%PYEXE% -m pip --version >nul 2>&1 || %PYEXE% -m ensurepip --upgrade)" $prompt_re
-          run_cmd "if \"%DEPS_MISSING%\"==\"1\" (%PYEXE% -m pip install --no-index --find-links C:\\Users\\Public\\pydeps paramiko cryptography selenium urllib3 pywin32 || (echo PYTHON_DEPS_INSTALL_FAILED & exit /b 8))" $prompt_re
+          run_cmd "if \"%DEPS_MISSING%\"==\"1\" (%PYEXE% -m pip install --no-index --find-links C:\\Users\\Public\\pydeps paramiko cryptography selenium urllib3 pywin32 exceptiongroup || (echo PYTHON_DEPS_INSTALL_FAILED & exit /b 8))" $prompt_re
           run_cmd "%PYEXE% -m pip -V" $prompt_re
           run_cmd "%PYEXE% -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)" $prompt_re
           run_cmd "echo Using python: %PYEXE%" $prompt_re
