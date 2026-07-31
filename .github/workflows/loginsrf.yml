@@ -373,8 +373,13 @@ jobs:
           run_cmd "for %I in (\"%DEPLOY_DIR%..\") do set PK_BASE=%~fI" $prompt_re
           run_cmd "echo Using pkummara base: %PK_BASE%" $prompt_re
           run_cmd "if not exist %PK_BASE%\\apis\\automation_config.py if not exist %PK_BASE%\\apis\\automation_config.ini (echo REQUIRED_FILE_MISSING: %PK_BASE%\\apis\\automation_config.py_or_ini & exit /b 5) else if not exist %PK_BASE%\\scripts\\ospl.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ospl.py & exit /b 5) else if not exist %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py & exit /b 5)" $prompt_re
-          run_cmd "if exist C:\\pkummara\\IFWI_INC_PDB\\Test (set IFWI_INPUT=C:\\pkummara\\IFWI_INC_PDB\\Test) else if exist %PK_BASE%\\IFWI_INC_PDB\\Test (xcopy /E /I /Y %PK_BASE%\\IFWI_INC_PDB\\Test C:\\pkummara\\IFWI_INC_PDB\\Test >nul && set IFWI_INPUT=C:\\pkummara\\IFWI_INC_PDB\\Test) else if exist %PK_BASE%\\IFWI_INC_PDB\\test (xcopy /E /I /Y %PK_BASE%\\IFWI_INC_PDB\\test C:\\pkummara\\IFWI_INC_PDB\\Test >nul && set IFWI_INPUT=C:\\pkummara\\IFWI_INC_PDB\\Test) else if exist %PK_BASE%\\IFWI_INC_PDB (xcopy /E /I /Y %PK_BASE%\\IFWI_INC_PDB C:\\pkummara\\IFWI_INC_PDB\\Test >nul && set IFWI_INPUT=C:\\pkummara\\IFWI_INC_PDB\\Test) else (echo REQUIRED_FOLDER_MISSING: C:\\pkummara\\IFWI_INC_PDB\\Test_or_test & exit /b 6)" $prompt_re
-          run_cmd "if not exist C:\\pkummara\\IFWI_INC_PDB\\Test (echo REQUIRED_FOLDER_MISSING: C:\\pkummara\\IFWI_INC_PDB\\Test & exit /b 6)" $prompt_re
+          run_cmd "set IFWI_SOURCE=" $prompt_re
+          run_cmd "echo IFWI candidates: C:\\Users\\pkummara\\IFWI_INC_PDB\\Test ; C:\\Users\\pkummara\\IFWI_INC_PDB\\test ; C:\\Users\\pkummara\\IFWI_INC_PDB ; %PK_BASE%\\IFWI_INC_PDB\\Test ; %PK_BASE%\\IFWI_INC_PDB\\test ; %PK_BASE%\\IFWI_INC_PDB" $prompt_re
+          run_cmd "if exist C:\\Users\\pkummara\\IFWI_INC_PDB\\Test (set IFWI_SOURCE=C:\\Users\\pkummara\\IFWI_INC_PDB\\Test) else if exist C:\\Users\\pkummara\\IFWI_INC_PDB\\test (set IFWI_SOURCE=C:\\Users\\pkummara\\IFWI_INC_PDB\\test) else if exist C:\\Users\\pkummara\\IFWI_INC_PDB (set IFWI_SOURCE=C:\\Users\\pkummara\\IFWI_INC_PDB) else if exist %PK_BASE%\\IFWI_INC_PDB\\Test (set IFWI_SOURCE=%PK_BASE%\\IFWI_INC_PDB\\Test) else if exist %PK_BASE%\\IFWI_INC_PDB\\test (set IFWI_SOURCE=%PK_BASE%\\IFWI_INC_PDB\\test) else if exist %PK_BASE%\\IFWI_INC_PDB (set IFWI_SOURCE=%PK_BASE%\\IFWI_INC_PDB)" $prompt_re
+          run_cmd "if \"%IFWI_SOURCE%\"==\"\" (echo REQUIRED_FOLDER_MISSING: C:\\Users\\pkummara\\IFWI_INC_PDB\\Test_not_found & exit /b 6)" $prompt_re
+          run_cmd "set IFWI_INPUT=%IFWI_SOURCE%" $prompt_re
+          run_cmd "if not exist \"%IFWI_INPUT%\" (echo REQUIRED_FOLDER_MISSING: %IFWI_INPUT% & exit /b 6)" $prompt_re
+          run_cmd "if not exist C:\\pkummara\\IFWI_INC_PDB\\Test (if not exist C:\\pkummara mkdir C:\\pkummara & if not exist C:\\pkummara\\IFWI_INC_PDB mkdir C:\\pkummara\\IFWI_INC_PDB & xcopy /E /I /Y \"%IFWI_SOURCE%\" \"C:\\pkummara\\IFWI_INC_PDB\\Test\" >nul)" $prompt_re
           run_cmd "echo Using IFWI input: %IFWI_INPUT%" $prompt_re
           run_cmd "if exist C:\\Python310\\python.exe (set PYEXE=C:\\Python310\\python.exe) else if exist C:\\Python311\\python.exe (set PYEXE=C:\\Python311\\python.exe) else if exist C:\\Python312\\python.exe (set PYEXE=C:\\Python312\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe) else (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
           run_cmd "if not exist C:\\Users\\Public\\pydeps (echo PYDEPS_DIR_MISSING & exit /b 8)" $prompt_re
@@ -408,7 +413,7 @@ jobs:
             exit 17
           }
           if {$rc == 6} {
-            puts "FAILURE: required IFWI input folder is missing (C:\\pkummara\\IFWI_INC_PDB\\Test)"
+            puts "FAILURE: required IFWI input folder is missing (expected under C:\\Users\\pkummara\\IFWI_INC_PDB)"
             exit 18
           }
           if {$rc == 7} {
