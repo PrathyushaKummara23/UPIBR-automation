@@ -134,29 +134,61 @@ jobs:
             -re $prompt_re { }
           }
 
-          send "if exist C:\\Python310\\python.exe (echo PYTHON_ALREADY_PRESENT) else (start /wait \"\" C:\\Users\\Public\\python310.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0 SimpleInstall=1 TargetDir=C:\\Python310 & if exist C:\\Python310\\python.exe (echo PYTHON_INSTALL_OK) else (echo PYTHON_INSTALL_FAILED & exit /b 1))\r"
+          # Check if Python is already installed.
+          send "if exist C:\\Python310\\python.exe (echo PYTHON_ALREADY_PRESENT) else (echo PYTHON_NOT_FOUND)\r"
           expect {
-            -re {PYTHON_ALREADY_PRESENT|PYTHON_INSTALL_OK} { }
-            -re {PYTHON_INSTALL_FAILED} {
-              puts "FAILURE: Python install command completed but python.exe is missing"
-              exit 21
+            -re {PYTHON_ALREADY_PRESENT} { }
+            -re {PYTHON_NOT_FOUND} {
+              send "C:\\Users\\Public\\python310.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0 SimpleInstall=1 TargetDir=C:\\Python310\r"
+
+              set installed 0
+              set attempts 0
+              while {$attempts < 60 && $installed == 0} {
+                send "if exist C:\\Python310\\python.exe (echo PYTHON_INSTALL_OK) else (echo PYTHON_WAIT)\r"
+                expect {
+                  -re {PYTHON_INSTALL_OK} {
+                    set installed 1
+                  }
+                  -re {PYTHON_WAIT} { }
+                  timeout {
+                    puts "FAILURE: Python install polling timed out"
+                    exit 124
+                  }
+                  eof {
+                    catch wait ssh_result
+                    set ssh_rc [lindex $ssh_result 3]
+                    puts "FAILURE: SSH closed while polling python install (rc=$ssh_rc)"
+                    exit $ssh_rc
+                  }
+                }
+
+                if {$installed == 0} {
+                  after 10000
+                  incr attempts
+                }
+              }
+
+              if {$installed == 0} {
+                puts "FAILURE: Python installer did not complete after 10 minutes"
+                exit 21
+              }
             }
             timeout {
-              puts "FAILURE: Python install command timed out"
+              puts "FAILURE: Timed out checking for Python"
               exit 124
             }
             eof {
               catch wait ssh_result
               set ssh_rc [lindex $ssh_result 3]
-              puts "FAILURE: SSH closed while installing python (rc=$ssh_rc)"
+              puts "FAILURE: SSH closed during Python check (rc=$ssh_rc)"
               exit $ssh_rc
             }
           }
 
-          send "if exist C:\\Python310\\python.exe (C:\\Python310\\python.exe --version) else (echo PYTHON_VERIFY_FAILED & exit /b 1)\r"
+          send "C:\\Python310\\python.exe --version\r"
           expect {
             -re {Python 3\.[0-9]+\.[0-9]+} { }
-            -re {PYTHON_VERIFY_FAILED} {
+            -re {is not recognized as an internal or external command} {
               puts "FAILURE: Python verification failed"
               exit 22
             }
