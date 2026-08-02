@@ -131,7 +131,7 @@ jobs:
             }
           }
 
-          send "cmd /c \"cd /d C:\\Users\\pkummara\\scripts && C:\\Python310\\python.exe -u deploy_reboot_wrapper.py\"\r"
+          send "cmd /c \"set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\test && cd /d C:\\Users\\pkummara\\scripts && C:\\Python310\\python.exe -u deploy_reboot_wrapper.py\"\r"
           expect {
             -re $prompt_re { }
             timeout { puts "FAILURE: Python script did not complete"; exit 124 }
