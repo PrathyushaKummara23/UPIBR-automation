@@ -36,10 +36,6 @@ on:
         type: string
         default: ''
     secrets:
-      SRF_HOST:
-        required: true
-      SRF_USERNAME:
-        required: true
       SRF_PASSWORD:
         required: true
 
@@ -57,233 +53,8 @@ jobs:
           echo "Triggered by: ${{ inputs.trigger_source }}"
           echo "Callback URL: ${{ inputs.callback_url }}"
 
-      - name: Download Python installer on runner
-        shell: bash
-        run: |
-          set -e
-          curl -L --fail -o /tmp/python310.exe https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe
-          ls -lh /tmp/python310.exe
-
-      - name: Download Python dependency wheels on runner
-        shell: bash
-        run: |
-          set -e
-          rm -rf /tmp/pydeps
-          mkdir -p /tmp/pydeps
-          python3 -m pip download \
-            --dest /tmp/pydeps \
-            --only-binary=:all: \
-            --platform win_amd64 \
-            --python-version 310 \
-            --implementation cp \
-            --abi cp310 \
-            paramiko cryptography selenium urllib3 pywin32 exceptiongroup
-          ls -lh /tmp/pydeps
-
-      - name: Copy Python dependency wheels to SRF host
-        env:
-          SRF_HOST: ${{ secrets.SRF_HOST }}
-          SRF_USER: ${{ secrets.SRF_USERNAME }}
-          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-        shell: bash
-        run: |
-          set -e
-
-          cat > /tmp/python_deps_copy_${{ github.run_id }}.exp << 'EOF'
-          #!/usr/bin/expect -f
-          set timeout 1800
-          set srf_host $env(SRF_HOST)
-          set srf_user $env(SRF_USER)
-          set password $env(SRF_PASSWORD)
-
-          if {$srf_host eq "" || $srf_user eq "" || $password eq ""} {
-            puts "FAILURE: SRF credentials are incomplete"
-            exit 20
-          }
-
-          spawn scp -r -o StrictHostKeyChecking=no /tmp/pydeps $srf_user@$srf_host:C:/Users/Public/
-          expect {
-            -re {(?i)are you sure you want to continue connecting} {
-              send "yes\r"
-              exp_continue
-            }
-            -re {(?i)password:} {
-              send "$password\r"
-              exp_continue
-            }
-            timeout {
-              puts "FAILURE: SCP timed out while uploading python wheels"
-              exit 124
-            }
-            eof { }
-          }
-          catch wait result
-          set rc [lindex $result 3]
-          if {$rc != 0} {
-            puts "FAILURE: SCP wheels upload failed (rc=$rc)"
-          }
-          exit $rc
-          EOF
-
-          chmod +x /tmp/python_deps_copy_${{ github.run_id }}.exp
-          /usr/bin/expect /tmp/python_deps_copy_${{ github.run_id }}.exp
-          rm -f /tmp/python_deps_copy_${{ github.run_id }}.exp
-
-      - name: Copy and install Python on SRF host
-        env:
-          SRF_HOST: ${{ secrets.SRF_HOST }}
-          SRF_USER: ${{ secrets.SRF_USERNAME }}
-          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-        shell: bash
-        run: |
-          set -e
-
-          cat > /tmp/python_bootstrap_${{ github.run_id }}.exp << 'EOF'
-          #!/usr/bin/expect -f
-          set timeout 3600
-          set srf_host $env(SRF_HOST)
-          set srf_user $env(SRF_USER)
-          set password $env(SRF_PASSWORD)
-          set installer_local "/tmp/python310.exe"
-          set installer_remote "C:/Users/Public/python310.exe"
-          set prompt_re {(?m).*[>#] ?$}
-
-          if {$srf_host eq "" || $srf_user eq "" || $password eq ""} {
-            puts "FAILURE: SRF credentials are incomplete"
-            exit 20
-          }
-
-          spawn scp -o StrictHostKeyChecking=no $installer_local $srf_user@$srf_host:$installer_remote
-          expect {
-            -re {(?i)are you sure you want to continue connecting} {
-              send "yes\r"
-              exp_continue
-            }
-            -re {(?i)password:} {
-              send "$password\r"
-              exp_continue
-            }
-            timeout {
-              puts "FAILURE: SCP timed out while uploading python installer"
-              exit 124
-            }
-            eof { }
-          }
-          catch wait scp_result
-          set scp_rc [lindex $scp_result 3]
-          if {$scp_rc != 0} {
-            puts "FAILURE: SCP upload failed (rc=$scp_rc)"
-            exit $scp_rc
-          }
-
-          spawn ssh -T -o StrictHostKeyChecking=no $srf_user@$srf_host
-          expect {
-            -re {(?i)are you sure you want to continue connecting} {
-              send "yes\r"
-              exp_continue
-            }
-            -re {(?i)password:} {
-              send "$password\r"
-              exp_continue
-            }
-            timeout {
-              puts "FAILURE: SSH timed out during python install"
-              exit 124
-            }
-            eof {
-              catch wait ssh_result
-              set ssh_rc [lindex $ssh_result 3]
-              puts "FAILURE: SSH closed during python install (rc=$ssh_rc)"
-              exit $ssh_rc
-            }
-            -re $prompt_re { }
-          }
-
-          # Check if Python is already installed.
-          send "if exist C:\\Python310\\python.exe (echo PYTHON_ALREADY_PRESENT) else (echo PYTHON_NOT_FOUND)\r"
-          expect {
-            -re {PYTHON_ALREADY_PRESENT} { }
-            -re {PYTHON_NOT_FOUND} {
-              send "C:\\Users\\Public\\python310.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0 SimpleInstall=1 TargetDir=C:\\Python310\r"
-
-              set installed 0
-              set attempts 0
-              while {$attempts < 60 && $installed == 0} {
-                send "if exist C:\\Python310\\python.exe (echo PYTHON_INSTALL_OK) else (echo PYTHON_WAIT)\r"
-                expect {
-                  -re {PYTHON_INSTALL_OK} {
-                    set installed 1
-                  }
-                  -re {PYTHON_WAIT} { }
-                  timeout {
-                    puts "FAILURE: Python install polling timed out"
-                    exit 124
-                  }
-                  eof {
-                    catch wait ssh_result
-                    set ssh_rc [lindex $ssh_result 3]
-                    puts "FAILURE: SSH closed while polling python install (rc=$ssh_rc)"
-                    exit $ssh_rc
-                  }
-                }
-
-                if {$installed == 0} {
-                  after 10000
-                  incr attempts
-                }
-              }
-
-              if {$installed == 0} {
-                puts "FAILURE: Python installer did not complete after 10 minutes"
-                exit 21
-              }
-            }
-            timeout {
-              puts "FAILURE: Timed out checking for Python"
-              exit 124
-            }
-            eof {
-              catch wait ssh_result
-              set ssh_rc [lindex $ssh_result 3]
-              puts "FAILURE: SSH closed during Python check (rc=$ssh_rc)"
-              exit $ssh_rc
-            }
-          }
-
-          send "C:\\Python310\\python.exe --version\r"
-          expect {
-            -re {Python 3\.[0-9]+\.[0-9]+} { }
-            -re {is not recognized as an internal or external command} {
-              puts "FAILURE: Python verification failed"
-              exit 22
-            }
-            timeout {
-              puts "FAILURE: Python verification timed out"
-              exit 124
-            }
-            eof {
-              catch wait ssh_result
-              set ssh_rc [lindex $ssh_result 3]
-              puts "FAILURE: SSH closed during python verification (rc=$ssh_rc)"
-              exit $ssh_rc
-            }
-          }
-
-          send -- "exit\r"
-          expect eof
-          catch wait ssh_result
-          set ssh_rc [lindex $ssh_result 3]
-          exit $ssh_rc
-          EOF
-
-          chmod +x /tmp/python_bootstrap_${{ github.run_id }}.exp
-          /usr/bin/expect /tmp/python_bootstrap_${{ github.run_id }}.exp
-          rm -f /tmp/python_bootstrap_${{ github.run_id }}.exp
-
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
-          SRF_HOST: ${{ secrets.SRF_HOST }}
-          SRF_USER: ${{ secrets.SRF_USERNAME }}
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
@@ -296,138 +67,36 @@ jobs:
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
           set timeout 3000
-          set srf_host $env(SRF_HOST)
-          set srf_user $env(SRF_USER)
           set password $env(SRF_PASSWORD)
 
-          if {$srf_host eq ""} {
-            puts "FAILURE: SRF_HOST is empty"
-            exit 10
-          }
-          if {$srf_user eq ""} {
-            puts "FAILURE: SRF_USER is empty"
-            exit 11
-          }
-          if {$password eq ""} {
-            puts "FAILURE: SRF_PASSWORD is empty"
-            exit 16
-          }
-
-          set prompt_re {(?m).*[>#] ?$}
-
-          puts "Connecting to $srf_user@$srf_host"
-
-          proc run_cmd {cmd prompt_re} {
-            send "$cmd\r"
-            expect {
-              -re $prompt_re { return 0 }
-              -re "(?i)permission denied" {
-                puts "FAILURE: Permission denied while running: $cmd"
-                exit 13
-              }
-              timeout {
-                puts "FAILURE: Command timed out: $cmd"
-                exit 124
-              }
-              eof {
-                catch wait result
-                set rc [lindex $result 3]
-                puts "FAILURE: SSH closed while running: $cmd (rc=$rc)"
-                exit $rc
-              }
-            }
-          }
-
-          spawn ssh -T -o StrictHostKeyChecking=no $srf_user@$srf_host
+          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
 
           expect {
-            -re "(?i)are you sure you want to continue connecting" {
-              send "yes\r"
-              exp_continue
-            }
-            -re "(?i)password:" {
-              send "$password\r"
-              exp_continue
-            }
-            -re "(?i)permission denied" {
-              puts "FAILURE: Permission denied"
-              exit 13
-            }
-            timeout {
-              puts "FAILURE: Connection timed out"
-              exit 124
-            }
-            eof {
-              catch wait result
-              set rc [lindex $result 3]
-              puts "FAILURE: SSH closed during login (rc=$rc)"
-              exit $rc
-            }
-            -re $prompt_re { }
+            "*assword:*" { send "$password\r" }
+            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
           }
 
-          run_cmd "whoami" $prompt_re
-          run_cmd "if exist C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py) else if exist C:\\pkummara\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\pkummara\\scripts\\deploy_reboot_wrapper.py) else if exist %USERPROFILE%\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=%USERPROFILE%\\scripts\\deploy_reboot_wrapper.py) else if exist C:\\Users\\CEFLS_User\\scripts\\deploy_reboot_wrapper.py (set DEPLOY_SCRIPT=C:\\Users\\CEFLS_User\\scripts\\deploy_reboot_wrapper.py) else (echo DEPLOY_SCRIPT_NOT_FOUND & exit /b 2)" $prompt_re
-          run_cmd "echo Using deploy script: %DEPLOY_SCRIPT%" $prompt_re
-          run_cmd "for %I in (\"%DEPLOY_SCRIPT%\") do set DEPLOY_DIR=%~dpI" $prompt_re
-          run_cmd "for %I in (\"%DEPLOY_DIR%..\") do set PK_BASE=%~fI" $prompt_re
-          run_cmd "echo Using pkummara base: %PK_BASE%" $prompt_re
-          run_cmd "if not exist %PK_BASE%\\apis\\automation_config.py if not exist %PK_BASE%\\apis\\automation_config.ini (echo REQUIRED_FILE_MISSING: %PK_BASE%\\apis\\automation_config.py_or_ini & exit /b 5) else if not exist %PK_BASE%\\scripts\\ospl.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ospl.py & exit /b 5) else if not exist %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py (echo REQUIRED_FILE_MISSING: %PK_BASE%\\scripts\\ifwistitch_ifwiburn.py & exit /b 5)" $prompt_re
-          run_cmd "set IFWI_SOURCE=" $prompt_re
-          run_cmd "echo IFWI candidates: C:\\Users\\pkummara\\IFWI_INC_PDB\\Test ; C:\\Users\\pkummara\\IFWI_INC_PDB\\test ; C:\\Users\\pkummara\\IFWI_INC_PDB ; %PK_BASE%\\IFWI_INC_PDB\\Test ; %PK_BASE%\\IFWI_INC_PDB\\test ; %PK_BASE%\\IFWI_INC_PDB" $prompt_re
-          run_cmd "if exist C:\\Users\\pkummara\\IFWI_INC_PDB\\Test (set IFWI_SOURCE=C:\\Users\\pkummara\\IFWI_INC_PDB\\Test) else if exist C:\\Users\\pkummara\\IFWI_INC_PDB\\test (set IFWI_SOURCE=C:\\Users\\pkummara\\IFWI_INC_PDB\\test) else if exist C:\\Users\\pkummara\\IFWI_INC_PDB (set IFWI_SOURCE=C:\\Users\\pkummara\\IFWI_INC_PDB) else if exist %PK_BASE%\\IFWI_INC_PDB\\Test (set IFWI_SOURCE=%PK_BASE%\\IFWI_INC_PDB\\Test) else if exist %PK_BASE%\\IFWI_INC_PDB\\test (set IFWI_SOURCE=%PK_BASE%\\IFWI_INC_PDB\\test) else if exist %PK_BASE%\\IFWI_INC_PDB (set IFWI_SOURCE=%PK_BASE%\\IFWI_INC_PDB)" $prompt_re
-          run_cmd "if \"%IFWI_SOURCE%\"==\"\" (echo REQUIRED_FOLDER_MISSING: C:\\Users\\pkummara\\IFWI_INC_PDB\\Test_not_found & exit /b 6)" $prompt_re
-          run_cmd "set IFWI_INPUT=%IFWI_SOURCE%" $prompt_re
-          run_cmd "if not exist \"%IFWI_INPUT%\" (echo REQUIRED_FOLDER_MISSING: %IFWI_INPUT% & exit /b 6)" $prompt_re
-          run_cmd "if not exist C:\\pkummara\\IFWI_INC_PDB\\Test (if not exist C:\\pkummara mkdir C:\\pkummara & if not exist C:\\pkummara\\IFWI_INC_PDB mkdir C:\\pkummara\\IFWI_INC_PDB & xcopy /E /I /Y \"%IFWI_SOURCE%\" \"C:\\pkummara\\IFWI_INC_PDB\\Test\" >nul)" $prompt_re
-          run_cmd "if not exist C:\\pkummara\\IFWI_INC_PDB\\Test (echo IFWI_COPY_FAILED: C:\\pkummara\\IFWI_INC_PDB\\Test_not_created_after_xcopy & exit /b 6)" $prompt_re
-          run_cmd "set IFWI_INPUT=C:\\pkummara\\IFWI_INC_PDB\\Test" $prompt_re
-          run_cmd "echo Using IFWI input: %IFWI_INPUT%" $prompt_re
-          run_cmd "if exist C:\\Python310\\python.exe (set PYEXE=C:\\Python310\\python.exe) else if exist C:\\Python311\\python.exe (set PYEXE=C:\\Python311\\python.exe) else if exist C:\\Python312\\python.exe (set PYEXE=C:\\Python312\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python310\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python311\\python.exe) else if exist %PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (set PYEXE=%PK_BASE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe) else (echo PYTHON_NOT_FOUND & exit /b 4)" $prompt_re
-          run_cmd "if not exist C:\\Users\\Public\\pydeps (echo PYDEPS_DIR_MISSING & exit /b 8)" $prompt_re
-          run_cmd "%PYEXE% -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || set DEPS_MISSING=1" $prompt_re
-          run_cmd "if \"%DEPS_MISSING%\"==\"1\" (%PYEXE% -m pip --version >nul 2>&1 || %PYEXE% -m ensurepip --upgrade)" $prompt_re
-          run_cmd "if \"%DEPS_MISSING%\"==\"1\" (%PYEXE% -m pip install --no-index --find-links C:\\Users\\Public\\pydeps paramiko cryptography selenium urllib3 pywin32 exceptiongroup || (echo PYTHON_DEPS_INSTALL_FAILED & exit /b 8))" $prompt_re
-          run_cmd "%PYEXE% -m pip -V" $prompt_re
-          run_cmd "%PYEXE% -c \"import paramiko,cryptography,selenium,urllib3,win32con,win32gui\" || (echo PYTHON_DEPS_MISSING & exit /b 7)" $prompt_re
-          run_cmd "echo Using python: %PYEXE%" $prompt_re
-          run_cmd "%PYEXE% -u %DEPLOY_SCRIPT% || (echo DEPLOY_RUN_FAILED & exit /b 3)" $prompt_re
+          expect {
+            "*>*" { send "whoami\r" }
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+          }
 
-          send -- "exit\r"
+          expect {
+            "*>*" { send "cd C:\\pkummara\\scripts\r" }
+            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+          }
+
+          expect {
+            "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+          }
+
+          expect {
+            "*>*" { send "exit\r" }
+            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+          }
+
           expect eof
-          catch wait result
-          set rc [lindex $result 3]
-
-          if {$rc == 2} {
-            puts "FAILURE: deploy_reboot_wrapper.py not found in expected directories"
-            exit 12
-          }
-          if {$rc == 3} {
-            puts "FAILURE: deploy_reboot_wrapper.py execution failed"
-            exit 14
-          }
-          if {$rc == 4} {
-            puts "FAILURE: Python runtime not found (checked fixed paths, python, and py -3)"
-            exit 15
-          }
-          if {$rc == 5} {
-            puts "FAILURE: required pkummara runtime files are missing"
-            exit 17
-          }
-          if {$rc == 6} {
-            puts "FAILURE: required IFWI input folder is missing (expected under C:\\Users\\pkummara\\IFWI_INC_PDB)"
-            exit 18
-          }
-          if {$rc == 7} {
-            puts "FAILURE: Python dependencies missing (paramiko/cryptography/selenium/urllib3/pywin32)"
-            exit 19
-          }
-          if {$rc == 8} {
-            puts "FAILURE: Python dependency installation failed from local wheelhouse"
-            exit 20
-          }
-
-          exit $rc
           EOF
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
@@ -445,26 +114,19 @@ jobs:
 
       - name: Send SRF Login Notification
         if: ${{ inputs.callback_url != '' }}
-        env:
-          SRF_HOST: ${{ secrets.SRF_HOST }}
-          SRF_USER: ${{ secrets.SRF_USERNAME }}
         shell: bash
         run: |
           echo "Sending SRF login notification..."
 
           CALLBACK_URL="${{ inputs.callback_url }}"
           SESSION_ID="${{ inputs.session_id }}"
-          SRF_HOST="${SRF_HOST}"
-          SRF_USER="${SRF_USER}"
 
           if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","login_timestamp":"%s"}}' \
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"10.138.186.133","user":"CEFLS_User","login_timestamp":"%s"}}' \
               "$SESSION_ID" \
               "${{ github.run_id }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               "${{ inputs.trigger_source }}" \
-              "$SRF_HOST" \
-              "$SRF_USER" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
             curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
