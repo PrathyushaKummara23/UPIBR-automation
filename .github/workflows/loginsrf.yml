@@ -76,7 +76,7 @@ jobs:
           set srf_host $env(SRF_HOST)
           set srf_user $env(SRF_USER)
           set password $env(SRF_PASSWORD)
-          set prompt_re {(?m).*[>#] ?$}
+          set prompt_re {(?m).*[\$>#] ?$}
 
           if {$srf_host eq ""} {
             puts "FAILURE: SRF_HOST is empty"
@@ -119,14 +119,14 @@ jobs:
             }
           }
 
-          send "whoami\r"
+          send "echo %USERNAME%\r"
           expect {
             -re $prompt_re { }
             timeout { puts "FAILURE: Shell prompt not received"; exit 124 }
             eof {
               catch wait result
               set rc [lindex $result 3]
-              puts "FAILURE: SSH closed while running whoami (rc=$rc)"
+              puts "FAILURE: SSH closed while running echo %USERNAME% (rc=$rc)"
               exit $rc
             }
           }
