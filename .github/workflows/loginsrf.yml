@@ -76,7 +76,7 @@ jobs:
           set srf_host $env(SRF_HOST)
           set srf_user $env(SRF_USER)
           set password $env(SRF_PASSWORD)
-          set prompt_re {(?m).*[>] ?$}
+          set prompt_re {(?m)[A-Za-z0-9_.@-]+ [A-Za-z]:\\[^\r\n]*>[ ]?$}
 
           if {$srf_host eq ""} {
             puts "FAILURE: SRF_HOST is empty"
@@ -121,8 +121,8 @@ jobs:
 
           send "echo %USERNAME%\r"
           expect {
-            -re {(?im)\r\n([A-Za-z0-9._-]+)\r\n.*[>] ?$} {
-              set remote_user $expect_out(1,string)
+            -re {([A-Za-z0-9._-]+)\r?\n} {
+              set remote_user [string trim $expect_out(1,string)]
               puts "Remote user verified: $remote_user"
             }
             timeout {
@@ -132,12 +132,22 @@ jobs:
             eof {
               catch wait result
               set rc [lindex $result 3]
-              puts "FAILURE: SSH closed while verifying remote user (rc=$rc)"
+              puts "FAILURE: SSH closed while running echo %USERNAME% (rc=$rc)"
+              exit $rc
+            }
+          }
+          expect {
+            -re $prompt_re { }
+            timeout { puts "FAILURE: Shell prompt not received after username"; exit 124 }
+            eof {
+              catch wait result
+              set rc [lindex $result 3]
+              puts "FAILURE: SSH closed waiting for prompt (rc=$rc)"
               exit $rc
             }
           }
 
-          send "cmd /c \"set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\Test && cd /d C:\\Users\\pkummara\\scripts && C:\\Python310\\python.exe -u deploy_reboot_wrapper.py\"\r"
+          send "cmd /c \"set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\test && cd /d C:\\Users\\pkummara\\scripts && C:\\Python310\\python.exe -u deploy_reboot_wrapper.py\"\r"
           expect {
             -re $prompt_re { }
             timeout { puts "FAILURE: Python script did not complete"; exit 124 }
