@@ -459,8 +459,178 @@ jobs:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
-          # ... unchanged ...
-          echo "unchanged upload-config content here"
+
+          AUTH_TOKEN="${REPO_PUSH_TOKEN:-}"
+
+          if [ -z "$AUTH_TOKEN" ]; then
+            echo "No GitHub token available for config upload"
+            exit 1
+          fi
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          DEST_PATH="${{ env.CONFIG_STAGE_PATH }}"
+          CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
+          TARGET_PATH="output_paths/config_${CURRENT_VERSION}.ini"
+          COLLATERAL_TARGET_PATH="output_paths/SRF_release_collaterals/836003C4/config_${CURRENT_VERSION}.ini"
+
+          [ -f "$CONFIG_FILE" ] || { echo "Config file not found: $CONFIG_FILE"; exit 1; }
+
+          CONTENT_B64=$(base64 -w 0 "$CONFIG_FILE" 2>/dev/null || base64 "$CONFIG_FILE" | tr -d '\n')
+          COMMIT_MESSAGE="[skip ci] Add prepared config file: config_${CURRENT_VERSION}.ini"
+
+          API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
+
+          HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o existing_file.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL" || true)
+
+          if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+            echo "GitHub API pre-check failed before HTTP response"
+            cat existing_file.json || true
+            exit 1
+          fi
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            FILE_SHA=$(jq -r '.sha' existing_file.json)
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg sha "$FILE_SHA" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                sha: $sha,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          elif [ "$HTTP_CODE" = "404" ]; then
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          else
+            echo "Failed to query existing file. HTTP status: $HTTP_CODE"
+            cat existing_file.json || true
+            exit 1
+          fi
+
+          RESPONSE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o api_response.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -d @payload.json \
+            "$API_URL" || true)
+
+          if [ -z "$RESPONSE_CODE" ] || [ "$RESPONSE_CODE" = "000" ]; then
+            echo "GitHub API upload failed before HTTP response"
+            cat api_response.json || true
+            exit 1
+          fi
+
+          if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+            echo "Config file uploaded successfully to ${TARGET_PATH}"
+            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
+          else
+            echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
+            cat api_response.json || true
+            exit 1
+          fi
+
+          API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${COLLATERAL_TARGET_PATH}"
+
+          HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o existing_file.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL" || true)
+
+          if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+            echo "GitHub API pre-check failed before HTTP response"
+            cat existing_file.json || true
+            exit 1
+          fi
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            FILE_SHA=$(jq -r '.sha' existing_file.json)
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg sha "$FILE_SHA" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                sha: $sha,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          elif [ "$HTTP_CODE" = "404" ]; then
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{
+                message: $message,
+                content: $content,
+                branch: $branch,
+                committer: {
+                  name: $name,
+                  email: $email
+                }
+              }' > payload.json
+          else
+            echo "Failed to query existing file. HTTP status: $HTTP_CODE"
+            cat existing_file.json || true
+            exit 1
+          fi
+
+          RESPONSE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o api_response.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -d @payload.json \
+            "$API_URL" || true)
+
+          if [ -z "$RESPONSE_CODE" ] || [ "$RESPONSE_CODE" = "000" ]; then
+            echo "GitHub API upload failed before HTTP response"
+            cat api_response.json || true
+            exit 1
+          fi
+
+          if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+            echo "Config file uploaded successfully to ${COLLATERAL_TARGET_PATH}"
+            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
+          else
+            echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
+            cat api_response.json || true
+            exit 1
+          fi
+
+          rm -f existing_file.json payload.json api_response.json
 
   validate-config:
     runs-on: [self-hosted, node16]
@@ -477,8 +647,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # ... unchanged ...
-          echo "unchanged validate-config content here"
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          CONFIG_FILE="config_${CURRENT_VERSION}.ini"
+          CONFIG_PATH="${{ env.CONFIG_STAGE_PATH }}/$CONFIG_FILE"
+
+          CONFIG_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '$CONFIG_PATH' ]]; then
+              echo 'EXISTS'
+            else
+              echo 'NOT_FOUND'
+            fi
+          " )
+
+          if [[ "$CONFIG_CHECK" == "EXISTS" ]]; then
+            echo "config_validated=true" >> "$GITHUB_OUTPUT"
+            echo "config_path=$CONFIG_PATH" >> "$GITHUB_OUTPUT"
+          else
+            echo "config_validated=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
       - name: Display Prepared Config File Contents
         env:
@@ -486,8 +679,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # ... unchanged ...
-          echo "unchanged validate-config display content here"
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          CONFIG_PATH="${{ steps.validate.outputs.config_path }}"
+          CONFIG_CONTENTS=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cat '$CONFIG_PATH'
+          " )
+
+          echo "$CONFIG_CONTENTS"
 
   kerberos-setup:
     runs-on: [self-hosted, node16]
@@ -501,8 +704,73 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # ... unchanged ...
-          echo "unchanged kerberos content here"
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          if ! printf '%s\n' "$BUILD_PASSWORD" | sudo -S -k -u grp_srf_fit1_build -v >/dev/null 2>&1; then
+            echo "Failed to authenticate sudo as grp_srf_fit1_build"
+            exit 1
+          fi
+
+          CURRENT_USER=$(printf '%s\n' "$BUILD_PASSWORD" | sudo -S -u grp_srf_fit1_build whoami 2>/dev/null | tr -d '\r\n')
+          if [ "$CURRENT_USER" != "grp_srf_fit1_build" ]; then
+            echo "Failed to switch to grp_srf_fit1_build (got: '$CURRENT_USER')"
+            exit 1
+          fi
+
+      - name: Initialize Kerberos Ticket
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          FA_PASSWORD: ${{ secrets.FA_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          if [ -z "${FA_PASSWORD:-}" ]; then
+            echo "FA_PASSWORD secret is missing; cannot initialize Kerberos ticket"
+            exit 1
+          fi
+
+          if KTAB_RESULT=$(printf '%s\n' "$BUILD_PASSWORD" | sudo -S -u grp_srf_fit1_build env FA_PASSWORD="$FA_PASSWORD" bash -c '
+            printf "%s\n" "$FA_PASSWORD" | '"${{ env.KTAB_PATH }}"' -i 2>&1
+          '); then
+            echo "$KTAB_RESULT"
+          else
+            KTAB_EXIT_CODE=$?
+            echo "$KTAB_RESULT"
+            echo "Kerberos initialization failed with exit code $KTAB_EXIT_CODE"
+            exit 1
+          fi
+
+      - name: Initialize Kerberos Cron
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          KCRON_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
+          " )
+
+          echo "$KCRON_RESULT"
+
+          if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
+            exit 1
+          fi
 
   patch-build:
     runs-on: [self-hosted, node16]
@@ -516,8 +784,102 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # ... unchanged ...
-          echo "unchanged patch-build content here"
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          CURRENT_USER=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build whoami )
+          [ "$CURRENT_USER" = "grp_srf_fit1_build" ] || exit 1
+
+      - name: Verify Build Tools Exist
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          PYTHON_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.PYTHON_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
+          " )
+          FXT_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.FXT_TOOL_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
+          " )
+          EXPECT_CHECK=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            if [[ -f '${{ env.EXPECT_PATH }}' ]]; then echo 'EXISTS'; else echo 'NOT_FOUND'; fi
+          " )
+
+          [[ "$PYTHON_CHECK" == "EXISTS" ]] || exit 1
+          [[ "$FXT_CHECK" == "EXISTS" ]] || exit 1
+          [[ "$EXPECT_CHECK" == "EXISTS" ]] || exit 1
+
+      - name: Execute SRF Debug UP Automated Build
+        env:
+          BUILD_PASSWORD: ${{ secrets.BUILD_PASSWORD }}
+          CSS_PASSWORD: ${{ secrets.CSS_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILD_PASSWORD:-}" ]; then
+            echo "BUILD_PASSWORD secret is missing; cannot sudo to grp_srf_fit1_build"
+            exit 1
+          fi
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          CONFIG_FILE="${{ env.CONFIG_STAGE_PATH }}/config_${CURRENT_VERSION}.ini"
+
+          BUILD_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u grp_srf_fit1_build bash -c "
+            cd '${{ env.BUILD_BASE_PATH }}'
+
+            cat > automated_build_expect_srf.exp <<'EOF'
+          #!${{ env.EXPECT_PATH }} -f
+          set timeout 1800
+          set css_password \$env(CSS_PASSWORD)
+
+          spawn ${{ env.PYTHON_PATH }} ${{ env.FXT_TOOL_PATH }} --conf $CONFIG_FILE
+
+          expect {
+            \"Enter your CSS password:\" {
+              send \"\$css_password\r\"
+              exp_continue
+            }
+            \"Enter your CSS password: \" {
+              send \"\$css_password\r\"
+              exp_continue
+            }
+            -re \".*assword.*\" {
+              send \"\$css_password\r\"
+              exp_continue
+            }
+            eof {
+              catch wait result
+              exit [lindex \$result 3]
+            }
+            timeout {
+              puts \"Automated build timed out after 30 minutes\"
+              exit 124
+            }
+          }
+          EOF
+
+            chmod +x automated_build_expect_srf.exp
+            export CSS_PASSWORD='$CSS_PASSWORD'
+            ./automated_build_expect_srf.exp 2>&1
+            BUILD_EXIT=\$?
+            rm -f automated_build_expect_srf.exp
+            exit \$BUILD_EXIT
+          " )
+
+          BUILD_EXIT_CODE=$?
+          echo "$BUILD_RESULT"
+          [ "$BUILD_EXIT_CODE" -eq 0 ] || exit "$BUILD_EXIT_CODE"
 
   upload-release-collaterals:
     runs-on: [self-hosted, node16]
@@ -531,8 +893,139 @@ jobs:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
-          # ... unchanged ...
-          echo "unchanged upload-release-collaterals content here"
+
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+          log() {
+            echo "$1"
+            echo "$1" >> "$SUMMARY"
+          }
+
+          trap 'rc=$?; log ""; log "### Failure"; log "- Exit code: $rc"; [ -f existing_file.json ] && { log "- existing_file.json:"; echo "```json" >> "$SUMMARY"; cat existing_file.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; [ -f api_response.json ] && { log "- api_response.json:"; echo "```json" >> "$SUMMARY"; cat api_response.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; exit $rc' ERR
+
+          upload_file() {
+            local src_file="$1"
+            local target_path="$2"
+            local commit_message="$3"
+
+            rm -f existing_file.json payload.json api_response.json
+
+            log ""
+            log "### Uploading \`$(basename "$src_file")\`"
+            log "- Source: \`$src_file\`"
+            log "- Target: \`$target_path\`"
+
+            [ -f "$src_file" ] || { log "- Source file not found"; exit 1; }
+
+            API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
+
+            HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o existing_file.json -w "%{http_code}" \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL" || true)
+
+            if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+              log "- Existing file lookup failed before HTTP response"
+              exit 1
+            fi
+
+            log "- Existing file check HTTP code: \`$HTTP_CODE\`"
+
+            FILE_SHA=""
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              FILE_SHA=$(jq -r '.sha' existing_file.json)
+            elif [ "$HTTP_CODE" = "404" ]; then
+              :
+            else
+              log "- Existing file lookup failed"
+              exit 1
+            fi
+
+            export SRC_FILE="$src_file"
+            export COMMIT_MESSAGE="$commit_message"
+            export FILE_SHA
+            export TARGET_BRANCH="${{ github.ref_name }}"
+
+            ${{ env.PYTHON_PATH }} - <<'PY' > payload.json
+          import base64
+          import json
+          import os
+
+          src_file = os.environ["SRC_FILE"]
+          commit_message = os.environ["COMMIT_MESSAGE"]
+          target_branch = os.environ["TARGET_BRANCH"]
+          file_sha = os.environ.get("FILE_SHA", "")
+
+          with open(src_file, "rb") as file_handle:
+            content_b64 = base64.b64encode(file_handle.read()).decode("ascii")
+
+          payload = {
+            "message": commit_message,
+            "content": content_b64,
+            "branch": target_branch,
+            "committer": {
+              "name": "GitHub Action",
+              "email": "action@github.com",
+            },
+          }
+
+          if file_sha:
+            payload["sha"] = file_sha
+
+          print(json.dumps(payload))
+          PY
+
+            RESPONSE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o api_response.json -w "%{http_code}" \
+              -X PUT \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @payload.json \
+              "$API_URL" || true)
+
+            if [ -z "$RESPONSE_CODE" ] || [ "$RESPONSE_CODE" = "000" ]; then
+              log "- Upload failed before HTTP response"
+              exit 1
+            fi
+
+            log "- Upload HTTP code: \`$RESPONSE_CODE\`"
+
+            if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+              LINK=$(jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json)
+              log "- Upload succeeded"
+              log "- Result: $LINK"
+            else
+              log "- Upload failed"
+              exit 1
+            fi
+          }
+
+          log "## SRF Collateral Upload"
+
+          AUTH_TOKEN="${REPO_PUSH_TOKEN:-}"
+
+          if [ -z "$AUTH_TOKEN" ]; then
+            log "- No GitHub token available for collateral upload"
+            exit 1
+          fi
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
+          SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+          TARGET_COLLATERAL_DIR="output_paths/SRF_release_collaterals/836003C4"
+
+          [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
+
+          mapfile -t PDB_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | sort)
+
+          [ "${#PDB_FILES[@]}" -gt 0 ] || { log "- No PDB files found for pattern m_*_*_${CURRENT_VERSION_LOWER}.pdb"; exit 1; }
+
+          for PDB_FILE in "${PDB_FILES[@]}"; do
+            PDB_NAME="$(basename "$PDB_FILE")"
+            upload_file \
+              "$PDB_FILE" \
+              "${TARGET_COLLATERAL_DIR}/${PDB_NAME}" \
+              "[skip ci] Upload SRF collateral 836003C4: ${PDB_NAME}"
+          done
 
   copy-release-collaterals:
     runs-on: [self-hosted, node16]
@@ -546,8 +1039,240 @@ jobs:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
         run: |
           set -euo pipefail
-          # ... unchanged ...
-          echo "unchanged copy-release-collaterals content here"
+
+          REPO_URL="https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${{ github.repository }}.git"
+          WORKDIR="${GITHUB_WORKSPACE}"
+          PARENT_DIR="$(dirname "$WORKDIR")"
+          REPO_DIR="$(basename "$WORKDIR")"
+          BRANCH="${{ github.ref_name }}"
+
+          mkdir -p "$PARENT_DIR"
+          cd "$PARENT_DIR"
+
+          if [ -d "$WORKDIR/.git" ]; then
+            cd "$WORKDIR"
+            git remote set-url origin "$REPO_URL"
+            git fetch --depth=1 origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          else
+            rm -rf "$WORKDIR"
+            git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+            cd "$WORKDIR"
+          fi
+
+          git config --global --add safe.directory "$WORKDIR"
+
+      - name: Debug - Test SSH connectivity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SRF_HOST="${{ env.SRF_HOST }}"
+          SRF_PORT="${{ env.SRF_PORT }}"
+
+          # Trim potential leading/trailing whitespace from variables.
+          SRF_HOST="$(echo "$SRF_HOST" | xargs)"
+          SRF_PORT="$(echo "$SRF_PORT" | xargs)"
+
+          echo "Runner host: $(hostname)"
+          echo "Runner IP candidates:"
+          hostname -I || true
+
+          echo "Checking SSH reachability target: ${SRF_HOST}:${SRF_PORT}"
+
+          echo "Ping test"
+          ping -c 3 "$SRF_HOST" || echo "Ping failed"
+
+          echo "TCP test"
+          timeout 5 bash -c "cat < /dev/null > /dev/tcp/${SRF_HOST}/${SRF_PORT}" \
+            && echo "Port ${SRF_PORT} is OPEN" \
+            || echo "Port ${SRF_PORT} is UNREACHABLE"
+
+          echo "Route test"
+          ip route get "$SRF_HOST" || true
+
+          if command -v traceroute >/dev/null 2>&1; then
+            traceroute -m 10 "$SRF_HOST" || true
+          elif command -v tracepath >/dev/null 2>&1; then
+            tracepath "$SRF_HOST" || true
+          else
+            echo "traceroute/tracepath not available on runner"
+          fi
+
+      - name: Copy Release Collaterals to SRF Host
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          RELEASE_PATH="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
+          WINDOWS_DEST="${{ env.WINDOWS_DEST }}"
+          SRF_HOST="${{ env.SRF_HOST }}"
+          SRF_PORT="${{ env.SRF_PORT }}"
+          SRF_STRICT_PRECHECK="${{ env.SRF_STRICT_PRECHECK }}"
+          SRF_USER="${{ env.SRF_USER }}"
+          SCP_EXPECT_SCRIPT=".github/scripts/scp_transfer.exp"
+          CURRENT_VERSION_LOWER=$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')
+
+          # Trim potential leading/trailing whitespace from configured values.
+          WINDOWS_DEST="$(echo "$WINDOWS_DEST" | xargs)"
+          SRF_HOST="$(echo "$SRF_HOST" | xargs)"
+          SRF_PORT="$(echo "$SRF_PORT" | xargs)"
+          SRF_USER="$(echo "$SRF_USER" | xargs)"
+          SRF_STRICT_PRECHECK="$(echo "$SRF_STRICT_PRECHECK" | tr '[:upper:]' '[:lower:]' | xargs)"
+
+          # Normalize Windows-style usernames for OpenSSH/SCP usage.
+          # Examples:
+          #   .\CEFLS_User -> CEFLS_User
+          #   \CEFLS_User  -> CEFLS_User
+          if [[ "$SRF_USER" == .\\* ]]; then
+            SRF_USER="${SRF_USER#.\\}"
+          elif [[ "$SRF_USER" == \\* ]]; then
+            SRF_USER="${SRF_USER#\\}"
+          fi
+
+          [ -n "$WINDOWS_DEST" ] || { echo "WINDOWS_DEST is empty"; exit 1; }
+          [ -n "$SRF_HOST" ] || { echo "SRF_HOST is empty"; exit 1; }
+          [ -n "$SRF_PORT" ] || { echo "SRF_PORT is empty"; exit 1; }
+          [ -n "$SRF_USER" ] || { echo "SRF_USER is empty"; exit 1; }
+          [ -n "${SRF_PASSWORD:-}" ] || { echo "SRF_PASSWORD secret is empty"; exit 1; }
+
+          echo "Using SSH user: ${SRF_USER}"
+
+          [ -d "$RELEASE_PATH" ] || exit 1
+
+          INC_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f)
+          [ -n "$INC_FILES" ] || exit 1
+
+          PDB_FILES=$(find "$RELEASE_PATH" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f)
+          [ -n "$PDB_FILES" ] || exit 1
+
+          # Always refresh the helper script to avoid stale runner workspace copies.
+          mkdir -p .github/scripts
+          printf '%s\n' \
+            '#!/usr/bin/expect -f' \
+            '' \
+            'set timeout 180' \
+            'set attempts 3' \
+            'set retry_delay_sec 10' \
+            '' \
+            'proc require_env {name} {' \
+            '    if {![info exists ::env($name)] || $::env($name) eq ""} {' \
+            '        puts stderr "Missing required env var: $name"' \
+            '        exit 2' \
+            '    }' \
+            '}' \
+            '' \
+            'require_env "SRC_FILE"' \
+            'require_env "FILENAME"' \
+            'require_env "SRF_USER"' \
+            'require_env "SRF_HOST"' \
+            'require_env "WINDOWS_DEST"' \
+            'require_env "SRF_PASSWORD"' \
+            '' \
+            'set src_file $::env(SRC_FILE)' \
+            'set filename $::env(FILENAME)' \
+            'set srf_user $::env(SRF_USER)' \
+            'set srf_host $::env(SRF_HOST)' \
+            'set windows_dest $::env(WINDOWS_DEST)' \
+            'set srf_password $::env(SRF_PASSWORD)' \
+            'set srf_port 22' \
+            'if {[info exists ::env(SRF_PORT)] && $::env(SRF_PORT) ne ""} {' \
+            '    set srf_port $::env(SRF_PORT)' \
+            '}' \
+            '' \
+            'set remote_path "$srf_user@$srf_host:$windows_dest/$filename"' \
+            '' \
+            'puts "Transferring $src_file -> $remote_path"' \
+            '' \
+            'set rc 1' \
+            'for {set i 1} {$i <= $attempts} {incr i} {' \
+            '    puts "SCP attempt $i/$attempts"' \
+            '    spawn /usr/bin/scp -P "$srf_port" -o ConnectTimeout=15 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$src_file" "$remote_path"' \
+            '    expect {' \
+            '        -re "(?i)are you sure you want to continue connecting" {' \
+            '            send "yes\r"' \
+            '            exp_continue' \
+            '        }' \
+            '        -re "(?i)password:" {' \
+            '            send "$srf_password\r"' \
+            '            exp_continue' \
+            '        }' \
+            '        eof {' \
+            '            catch wait result' \
+            '            set rc [lindex $result 3]' \
+            '        }' \
+            '        timeout {' \
+            '            set rc 124' \
+            '        }' \
+            '    }' \
+            '    if {$rc == 0} {' \
+            '        puts "Transfer complete: $filename"' \
+            '        exit 0' \
+            '    }' \
+            '    if {$i < $attempts} {' \
+            '        puts stderr "SCP failed on attempt $i with rc=$rc; retrying in ${retry_delay_sec}s"' \
+            '        after [expr {$retry_delay_sec * 1000}]' \
+            '    }' \
+            '}' \
+            'puts stderr "SCP failed after $attempts attempts, last rc=$rc"' \
+            'exit $rc' \
+            > "$SCP_EXPECT_SCRIPT"
+          chmod +x "$SCP_EXPECT_SCRIPT"
+
+          [ -f "$SCP_EXPECT_SCRIPT" ] || { echo "Missing SCP script: $SCP_EXPECT_SCRIPT"; exit 1; }
+
+          if ! command -v timeout >/dev/null 2>&1; then
+            echo "ERROR: 'timeout' command not found; cannot run SSH preflight checks"
+            exit 1
+          fi
+
+          echo "Checking SSH reachability to ${SRF_HOST}:${SRF_PORT}..."
+          PRECHECK_OK=0
+          for i in 1 2 3; do
+            if timeout 15 bash -c "cat < /dev/null > /dev/tcp/${SRF_HOST}/${SRF_PORT}" 2>/dev/null; then
+              echo "SSH endpoint reachable on attempt ${i}"
+              PRECHECK_OK=1
+              break
+            fi
+            echo "Preflight attempt ${i}/3 failed for ${SRF_HOST}:${SRF_PORT}; retrying in 20s..."
+            sleep 20
+          done
+
+          if [ "$PRECHECK_OK" -ne 1 ]; then
+            if [ "$SRF_STRICT_PRECHECK" = "true" ]; then
+              echo "ERROR: Cannot reach ${SRF_HOST}:${SRF_PORT} from runner after 3 attempts. Check host availability/firewall/VPN/routing."
+              echo "SRF_STRICT_PRECHECK=true, stopping before SCP attempts."
+              exit 1
+            fi
+
+            echo "WARNING: SSH precheck failed for ${SRF_HOST}:${SRF_PORT}, but continuing to SCP retries (SRF_STRICT_PRECHECK=${SRF_STRICT_PRECHECK})."
+          fi
+
+          for INC_FILE in $INC_FILES; do
+            FILENAME=$(basename "$INC_FILE")
+            export SRC_FILE="$INC_FILE"
+            export FILENAME="$FILENAME"
+            export SRF_USER="$SRF_USER"
+            export SRF_HOST="$SRF_HOST"
+            export SRF_PORT="$SRF_PORT"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+            "${{ env.EXPECT_PATH }}" "$SCP_EXPECT_SCRIPT" || exit 1
+          done
+
+          for PDB_FILE in $PDB_FILES; do
+            FILENAME=$(basename "$PDB_FILE")
+            export SRC_FILE="$PDB_FILE"
+            export FILENAME="$FILENAME"
+            export SRF_USER="$SRF_USER"
+            export SRF_HOST="$SRF_HOST"
+            export SRF_PORT="$SRF_PORT"
+            export WINDOWS_DEST="$WINDOWS_DEST"
+            "${{ env.EXPECT_PATH }}" "$SCP_EXPECT_SCRIPT" || exit 1
+          done
 
   call-srf-login:
     needs: [session-management, copy-release-collaterals]
@@ -572,7 +1297,7 @@ jobs:
   notify-final-result:
     runs-on: [self-hosted, node16]
     needs: [session-management, read-json, patch-build, upload-release-collaterals, copy-release-collaterals, call-srf-login, call-read-pipeline-result]
-    if: ${{ always() }}
+    if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
 
     steps:
       - name: Send Final Result Notification
@@ -584,19 +1309,12 @@ jobs:
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
           PIPELINE_STATUS="UNKNOWN"
 
-          if [ -z "$CALLBACK_URL" ]; then
-            echo "No callback URL provided; skipping final notification POST."
-            exit 0
-          fi
-
           if [ "${{ needs.call-read-pipeline-result.result }}" = "success" ]; then
             PIPELINE_STATUS="PASSED"
           elif [ "${{ needs.call-read-pipeline-result.result }}" = "failure" ]; then
             PIPELINE_STATUS="FAILED"
           elif [ "${{ needs.call-read-pipeline-result.result }}" = "cancelled" ]; then
             PIPELINE_STATUS="CANCELLED"
-          elif [ "${{ needs.call-read-pipeline-result.result }}" = "skipped" ]; then
-            PIPELINE_STATUS="SKIPPED"
           fi
 
           BUILD_STATUS="unknown"
@@ -612,9 +1330,6 @@ jobs:
             elif [ "$PIPELINE_STATUS" = "CANCELLED" ]; then
               BUILD_STATUS="pipeline_cancelled"
               BUILD_MESSAGE="SRF Debug UP build completed but pipeline was cancelled"
-            elif [ "$PIPELINE_STATUS" = "SKIPPED" ]; then
-              BUILD_STATUS="pipeline_skipped"
-              BUILD_MESSAGE="SRF Debug UP build completed but pipeline result job was skipped"
             else
               BUILD_STATUS="build_success_pipeline_unknown"
               BUILD_MESSAGE="SRF Debug UP build completed successfully, pipeline status unknown"
