@@ -32,11 +32,11 @@ jobs:
           [ -n "${SRF_PASSWORD:-}" ] || { echo "SRF_PASSWORD is empty"; exit 1; }
 
           TMP_DIR="${RUNNER_TEMP:-/tmp}"
-          REMOTE_WORKDIR="${SRF_REMOTE_WORKDIR:-C:\\UPIBR-automation-1\\scripts}"
+          REMOTE_WORKDIR="${SRF_REMOTE_WORKDIR:-C:\\Users\\pkummara\\scripts}"
           REMOTE_PYTHON="${SRF_REMOTE_PYTHON:-C:\\Python310\\python.exe}"
-          REMOTE_WORKDIR_ALT1="C:\\Users\\${SRF_USER}\\UPIBR-automation-1\\scripts"
-          REMOTE_WORKDIR_ALT2="C:\\Users\\pkummara\\scripts"
-          REMOTE_WORKDIR_ALT3="C:\\pkummara\\scripts"
+          REMOTE_WORKDIR_ALT1="C:\\Users\\pkummara\\scripts"
+          REMOTE_WORKDIR_ALT2="C:\\pkummara\\scripts"
+          REMOTE_WORKDIR_ALT3="C:\\UPIBR-automation-1\\scripts"
 
           OUTPUT_LOG="${TMP_DIR}/srf_login_${GITHUB_RUN_ID}.log"
           EXP_SCRIPT="${TMP_DIR}/ssh_login_${GITHUB_RUN_ID}.exp"
@@ -137,13 +137,19 @@ jobs:
             }
           }
 
+          set host_user_home "C:\\Users\\pkummara"
+          set host_logs_dir "C:\\Users\\pkummara\\logs"
+          set host_ifwi_input_dir "C:\\Users\\pkummara\\IFWI_INC_PDB\\test"
+
           expect {
             -re [prompt_re] { send "cd /d $deploy_workdir\r" }
             timeout { puts "FAILURE: unable to change to deploy workdir"; exit 1 }
           }
 
           expect {
-            -re [prompt_re] { send "\"$remote_python\" -u .\\deploy_reboot_wrapper.py & echo __DEPLOY_RC__:%ERRORLEVEL%\r" }
+            -re [prompt_re] {
+              send "set \"HOST_USER_HOME=$host_user_home\" & set \"HOST_LOGS_DIR=$host_logs_dir\" & set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" & \"$remote_python\" -u .\\deploy_reboot_wrapper.py & echo __DEPLOY_RC__:%ERRORLEVEL%\r"
+            }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
           }
 
