@@ -69,8 +69,12 @@ jobs:
           set timeout 120
           set password $env(SRF_PASSWORD)
 
-          # Match the Windows CMD prompt more reliably
-          set prompt_re {(?m)^[^\r\n]*>\s?$}
+          # Disable terminal output noise from ANSI sequences
+          log_user 0
+
+          # Match Windows CMD prompt: looks for > at end of line (with optional spaces/CR)
+          # Works for both "C:\Users\foo>" and "cefls_user@HOST C:\Users\foo>"
+          set prompt_re {>\s*\r?$}
 
           spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.198
 
@@ -83,6 +87,10 @@ jobs:
             eof { puts "FAILURE: SSH session closed before prompt"; exit 1 }
             timeout { puts "FAILURE: Timed out waiting for SSH login"; exit 1 }
           }
+
+          log_user 1
+          puts "SUCCESS: Logged in to Windows host"
+          log_user 0
 
           send "whoami\r"
           expect {
@@ -105,6 +113,7 @@ jobs:
             timeout { puts "FAILURE: dir command did not complete"; exit 1 }
           }
 
+          set timeout 300
           send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r"
           expect {
             -re $prompt_re {}
