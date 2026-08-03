@@ -64,7 +64,7 @@ jobs:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           echo "================================================="
           echo "  SRF SSH Login - Post Build Auto Login"
@@ -72,106 +72,150 @@ jobs:
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          # Default timeout for all expect calls (30s for fast failure)
-          set timeout 30
+          set timeout 7200
           set srf_host $env(SRF_HOST)
           set srf_user $env(SRF_USER)
           set password $env(SRF_PASSWORD)
-          set prompt_re {(?m)[A-Za-z0-9_.@-]+ [A-Za-z]:\\[^\r\n]*>[ ]?$}
 
-          if {$srf_host eq ""} {
-            puts "FAILURE: SRF_HOST is empty"
-            exit 10
-          }
-          if {$srf_user eq ""} {
-            puts "FAILURE: SRF_USER is empty"
-            exit 11
-          }
-          if {$password eq ""} {
-            puts "FAILURE: SRF_PASSWORD is empty"
-            exit 16
-          }
+          set script_path "C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py"
+          set python_path "C:\\Python310\\python.exe"
 
-          spawn ssh -T -o ConnectTimeout=30 -o StrictHostKeyChecking=no $srf_user@$srf_host
+          spawn ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $srf_user@$srf_host
 
-          # Login: wait for password prompt then shell prompt
+          # Step 1: Send password
           expect {
-            -re {(?i)are you sure you want to continue connecting} {
-              send "yes\r"
-              exp_continue
-            }
-            -re {(?i)password:} {
-              send "$password\r"
-              exp_continue
-            }
-            -re {(?i)permission denied} {
-              puts "FAILURE: Permission denied"
-              exit 13
-            }
-            -re $prompt_re { }
-            timeout {
-              puts "FAILURE: Connection timed out"
-              exit 124
-            }
-            eof {
-              catch wait result
-              set rc [lindex $result 3]
-              puts "FAILURE: SSH closed during login (rc=$rc)"
-              exit $rc
-            }
+            "*assword:*"                 { send "$password\r" }
+            "Permission denied"          { puts "FAILURE: Invalid SSH credentials"; exit 1 }
+            "Connection refused"         { puts "FAILURE: SSH connection refused"; exit 1 }
+            "Could not resolve hostname" { puts "FAILURE: Hostname resolution failed"; exit 1 }
+            "No route to host"           { puts "FAILURE: No route to host"; exit 1 }
+            timeout                      { puts "FAILURE: Connection timed out"; exit 1 }
+            eof                          { puts "FAILURE: SSH session terminated before password prompt"; exit 1 }
           }
 
-          # Verify remote user: send echo %USERNAME% and wait for the next prompt.
-          # The username will appear in the output buffer before the prompt arrives.
-          send "echo %USERNAME%\r"
+          # Step 2: Wait for shell prompt
           expect {
-            -re $prompt_re {
-              # Extract the username from the captured buffer (line before the prompt)
-              set buf $expect_out(buffer)
-              if {[regexp {(?:\r?\n)([A-Za-z0-9._-]+)\r?\n} $buf _ remote_user]} {
-                puts "Remote user verified: [string trim $remote_user]"
-              } else {
-                puts "Remote user: (prompt received, username extraction skipped)"
+            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
+            "*assword:*"        { puts "FAILURE: Password rejected"; exit 1 }
+            "*>*"               {}
+            timeout             { puts "FAILURE: Shell prompt not received"; exit 1 }
+            eof                 { puts "FAILURE: SSH session closed after login"; exit 1 }
+          }
+
+          # Step 3: Verify remote user with whoami
+          send "whoami\r"
+          expect {
+            "*>*" {
+              set whoami_output $expect_out(buffer)
+              if {![string match -nocase "*\\\\cefls_user*" $whoami_output]} {
+                puts "FAILURE: whoami did not return expected user"
+                puts "WHOAMI OUTPUT: $whoami_output"
+                exit 1
               }
             }
-            timeout {
-              puts "FAILURE: Unable to verify remote SSH user"
-              exit 14
-            }
-            eof {
-              catch wait result
-              set rc [lindex $result 3]
-              puts "FAILURE: SSH closed while running echo %USERNAME% (rc=$rc)"
-              exit $rc
-            }
+            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed after whoami"; exit 1 }
           }
 
-          # Run the deploy script — give it up to 5 minutes to complete
-          set timeout 300
-          send "cmd /c \"set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\test && cd /d C:\\Users\\pkummara\\scripts && C:\\Python310\\python.exe -u deploy_reboot_wrapper.py\"\r"
+          # Step 4: Check script exists
+          send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r"
           expect {
-            -re $prompt_re { }
-            timeout { puts "FAILURE: Python script did not complete"; exit 124 }
-            eof {
-              catch wait result
-              set rc [lindex $result 3]
-              puts "FAILURE: SSH closed while running deploy script (rc=$rc)"
-              exit $rc
-            }
+            "SCRIPT_FOUND"   {}
+            "SCRIPT_MISSING" { puts "FAILURE: deploy_reboot_wrapper.py not found at expected path"; exit 1 }
+            timeout          { puts "FAILURE: Script existence check timed out"; exit 1 }
+            eof              { puts "FAILURE: SSH session closed during script existence check"; exit 1 }
+          }
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: Prompt not received after script existence check"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
           }
 
-          set timeout 30
+          # Step 5: Set proxy env vars
+          send "set NO_PROXY=localhost,127.0.0.1\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: setting NO_PROXY timed out"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed while setting NO_PROXY"; exit 1 }
+          }
+          send "set no_proxy=localhost,127.0.0.1\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: setting no_proxy timed out"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed while setting no_proxy"; exit 1 }
+          }
+
+          # Step 6: Set MICROCODE_INPUT_DIR and run deploy script
+          send "set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\test\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: setting MICROCODE_INPUT_DIR timed out"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed while setting MICROCODE_INPUT_DIR"; exit 1 }
+          }
+
+          send "$python_path -u $script_path\r"
+          expect {
+            "*>*" {
+              set py_output $expect_out(buffer)
+            }
+            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
+          }
+
+          # Step 7: Check for known failure strings in output
+          if {[string match -nocase "*PHASE 0 FAILED*" $py_output]} {
+            puts "FAILURE: Remote script reported PHASE 0 FAILED"
+            puts $py_output
+            exit 1
+          }
+          if {[string match -nocase "*Stitch and burn flow failed*" $py_output]} {
+            puts "FAILURE: Remote script reported stitch/burn failure"
+            puts $py_output
+            exit 1
+          }
+          if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
+            puts "FAILURE: Python script threw an exception"
+            puts $py_output
+            exit 1
+          }
+          if {[string match -nocase "*can't open file*" $py_output]} {
+            puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
+            puts $py_output
+            exit 1
+          }
+
+          # Step 8: Confirm Python exit code
+          send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
+          expect {
+            -re {__PY_EXIT_CODE__=([0-9]+)} {
+              set py_exit $expect_out(1,string)
+              if {$py_exit ne "0"} {
+                puts "FAILURE: Remote Python exited with code $py_exit"
+                puts $py_output
+                exit 1
+              }
+            }
+            timeout { puts "FAILURE: Could not determine remote Python exit code"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed while reading Python exit code"; exit 1 }
+          }
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: Prompt not received after exit code check"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed after exit code check"; exit 1 }
+          }
+
           send "exit\r"
           expect eof
-          catch wait result
-          set rc [lindex $result 3]
-          exit $rc
           EOF
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
           echo "Connecting to SRF host via SSH..."
+
+          set +e
           /usr/bin/expect /tmp/ssh_login_${{ github.run_id }}.exp
           SSH_EXIT=$?
+          set -e
+
           rm -f /tmp/ssh_login_${{ github.run_id }}.exp
 
           if [ $SSH_EXIT -eq 0 ]; then
@@ -188,6 +232,8 @@ jobs:
           SRF_USER: ${{ secrets.SRF_USERNAME }}
         shell: bash
         run: |
+          set -euo pipefail
+
           echo "Sending SRF login notification..."
 
           CALLBACK_URL="${{ inputs.callback_url }}"
