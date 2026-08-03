@@ -58,7 +58,7 @@ jobs:
           set remote_python $env(REMOTE_PYTHON)
 
           proc prompt_re {} {
-            return {[>#%\$\]]}
+            return {[A-Za-z]:\\[^\r\n]*>}
           }
 
           spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 $srf_user@$srf_host
@@ -100,10 +100,7 @@ jobs:
               exp_continue
             }
             -re [prompt_re] {
-              if {$deploy_workdir eq ""} {
-                puts "FAILURE: deploy_reboot_wrapper.py path not found on remote host"
-                exit 1
-              }
+              # Prompt reached; fallback discovery runs below if deploy_workdir is still empty.
             }
             timeout {
               puts "FAILURE: timed out while locating deploy_reboot_wrapper.py on remote host"
