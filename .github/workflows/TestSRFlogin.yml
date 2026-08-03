@@ -22,7 +22,7 @@ jobs:
           SRF_HOST: ${{ secrets.SRF_HOST }}
           SRF_USER: ${{ secrets.SRF_USERNAME }}
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-          SRF_REMOTE_WORKDIR: ${{ vars.SRF_REMOTE_WORKDIR }}
+          SRF_REMOTE_WORKDIR: C:\Users\pkummara\scripts
           SRF_REMOTE_PYTHON: ${{ vars.SRF_REMOTE_PYTHON }}
           SRF_FLASH_TOOL_PATH: C:\Users\CEFLS_User\Desktop\Tools\TTK3_135\TTK3.bat
           SRF_FLASH_TOOL_ARGS: ""
@@ -35,13 +35,10 @@ jobs:
           [ -n "${SRF_FLASH_TOOL_PATH:-}" ] || { echo "SRF_FLASH_TOOL_PATH is empty (real flash required)"; exit 1; }
 
           TMP_DIR="${RUNNER_TEMP:-/tmp}"
-          REMOTE_WORKDIR="${SRF_REMOTE_WORKDIR:-C:\\Users\\pkummara\\scripts}"
+          REMOTE_WORKDIR="C:\\Users\\pkummara\\scripts"
           REMOTE_PYTHON="${SRF_REMOTE_PYTHON:-C:\\Python310\\python.exe}"
           REMOTE_FLASH_TOOL="${SRF_FLASH_TOOL_PATH}"
           REMOTE_FLASH_ARGS="${SRF_FLASH_TOOL_ARGS:-}"
-          REMOTE_WORKDIR_ALT1="C:\\UPIBR-automation-1\\scripts"
-          REMOTE_WORKDIR_ALT2="C:\\pkummara\\scripts"
-          REMOTE_WORKDIR_ALT3="C:\\UPIBR-automation-1\\scripts"
 
           OUTPUT_LOG="${TMP_DIR}/srf_login_${GITHUB_RUN_ID}.log"
           EXP_SCRIPT="${TMP_DIR}/ssh_login_${GITHUB_RUN_ID}.exp"
@@ -57,9 +54,6 @@ jobs:
           set srf_host $env(SRF_HOST)
           set srf_user $env(SRF_USER)
           set remote_workdir $env(REMOTE_WORKDIR)
-          set remote_workdir_alt1 $env(REMOTE_WORKDIR_ALT1)
-          set remote_workdir_alt2 $env(REMOTE_WORKDIR_ALT2)
-          set remote_workdir_alt3 $env(REMOTE_WORKDIR_ALT3)
           set remote_python $env(REMOTE_PYTHON)
           set remote_flash_tool $env(REMOTE_FLASH_TOOL)
           set remote_flash_args $env(REMOTE_FLASH_ARGS)
@@ -167,7 +161,7 @@ jobs:
             }
           }
 
-          send "cmd /V:ON /C \"set \"HOST_USER_HOME=$host_user_home\" ^& set \"HOST_LOGS_DIR=$host_logs_dir\" ^& set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" ^& set \"FLASH_TOOL_PATH=$remote_flash_tool\" ^& set \"FLASH_TOOL_ARGS=$remote_flash_args\" ^& set \"REQUIRE_REAL_FLASH=1\" ^& echo __PYTHON_START__ ^& \"$remote_python\" -u .\\deploy_reboot_wrapper.py ^& set \"DEPLOY_RC=!ERRORLEVEL!\" ^& echo __DEPLOY_RC__:!DEPLOY_RC! ^& exit /b !DEPLOY_RC!\"\r"
+          send "cmd /V:ON /C \"set \"HOST_USER_HOME=$host_user_home\" ^& set \"HOST_LOGS_DIR=$host_logs_dir\" ^& set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" ^& set \"FLASH_TOOL_PATH=$remote_flash_tool\" ^& set \"FLASH_TOOL_ARGS=$remote_flash_args\" ^& set \"REQUIRE_REAL_FLASH=1\" ^& set \"SKIP_PYFIT=1\" ^& echo __PYTHON_START__ ^& \"$remote_python\" -u .\\deploy_reboot_wrapper.py ^& set \"DEPLOY_RC=!ERRORLEVEL!\" ^& echo __DEPLOY_RC__:!DEPLOY_RC! ^& exit /b !DEPLOY_RC!\"\r"
 
           set deploy_rc ""
           expect {
@@ -204,7 +198,7 @@ jobs:
 
           chmod +x "$EXP_SCRIPT"
           echo "Connecting to SRF host via SSH..."
-          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_WORKDIR_ALT1="$REMOTE_WORKDIR_ALT1" REMOTE_WORKDIR_ALT2="$REMOTE_WORKDIR_ALT2" REMOTE_WORKDIR_ALT3="$REMOTE_WORKDIR_ALT3" REMOTE_PYTHON="$REMOTE_PYTHON" REMOTE_FLASH_TOOL="$REMOTE_FLASH_TOOL" REMOTE_FLASH_ARGS="$REMOTE_FLASH_ARGS" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
+          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_PYTHON="$REMOTE_PYTHON" REMOTE_FLASH_TOOL="$REMOTE_FLASH_TOOL" REMOTE_FLASH_ARGS="$REMOTE_FLASH_ARGS" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
 
           if ! grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x[0-9A-Fa-f]+" "$OUTPUT_LOG"; then
             echo "FAILURE: No microcode version evidence found in deploy log"
