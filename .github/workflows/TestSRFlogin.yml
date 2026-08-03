@@ -95,7 +95,7 @@ jobs:
 
           expect {
             -re [prompt_re] {
-              send "for %D in (\"$remote_workdir\" \"$remote_workdir_alt1\" \"$remote_workdir_alt2\" \"$remote_workdir_alt3\") do @if exist \"%~D\\deploy_reboot_wrapper.py\" @echo __WORKDIR__:%~D\r"
+              send "for %D in (\"$remote_workdir\" \"$remote_workdir_alt1\" \"$remote_workdir_alt2\" \"$remote_workdir_alt3\") do @if exist \"%~D\\deploy_reboot_wrapper.py\" @echo __WORKDIR__:%~D & echo __WORKDIR_DONE__\r"
             }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
           }
@@ -106,9 +106,7 @@ jobs:
               set deploy_workdir $expect_out(1,string)
               exp_continue
             }
-            -re [prompt_re] {
-              # Prompt reached; fallback discovery runs below if deploy_workdir is still empty.
-            }
+            -re {__WORKDIR_DONE__} {}
             timeout {
               puts "FAILURE: timed out while locating deploy_reboot_wrapper.py on remote host"
               exit 1
