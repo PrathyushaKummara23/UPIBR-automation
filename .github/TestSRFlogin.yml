@@ -1,0 +1,133 @@
+name: SRF SSH Login - Test
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      SRF_HOST:
+        required: true
+      SRF_USERNAME:
+        required: true
+      SRF_PASSWORD:
+        required: true
+
+jobs:
+  srf-login:
+    name: SRF SSH Login
+    runs-on: [self-hosted, node16]
+
+    steps:
+      - name: SSH into SRF host and run deploy_reboot_wrapper.py
+        env:
+          SRF_HOST: ${{ secrets.SRF_HOST }}
+          SRF_USER: ${{ secrets.SRF_USERNAME }}
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          [ -n "${SRF_HOST:-}" ] || { echo "SRF_HOST is empty"; exit 1; }
+          [ -n "${SRF_USER:-}" ] || { echo "SRF_USERNAME is empty"; exit 1; }
+          [ -n "${SRF_PASSWORD:-}" ] || { echo "SRF_PASSWORD is empty"; exit 1; }
+
+          OUTPUT_LOG="/tmp/srf_login_${GITHUB_RUN_ID}.log"
+          EXP_SCRIPT="/tmp/ssh_login_${GITHUB_RUN_ID}.exp"
+
+          echo "================================================="
+          echo "  SRF SSH Login - Post Build Auto Login"
+          echo "================================================="
+
+          cat > "$EXP_SCRIPT" << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 3600
+          set password $env(SRF_PASSWORD)
+          set srf_host $env(SRF_HOST)
+          set srf_user $env(SRF_USER)
+
+          proc prompt_re {} {
+            return {[>#%\$\]]}
+          }
+
+          spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 $srf_user@$srf_host
+
+          expect {
+            -re "(?i)are you sure you want to continue connecting" {
+              send "yes\r"
+              exp_continue
+            }
+            -re "(?i)password:" {
+              send "$password\r"
+            }
+            timeout {
+              puts "FAILURE: Connection timed out"
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH connection closed unexpectedly"
+              exit 1
+            }
+          }
+
+          expect {
+            -re [prompt_re] { send "whoami\r" }
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+          }
+
+          expect {
+            -re [prompt_re] { send "cd C:\\pkummara\\scripts\r" }
+            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+          }
+
+          expect {
+            -re [prompt_re] { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py & echo __DEPLOY_RC__:%ERRORLEVEL%\r" }
+            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+          }
+
+          expect {
+            -re "__DEPLOY_RC__:(-?[0-9]+)" {
+              set deploy_rc $expect_out(1,string)
+            }
+            timeout {
+              puts "FAILURE: Python script did not complete"
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH connection closed before deploy return code"
+              exit 1
+            }
+          }
+
+          expect {
+            -re [prompt_re] { send "exit\r" }
+            timeout { puts "FAILURE: Prompt not received after deploy"; exit 1 }
+          }
+          expect eof
+
+          if {$deploy_rc ne "0"} {
+            puts "FAILURE: deploy_reboot_wrapper.py returned code $deploy_rc"
+            exit $deploy_rc
+          }
+
+          puts "SUCCESS: deploy_reboot_wrapper.py returned code 0"
+          EOF
+
+          chmod +x "$EXP_SCRIPT"
+          echo "Connecting to SRF host via SSH..."
+          /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
+
+          if ! grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x[0-9A-Fa-f]+" "$OUTPUT_LOG"; then
+            echo "FAILURE: No microcode version evidence found in deploy log"
+            exit 1
+          fi
+
+          if grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x0\b|pyfit-stub|Flash tool not provided|No direct microcode apply command configured|stitch-only" "$OUTPUT_LOG"; then
+            echo "FAILURE: Placeholder or no-apply signature detected in deploy log"
+            exit 1
+          fi
+
+          if ! grep -Eiq "DEPLOY_REBOOT_VERIFY PASSED" "$OUTPUT_LOG"; then
+            echo "FAILURE: DEPLOY_REBOOT_VERIFY PASSED marker missing"
+            exit 1
+          fi
+
+          echo "SUCCESS: SSH login, deploy flow, and real microcode evidence checks passed"
+          rm -f "$EXP_SCRIPT" "$OUTPUT_LOG"
