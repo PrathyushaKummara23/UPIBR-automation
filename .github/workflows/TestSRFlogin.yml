@@ -39,7 +39,7 @@ jobs:
           REMOTE_PYTHON="${SRF_REMOTE_PYTHON:-C:\\Python310\\python.exe}"
           REMOTE_FLASH_TOOL="${SRF_FLASH_TOOL_PATH}"
           REMOTE_FLASH_ARGS="${SRF_FLASH_TOOL_ARGS:-}"
-          REMOTE_WORKDIR_ALT1="C:\\Users\\pkummara\\scripts"
+          REMOTE_WORKDIR_ALT1="C:\\UPIBR-automation-1\\scripts"
           REMOTE_WORKDIR_ALT2="C:\\pkummara\\scripts"
           REMOTE_WORKDIR_ALT3="C:\\UPIBR-automation-1\\scripts"
 
@@ -63,6 +63,8 @@ jobs:
           set remote_python $env(REMOTE_PYTHON)
           set remote_flash_tool $env(REMOTE_FLASH_TOOL)
           set remote_flash_args $env(REMOTE_FLASH_ARGS)
+          set repo_slug $env(REPO_SLUG)
+          set repo_sha $env(REPO_SHA)
 
           proc prompt_re {} {
             return {[A-Za-z]:\\[^\r\n]*>}
@@ -103,7 +105,9 @@ jobs:
           set deploy_workdir ""
           expect {
             -re {__WORKDIR__:([^\r\n]+)} {
-              set deploy_workdir $expect_out(1,string)
+              if {$deploy_workdir eq ""} {
+                set deploy_workdir $expect_out(1,string)
+              }
               exp_continue
             }
             -re {__WORKDIR_DONE__} {}
@@ -175,6 +179,19 @@ jobs:
             }
           }
 
+          send "curl.exe -fsSL \"https://raw.githubusercontent.com/$repo_slug/$repo_sha/scripts/ospl.py\" -o .\\ospl.py && curl.exe -fsSL \"https://raw.githubusercontent.com/$repo_slug/$repo_sha/scripts/deploy_reboot_wrapper.py\" -o .\\deploy_reboot_wrapper.py && curl.exe -fsSL \"https://raw.githubusercontent.com/$repo_slug/$repo_sha/scripts/ifwistitch.py\" -o .\\ifwistitch.py && echo __SYNC_OK__ || echo __SYNC_FAIL__:%ERRORLEVEL%\r"
+          expect {
+            -re {__SYNC_OK__} {}
+            -re {__SYNC_FAIL__:(-?[0-9]+)} {
+              puts "FAILURE: Remote script sync failed with code $expect_out(1,string)"
+              exit 1
+            }
+            timeout {
+              puts "FAILURE: timed out while syncing scripts to remote host"
+              exit 1
+            }
+          }
+
           send "set \"HOST_USER_HOME=$host_user_home\" & set \"HOST_LOGS_DIR=$host_logs_dir\" & set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" & set \"FLASH_TOOL_PATH=$remote_flash_tool\" & set \"FLASH_TOOL_ARGS=$remote_flash_args\" & set \"REQUIRE_REAL_FLASH=1\" & \"$remote_python\" -u .\\deploy_reboot_wrapper.py\r"
 
           expect {
@@ -221,7 +238,7 @@ jobs:
 
           chmod +x "$EXP_SCRIPT"
           echo "Connecting to SRF host via SSH..."
-          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_WORKDIR_ALT1="$REMOTE_WORKDIR_ALT1" REMOTE_WORKDIR_ALT2="$REMOTE_WORKDIR_ALT2" REMOTE_WORKDIR_ALT3="$REMOTE_WORKDIR_ALT3" REMOTE_PYTHON="$REMOTE_PYTHON" REMOTE_FLASH_TOOL="$REMOTE_FLASH_TOOL" REMOTE_FLASH_ARGS="$REMOTE_FLASH_ARGS" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
+          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_WORKDIR_ALT1="$REMOTE_WORKDIR_ALT1" REMOTE_WORKDIR_ALT2="$REMOTE_WORKDIR_ALT2" REMOTE_WORKDIR_ALT3="$REMOTE_WORKDIR_ALT3" REMOTE_PYTHON="$REMOTE_PYTHON" REMOTE_FLASH_TOOL="$REMOTE_FLASH_TOOL" REMOTE_FLASH_ARGS="$REMOTE_FLASH_ARGS" REPO_SLUG="$GITHUB_REPOSITORY" REPO_SHA="$GITHUB_SHA" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
 
           if ! grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x[0-9A-Fa-f]+" "$OUTPUT_LOG"; then
             echo "FAILURE: No microcode version evidence found in deploy log"
