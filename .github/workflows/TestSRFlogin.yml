@@ -53,71 +53,58 @@ jobs:
           echo "Triggered by: ${{ inputs.trigger_source }}"
           echo "Callback URL: ${{ inputs.callback_url }}"
 
-      - name: SSH into Windows host and run deploy_reboot_wrapper.py
+      - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
+
           echo "================================================="
           echo "  SRF SSH Login - Post Build Auto Login"
           echo "================================================="
-          cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'ENDOFSCRIPT'
-#!/usr/bin/expect -f
-set timeout 120
-set password $env(SRF_PASSWORD)
-log_user 0
-set prompt_re {>}
-spawn ssh -tt \
-  -o StrictHostKeyChecking=no \
-  -o UserKnownHostsFile=/dev/null \
-  -o RequestTTY=yes \
-  CEFLS_User@10.138.186.198
-expect {
-  -re {(?i)are you sure you want to continue connecting} { send "yes\r"; exp_continue }
-  -re {(?i)password:}                                   { send "$password\r"; exp_continue }
-  -re {(?i)permission denied}                           { puts "FAILURE: Invalid credentials"; exit 1 }
-  -re {(?i)connection timed out|no route to host|connection refused} { puts "FAILURE: SSH network/connectivity issue"; exit 1 }
-  -re $prompt_re {}
-  eof     { puts "FAILURE: SSH session closed before prompt"; exit 1 }
-  timeout { puts "FAILURE: Timed out waiting for SSH login"; exit 1 }
-}
-log_user 1
-puts "SUCCESS: Logged in to Windows host"
-log_user 0
-send "whoami\r"
-expect {
-  -re $prompt_re {}
-  eof     { puts "FAILURE: SSH session closed after whoami"; exit 1 }
-  timeout { puts "FAILURE: whoami timed out"; exit 1 }
-}
-send "cd C:\\Users\\pkummara\\scripts\r"
-expect {
-  -re $prompt_re {}
-  eof     { puts "FAILURE: SSH session closed after cd"; exit 1 }
-  timeout { puts "FAILURE: cd timed out"; exit 1 }
-}
-send "dir\r"
-expect {
-  -re $prompt_re {}
-  eof     { puts "FAILURE: SSH session closed after dir"; exit 1 }
-  timeout { puts "FAILURE: dir timed out"; exit 1 }
-}
-set timeout 300
-send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r"
-expect {
-  -re $prompt_re {}
-  eof     { puts "FAILURE: SSH session closed during Python execution"; exit 1 }
-  timeout { puts "FAILURE: Python script did not complete in time"; exit 1 }
-}
-send "exit\r"
-expect eof
-ENDOFSCRIPT
+
+          cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 3000
+          set password $env(SRF_PASSWORD)
+
+          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.198
+
+          expect {
+            "*password:*" { send "$password\r" }
+            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
+          }
+
+          expect {
+            "*>*" { send "whoami\r" }
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+          }
+
+          expect {
+            "*>*" { send "cd C:Users\\pkummara\\scripts\r" }
+            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+          }
+
+          expect {
+            "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+          }
+
+          expect {
+            "*>*" { send "exit\r" }
+            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+          }
+
+          expect eof
+          EOF
+
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
-          echo "Connecting to Windows host via SSH..."
+          echo "Connecting to SRF host via SSH..."
           /usr/bin/expect /tmp/ssh_login_${{ github.run_id }}.exp
           SSH_EXIT=$?
           rm -f /tmp/ssh_login_${{ github.run_id }}.exp
+
           if [ $SSH_EXIT -eq 0 ]; then
             echo "SUCCESS: SSH login and command executed successfully"
           else
@@ -130,10 +117,12 @@ ENDOFSCRIPT
         shell: bash
         run: |
           echo "Sending SRF login notification..."
+
           CALLBACK_URL="${{ inputs.callback_url }}"
           SESSION_ID="${{ inputs.session_id }}"
+
           if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_deployed_at":"%s"}' \
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"10.138.186.198","user":"CEFLS_User","login_timestamp":"%s"}}' \
               "$SESSION_ID" \
               "${{ github.run_id }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
