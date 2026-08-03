@@ -34,6 +34,9 @@ jobs:
           TMP_DIR="${RUNNER_TEMP:-/tmp}"
           REMOTE_WORKDIR="${SRF_REMOTE_WORKDIR:-C:\\UPIBR-automation-1\\scripts}"
           REMOTE_PYTHON="${SRF_REMOTE_PYTHON:-C:\\Python310\\python.exe}"
+          REMOTE_WORKDIR_ALT1="C:\\Users\\${SRF_USER}\\UPIBR-automation-1\\scripts"
+          REMOTE_WORKDIR_ALT2="C:\\Users\\pkummara\\scripts"
+          REMOTE_WORKDIR_ALT3="C:\\pkummara\\scripts"
 
           OUTPUT_LOG="${TMP_DIR}/srf_login_${GITHUB_RUN_ID}.log"
           EXP_SCRIPT="${TMP_DIR}/ssh_login_${GITHUB_RUN_ID}.exp"
@@ -49,6 +52,9 @@ jobs:
           set srf_host $env(SRF_HOST)
           set srf_user $env(SRF_USER)
           set remote_workdir $env(REMOTE_WORKDIR)
+          set remote_workdir_alt1 $env(REMOTE_WORKDIR_ALT1)
+          set remote_workdir_alt2 $env(REMOTE_WORKDIR_ALT2)
+          set remote_workdir_alt3 $env(REMOTE_WORKDIR_ALT3)
           set remote_python $env(REMOTE_PYTHON)
 
           proc prompt_re {} {
@@ -81,8 +87,33 @@ jobs:
           }
 
           expect {
-            -re [prompt_re] { send "cd /d $remote_workdir\r" }
+            -re [prompt_re] {
+              send "for %D in (\"$remote_workdir\" \"$remote_workdir_alt1\" \"$remote_workdir_alt2\" \"$remote_workdir_alt3\") do @if exist \"%~D\\deploy_reboot_wrapper.py\" @echo __WORKDIR__:%~D\r"
+            }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+          }
+
+          set deploy_workdir ""
+          expect {
+            -re {__WORKDIR__:([^\r\n]+)} {
+              set deploy_workdir $expect_out(1,string)
+              exp_continue
+            }
+            -re [prompt_re] {
+              if {$deploy_workdir eq ""} {
+                puts "FAILURE: deploy_reboot_wrapper.py path not found on remote host"
+                exit 1
+              }
+            }
+            timeout {
+              puts "FAILURE: timed out while locating deploy_reboot_wrapper.py on remote host"
+              exit 1
+            }
+          }
+
+          expect {
+            -re [prompt_re] { send "cd /d $deploy_workdir\r" }
+            timeout { puts "FAILURE: unable to change to deploy workdir"; exit 1 }
           }
 
           expect {
@@ -120,7 +151,7 @@ jobs:
 
           chmod +x "$EXP_SCRIPT"
           echo "Connecting to SRF host via SSH..."
-          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_PYTHON="$REMOTE_PYTHON" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
+          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_WORKDIR_ALT1="$REMOTE_WORKDIR_ALT1" REMOTE_WORKDIR_ALT2="$REMOTE_WORKDIR_ALT2" REMOTE_WORKDIR_ALT3="$REMOTE_WORKDIR_ALT3" REMOTE_PYTHON="$REMOTE_PYTHON" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
 
           if ! grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x[0-9A-Fa-f]+" "$OUTPUT_LOG"; then
             echo "FAILURE: No microcode version evidence found in deploy log"
