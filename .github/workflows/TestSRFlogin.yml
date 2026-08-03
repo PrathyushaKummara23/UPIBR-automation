@@ -154,18 +154,22 @@ jobs:
             timeout { puts "FAILURE: unable to change to deploy workdir"; exit 1 }
           }
 
+          send "if exist \"$remote_flash_tool\" (echo __FLASH_TOOL_OK__) else (echo __FLASH_TOOL_MISSING__:$remote_flash_tool)\r"
+          set flash_tool_ok 0
           expect {
-            -re [prompt_re] {
-              send "if exist \"$remote_flash_tool\" (echo __FLASH_TOOL_OK__) else (echo __FLASH_TOOL_MISSING__:$remote_flash_tool)\r"
+            -re {__FLASH_TOOL_OK__} {
+              set flash_tool_ok 1
+              exp_continue
             }
-            timeout { puts "FAILURE: could not validate flash tool path"; exit 1 }
-          }
-
-          expect {
-            -re {__FLASH_TOOL_OK__} {}
             -re {__FLASH_TOOL_MISSING__:(.+)} {
               puts "FAILURE: Flash tool not found on remote host: $expect_out(1,string)"
               exit 1
+            }
+            -re [prompt_re] {
+              if {!$flash_tool_ok} {
+                puts "FAILURE: Flash tool validation command did not return __FLASH_TOOL_OK__"
+                exit 1
+              }
             }
             timeout {
               puts "FAILURE: timed out while validating flash tool path"
@@ -173,12 +177,7 @@ jobs:
             }
           }
 
-          expect {
-            -re [prompt_re] {
-              send "set \"HOST_USER_HOME=$host_user_home\" & set \"HOST_LOGS_DIR=$host_logs_dir\" & set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" & set \"FLASH_TOOL_PATH=$remote_flash_tool\" & set \"FLASH_TOOL_ARGS=$remote_flash_args\" & set \"REQUIRE_REAL_FLASH=1\" & \"$remote_python\" -u .\\deploy_reboot_wrapper.py & echo __DEPLOY_RC__:%ERRORLEVEL%\r"
-            }
-            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
-          }
+          send "set \"HOST_USER_HOME=$host_user_home\" & set \"HOST_LOGS_DIR=$host_logs_dir\" & set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" & set \"FLASH_TOOL_PATH=$remote_flash_tool\" & set \"FLASH_TOOL_ARGS=$remote_flash_args\" & set \"REQUIRE_REAL_FLASH=1\" & \"$remote_python\" -u .\\deploy_reboot_wrapper.py & echo __DEPLOY_RC__:%ERRORLEVEL%\r"
 
           expect {
             -re {__DEPLOY_RC__:(-?[0-9]+)} {
