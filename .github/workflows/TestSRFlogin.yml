@@ -91,7 +91,7 @@ jobs:
           }
 
           expect {
-            -re "__DEPLOY_RC__:(-?[0-9]+)" {
+            -re {__DEPLOY_RC__:(-?[0-9]+)} {
               set deploy_rc $expect_out(1,string)
             }
             timeout {
