@@ -2,135 +2,140 @@ name: SRF SSH Login - Test
 
 on:
   workflow_dispatch:
-    inputs:
-      session_id:
-        description: 'Session ID for tracking'
-        required: false
-        type: string
-        default: ''
-      trigger_source:
-        description: 'Source that triggered the workflow'
-        required: false
-        type: string
-        default: 'unknown'
-      callback_url:
-        description: 'Callback URL for notifications'
-        required: false
-        type: string
-        default: ''
   workflow_call:
-    inputs:
-      session_id:
-        description: 'Session ID for tracking'
-        required: false
-        type: string
-        default: ''
-      trigger_source:
-        description: 'Source that triggered the workflow'
-        required: false
-        type: string
-        default: 'unknown'
-      callback_url:
-        description: 'Callback URL for notifications'
-        required: false
-        type: string
-        default: ''
     secrets:
+      SRF_HOST:
+        required: true
+      SRF_USERNAME:
+        required: true
       SRF_PASSWORD:
         required: true
 
 jobs:
   srf-login:
     name: SRF SSH Login
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, node16]
 
     steps:
-      - name: Session Info Display
-        if: ${{ inputs.session_id != '' }}
-        shell: bash
-        run: |
-          echo "Session ID: ${{ inputs.session_id }}"
-          echo "Triggered by: ${{ inputs.trigger_source }}"
-          echo "Callback URL: ${{ inputs.callback_url }}"
-
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
+          SRF_HOST: ${{ secrets.SRF_HOST }}
+          SRF_USER: ${{ secrets.SRF_USERNAME }}
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-        shell: bash
+          SRF_REMOTE_WORKDIR: ${{ vars.SRF_REMOTE_WORKDIR }}
+          SRF_REMOTE_PYTHON: ${{ vars.SRF_REMOTE_PYTHON }}
         run: |
-          set -e
+          set -euo pipefail
+
+          [ -n "${SRF_HOST:-}" ] || { echo "SRF_HOST is empty"; exit 1; }
+          [ -n "${SRF_USER:-}" ] || { echo "SRF_USERNAME is empty"; exit 1; }
+          [ -n "${SRF_PASSWORD:-}" ] || { echo "SRF_PASSWORD is empty"; exit 1; }
+
+          TMP_DIR="${RUNNER_TEMP:-/tmp}"
+          REMOTE_WORKDIR="${SRF_REMOTE_WORKDIR:-C:\\UPIBR-automation-1\\scripts}"
+          REMOTE_PYTHON="${SRF_REMOTE_PYTHON:-C:\\Python310\\python.exe}"
+
+          OUTPUT_LOG="${TMP_DIR}/srf_login_${GITHUB_RUN_ID}.log"
+          EXP_SCRIPT="${TMP_DIR}/ssh_login_${GITHUB_RUN_ID}.exp"
 
           echo "================================================="
           echo "  SRF SSH Login - Post Build Auto Login"
           echo "================================================="
 
-          cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
+          cat > "$EXP_SCRIPT" << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 3000
+          set timeout 3600
           set password $env(SRF_PASSWORD)
+          set srf_host $env(SRF_HOST)
+          set srf_user $env(SRF_USER)
+          set remote_workdir $env(REMOTE_WORKDIR)
+          set remote_python $env(REMOTE_PYTHON)
 
-          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.198
+          proc prompt_re {} {
+            return {[>#%\$\]]}
+          }
+
+          spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 $srf_user@$srf_host
 
           expect {
-            "*password:*" { send "$password\r" }
-            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
+            -re "(?i)are you sure you want to continue connecting" {
+              send "yes\r"
+              exp_continue
+            }
+            -re "(?i)password:" {
+              send "$password\r"
+            }
+            timeout {
+              puts "FAILURE: Connection timed out"
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH connection closed unexpectedly"
+              exit 1
+            }
           }
 
           expect {
-            "*>*" { send "whoami\r" }
+            -re [prompt_re] { send "whoami\r" }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
           }
 
           expect {
-            "*>*" { send "cd C:Users\\pkummara\\scripts\r" }
+            -re [prompt_re] { send "cd /d $remote_workdir\r" }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
           }
 
           expect {
-            "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            -re [prompt_re] { send "\"$remote_python\" -u .\\deploy_reboot_wrapper.py & echo __DEPLOY_RC__:%ERRORLEVEL%\r" }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
           }
 
           expect {
-            "*>*" { send "exit\r" }
-            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+            -re "__DEPLOY_RC__:(-?[0-9]+)" {
+              set deploy_rc $expect_out(1,string)
+            }
+            timeout {
+              puts "FAILURE: Python script did not complete"
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH connection closed before deploy return code"
+              exit 1
+            }
           }
 
+          expect {
+            -re [prompt_re] { send "exit\r" }
+            timeout { puts "FAILURE: Prompt not received after deploy"; exit 1 }
+          }
           expect eof
+
+          if {$deploy_rc ne "0"} {
+            puts "FAILURE: deploy_reboot_wrapper.py returned code $deploy_rc"
+            exit $deploy_rc
+          }
+
+          puts "SUCCESS: deploy_reboot_wrapper.py returned code 0"
           EOF
 
-          chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
+          chmod +x "$EXP_SCRIPT"
           echo "Connecting to SRF host via SSH..."
-          /usr/bin/expect /tmp/ssh_login_${{ github.run_id }}.exp
-          SSH_EXIT=$?
-          rm -f /tmp/ssh_login_${{ github.run_id }}.exp
+          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_PYTHON="$REMOTE_PYTHON" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
 
-          if [ $SSH_EXIT -eq 0 ]; then
-            echo "SUCCESS: SSH login and command executed successfully"
-          else
-            echo "FAILURE: SSH connection failed with exit code: $SSH_EXIT"
-            exit $SSH_EXIT
+          if ! grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x[0-9A-Fa-f]+" "$OUTPUT_LOG"; then
+            echo "FAILURE: No microcode version evidence found in deploy log"
+            exit 1
           fi
 
-      - name: Send SRF Login Notification
-        if: ${{ inputs.callback_url != '' }}
-        shell: bash
-        run: |
-          echo "Sending SRF login notification..."
-
-          CALLBACK_URL="${{ inputs.callback_url }}"
-          SESSION_ID="${{ inputs.session_id }}"
-
-          if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"10.138.186.198","user":"CEFLS_User","login_timestamp":"%s"}}' \
-              "$SESSION_ID" \
-              "${{ github.run_id }}" \
-              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              "${{ inputs.trigger_source }}" \
-              "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
-            curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
-              -H "Content-Type: application/json" \
-              -d "$PAYLOAD" || echo "Failed to send SRF login notification"
-          else
-            echo "No callback URL provided, skipping notification"
+          if grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x0\b|pyfit-stub|Flash tool not provided|No direct microcode apply command configured|stitch-only" "$OUTPUT_LOG"; then
+            echo "FAILURE: Placeholder or no-apply signature detected in deploy log"
+            exit 1
           fi
+
+          if ! grep -Eiq "(MICROCODE_DEPLOY_REBOOT_STITCH_VERIFY|DEPLOY_REBOOT_VERIFY)[[:space:]]+PASSED" "$OUTPUT_LOG"; then
+            echo "FAILURE: PASS marker missing in deploy log"
+            exit 1
+          fi
+
+          echo "SUCCESS: SSH login, deploy flow, and real microcode evidence checks passed"
+          rm -f "$EXP_SCRIPT" "$OUTPUT_LOG"
