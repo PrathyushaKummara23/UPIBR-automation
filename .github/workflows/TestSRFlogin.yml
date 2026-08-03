@@ -111,6 +111,35 @@ jobs:
             }
           }
 
+          if {$deploy_workdir eq ""} {
+            expect {
+              -re [prompt_re] {
+                send "where /r C:\\ deploy_reboot_wrapper.py 2>nul\r"
+              }
+              timeout {
+                puts "FAILURE: prompt not available before fallback search"
+                exit 1
+              }
+            }
+
+            expect {
+              -re {([A-Za-z]:\\[^\r\n]*\\deploy_reboot_wrapper\.py)} {
+                set deploy_workdir [file dirname $expect_out(1,string)]
+                exp_continue
+              }
+              -re [prompt_re] {
+                if {$deploy_workdir eq ""} {
+                  puts "FAILURE: deploy_reboot_wrapper.py path not found on remote host"
+                  exit 1
+                }
+              }
+              timeout {
+                puts "FAILURE: timed out while running fallback where /r search"
+                exit 1
+              }
+            }
+          }
+
           expect {
             -re [prompt_re] { send "cd /d $deploy_workdir\r" }
             timeout { puts "FAILURE: unable to change to deploy workdir"; exit 1 }
