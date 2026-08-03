@@ -148,8 +148,9 @@ jobs:
           set host_logs_dir "C:\\Users\\pkummara\\logs"
           set host_ifwi_input_dir "C:\\Users\\pkummara\\IFWI_INC_PDB\\test"
 
+          send "cd /d $deploy_workdir\r"
           expect {
-            -re [prompt_re] { send "cd /d $deploy_workdir\r" }
+            -re [prompt_re] {}
             timeout { puts "FAILURE: unable to change to deploy workdir"; exit 1 }
           }
 
