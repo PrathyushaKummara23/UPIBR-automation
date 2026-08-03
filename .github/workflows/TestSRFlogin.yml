@@ -68,7 +68,9 @@ jobs:
           #!/usr/bin/expect -f
           set timeout 120
           set password $env(SRF_PASSWORD)
-          set prompt_re {(?m).*[>#]\s?$}
+
+          # Match the Windows CMD prompt more reliably
+          set prompt_re {(?m)^[^\r\n]*>\s?$}
 
           spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.198
 
@@ -89,11 +91,18 @@ jobs:
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
           }
 
-          send "cd C:\\pkummara\\scripts\r"
+          send "cd C:\\Users\\pkummara\\scripts\r"
           expect {
             -re $prompt_re {}
             eof { puts "FAILURE: SSH session closed after cd"; exit 1 }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+          }
+
+          send "dir\r"
+          expect {
+            -re $prompt_re {}
+            eof { puts "FAILURE: SSH session closed after dir"; exit 1 }
+            timeout { puts "FAILURE: dir command did not complete"; exit 1 }
           }
 
           send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r"
@@ -130,7 +139,7 @@ jobs:
           SESSION_ID="${{ inputs.session_id }}"
 
           if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_de[...]
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_deployed_at":"%s"}' \
               "$SESSION_ID" \
               "${{ github.run_id }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
