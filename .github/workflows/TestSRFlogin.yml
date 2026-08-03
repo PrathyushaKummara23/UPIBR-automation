@@ -58,7 +58,7 @@ jobs:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           echo "================================================="
           echo "  SRF SSH Login - Post Build Auto Login"
@@ -66,36 +66,44 @@ jobs:
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 3000
+          set timeout 120
           set password $env(SRF_PASSWORD)
+          set prompt_re {(?m).*[>#]\s?$}
 
-          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+          spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.133
 
           expect {
-            "*assword:*" { send "$password\r" }
-            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
+            -re "(?i)are you sure you want to continue connecting" { send "yes\r"; exp_continue }
+            -re "(?i)password:" { send "$password\r"; exp_continue }
+            -re "(?i)permission denied" { puts "FAILURE: Invalid credentials"; exit 1 }
+            -re "(?i)connection timed out|no route to host|connection refused" { puts "FAILURE: SSH network/connectivity issue"; exit 1 }
+            -re $prompt_re {}
+            eof { puts "FAILURE: SSH session closed before prompt"; exit 1 }
+            timeout { puts "FAILURE: Timed out waiting for SSH login"; exit 1 }
           }
 
+          send "whoami\r"
           expect {
-            "*>*" { send "whoami\r" }
-            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
-          }
-
-          expect {
-            "*>*" { send "cd C:\\pkummara\\scripts\r" }
+            -re $prompt_re {}
+            eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
           }
 
+          send "cd C:\\pkummara\\scripts\r"
           expect {
-            "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            -re $prompt_re {}
+            eof { puts "FAILURE: SSH session closed after cd"; exit 1 }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
           }
 
+          send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r"
           expect {
-            "*>*" { send "exit\r" }
-            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+            -re $prompt_re {}
+            eof { puts "FAILURE: SSH session closed during Python execution"; exit 1 }
+            timeout { puts "FAILURE: Python script did not complete in time"; exit 1 }
           }
 
+          send "exit\r"
           expect eof
           EOF
 
