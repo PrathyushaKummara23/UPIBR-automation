@@ -78,6 +78,7 @@ jobs:
           set password $env(SRF_PASSWORD)
 
           set script_path "C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py"
+          set stitch_script "C:\\Users\\pkummara\\scripts\\ifwistitch_ifwiburn.py"
           set python_path "C:\\Python310\\python.exe"
 
           spawn ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $srf_user@$srf_host
@@ -117,7 +118,7 @@ jobs:
             eof     { puts "FAILURE: SSH session closed after whoami"; exit 1 }
           }
 
-          # Step 4: Check script exists
+          # Step 4: Check required scripts exist
           send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r"
           expect {
             "SCRIPT_FOUND"   {}
@@ -129,6 +130,19 @@ jobs:
             "*>*"   {}
             timeout { puts "FAILURE: Prompt not received after script existence check"; exit 1 }
             eof     { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
+          }
+
+          send "if exist \"$stitch_script\" (echo STITCH_SCRIPT_FOUND) else (echo STITCH_SCRIPT_MISSING)\r"
+          expect {
+            "STITCH_SCRIPT_FOUND"   {}
+            "STITCH_SCRIPT_MISSING" { puts "FAILURE: ifwistitch_ifwiburn.py not found at expected path"; exit 1 }
+            timeout                 { puts "FAILURE: Stitch script existence check timed out"; exit 1 }
+            eof                     { puts "FAILURE: SSH session closed during stitch script existence check"; exit 1 }
+          }
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: Prompt not received after stitch script existence check"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed after stitch script existence check"; exit 1 }
           }
 
           # Step 5: Set proxy env vars
@@ -145,7 +159,7 @@ jobs:
             eof     { puts "FAILURE: SSH session closed while setting no_proxy"; exit 1 }
           }
 
-          # Step 6: Set MICROCODE_INPUT_DIR and run deploy script
+          # Step 6: Set MICROCODE_INPUT_DIR
           send "set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\test\r"
           expect {
             "*>*"   {}
@@ -153,6 +167,68 @@ jobs:
             eof     { puts "FAILURE: SSH session closed while setting MICROCODE_INPUT_DIR"; exit 1 }
           }
 
+          # Step 7: Resolve PYFIT_PATH on remote host
+          send "set PYFIT_PATH=\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: could not reset PYFIT_PATH"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed while resetting PYFIT_PATH"; exit 1 }
+          }
+
+          send "if exist \"C:\\Users\\pkummara\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\Users\\pkummara\\pyfit\\pyfit.py\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: PYFIT candidate check 1 timed out"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 1"; exit 1 }
+          }
+
+          send "if \"%PYFIT_PATH%\"==\"\" if exist \"C:\\Users\\pkummara\\tools\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\Users\\pkummara\\tools\\pyfit\\pyfit.py\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: PYFIT candidate check 2 timed out"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 2"; exit 1 }
+          }
+
+          send "if \"%PYFIT_PATH%\"==\"\" if exist \"C:\\pythonsv\\sapphirerapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\pythonsv\\sapphirerapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: PYFIT candidate check 3 timed out"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 3"; exit 1 }
+          }
+
+          send "if \"%PYFIT_PATH%\"==\"\" if exist \"C:\\pythonsv\\graniterapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\pythonsv\\graniterapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\r"
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: PYFIT candidate check 4 timed out"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 4"; exit 1 }
+          }
+
+          send "echo __PYFIT_PATH__=%PYFIT_PATH%\r"
+          expect {
+            -re {__PYFIT_PATH__=(.*)\r?\n} {
+              set pyfit_val [string trim $expect_out(1,string)]
+              if {$pyfit_val eq ""} {
+                puts "FAILURE: PYFIT_MISSING on remote host"
+                puts "Checked paths:"
+                puts "  C:\\Users\\pkummara\\pyfit\\pyfit.py"
+                puts "  C:\\Users\\pkummara\\tools\\pyfit\\pyfit.py"
+                puts "  C:\\pythonsv\\sapphirerapids\\users\\kwadams\\staging\\pyfit\\pyfit.py"
+                puts "  C:\\pythonsv\\graniterapids\\users\\kwadams\\staging\\pyfit\\pyfit.py"
+                exit 1
+              } else {
+                puts "PYFIT_FOUND: $pyfit_val"
+              }
+            }
+            timeout { puts "FAILURE: Could not read PYFIT_PATH"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed while reading PYFIT_PATH"; exit 1 }
+          }
+          expect {
+            "*>*"   {}
+            timeout { puts "FAILURE: Prompt not received after PYFIT_PATH check"; exit 1 }
+            eof     { puts "FAILURE: SSH session closed after PYFIT_PATH check"; exit 1 }
+          }
+
+          # Step 8: Run deploy script
           send "$python_path -u $script_path\r"
           expect {
             "*>*" {
@@ -162,7 +238,7 @@ jobs:
             eof     { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
           }
 
-          # Step 7: Check for known failure strings in output
+          # Step 9: Check for known failure strings in output
           if {[string match -nocase "*PHASE 0 FAILED*" $py_output]} {
             puts "FAILURE: Remote script reported PHASE 0 FAILED"
             puts $py_output
@@ -184,7 +260,7 @@ jobs:
             exit 1
           }
 
-          # Step 8: Confirm Python exit code
+          # Step 10: Confirm Python exit code
           send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
           expect {
             -re {__PY_EXIT_CODE__=([0-9]+)} {
