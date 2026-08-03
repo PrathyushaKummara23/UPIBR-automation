@@ -175,7 +175,21 @@ jobs:
             }
           }
 
-          send "set \"HOST_USER_HOME=$host_user_home\" & set \"HOST_LOGS_DIR=$host_logs_dir\" & set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" & set \"FLASH_TOOL_PATH=$remote_flash_tool\" & set \"FLASH_TOOL_ARGS=$remote_flash_args\" & set \"REQUIRE_REAL_FLASH=1\" & \"$remote_python\" -u .\\deploy_reboot_wrapper.py & echo __DEPLOY_RC__:%ERRORLEVEL%\r"
+          send "set \"HOST_USER_HOME=$host_user_home\" & set \"HOST_LOGS_DIR=$host_logs_dir\" & set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" & set \"FLASH_TOOL_PATH=$remote_flash_tool\" & set \"FLASH_TOOL_ARGS=$remote_flash_args\" & set \"REQUIRE_REAL_FLASH=1\" & \"$remote_python\" -u .\\deploy_reboot_wrapper.py\r"
+
+          expect {
+            -re [prompt_re] {}
+            timeout {
+              puts "FAILURE: Python script did not return to prompt"
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH connection closed before Python script completion"
+              exit 1
+            }
+          }
+
+          send "echo __DEPLOY_RC__:%ERRORLEVEL%\r"
 
           expect {
             -re {__DEPLOY_RC__:(-?[0-9]+)} {
