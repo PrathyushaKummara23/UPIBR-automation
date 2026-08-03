@@ -94,13 +94,11 @@ jobs:
           }
 
           set deploy_workdir $remote_workdir
-          send "if exist \"$deploy_workdir\\deploy_reboot_wrapper.py\" (echo __WORKDIR_OK__:$deploy_workdir) else (echo __WORKDIR_MISSING__:$deploy_workdir)\r"
+          send "if exist \"$deploy_workdir\\deploy_reboot_wrapper.py\" (echo __WORKDIR_OK__) else (echo __WORKDIR_MISSING__)\r"
           expect {
-            -re {__WORKDIR_OK__:([^\r\n]+)} {
-              set deploy_workdir $expect_out(1,string)
-            }
-            -re {__WORKDIR_MISSING__:(.+)} {
-              puts "FAILURE: deploy_reboot_wrapper.py missing in requested workdir: $expect_out(1,string)"
+            -re {__WORKDIR_OK__} {}
+            -re {__WORKDIR_MISSING__} {
+              puts "FAILURE: deploy_reboot_wrapper.py missing in requested workdir: $deploy_workdir"
               exit 1
             }
             timeout {
@@ -142,25 +140,47 @@ jobs:
             }
           }
 
-          send "set \"HOST_USER_HOME=$host_user_home\" & set \"HOST_LOGS_DIR=$host_logs_dir\" & set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" & set \"FLASH_TOOL_PATH=$remote_flash_tool\" & set \"FLASH_TOOL_ARGS=$remote_flash_args\" & set \"REQUIRE_REAL_FLASH=1\" & \"$remote_python\" -u .\\deploy_reboot_wrapper.py\r"
-
+          send "echo __REMOTE_PWD__:%CD% ^& if exist .\\deploy_reboot_wrapper.py (echo __SCRIPT_PRESENT__) else (echo __SCRIPT_MISSING__) ^& \"$remote_python\" --version\r"
+          set script_present 0
           expect {
-            -re [prompt_re] {}
-            timeout {
-              puts "FAILURE: Python script did not return to prompt"
+            -re {__REMOTE_PWD__:([^\r\n]+)} {
+              puts "INFO: Remote working directory: $expect_out(1,string)"
+              exp_continue
+            }
+            -re {__SCRIPT_PRESENT__} {
+              set script_present 1
+              exp_continue
+            }
+            -re {__SCRIPT_MISSING__} {
+              puts "FAILURE: deploy_reboot_wrapper.py not found in current directory"
               exit 1
             }
-            eof {
-              puts "FAILURE: SSH connection closed before Python script completion"
+            -re [prompt_re] {
+              if {!$script_present} {
+                puts "FAILURE: deploy_reboot_wrapper.py presence check did not pass"
+                exit 1
+              }
+            }
+            timeout {
+              puts "FAILURE: unable to validate remote python/script state"
               exit 1
             }
           }
 
-          send "echo __DEPLOY_RC__:%ERRORLEVEL%\r"
+          send "cmd /V:ON /C \"set \"HOST_USER_HOME=$host_user_home\" ^& set \"HOST_LOGS_DIR=$host_logs_dir\" ^& set \"HOST_IFWI_INPUT_DIR=$host_ifwi_input_dir\" ^& set \"FLASH_TOOL_PATH=$remote_flash_tool\" ^& set \"FLASH_TOOL_ARGS=$remote_flash_args\" ^& set \"REQUIRE_REAL_FLASH=1\" ^& echo __PYTHON_START__ ^& \"$remote_python\" -u .\\deploy_reboot_wrapper.py ^& set \"DEPLOY_RC=!ERRORLEVEL!\" ^& echo __DEPLOY_RC__:!DEPLOY_RC! ^& exit /b !DEPLOY_RC!\"\r"
 
+          set deploy_rc ""
           expect {
             -re {__DEPLOY_RC__:(-?[0-9]+)} {
               set deploy_rc $expect_out(1,string)
+              exp_continue
+            }
+            -re [prompt_re] {
+              if {$deploy_rc eq ""} {
+                puts "FAILURE: deploy_reboot_wrapper.py did not emit a return code"
+                exit 1
+              }
+              send "exit\r"
             }
             timeout {
               puts "FAILURE: Python script did not complete"
@@ -172,10 +192,6 @@ jobs:
             }
           }
 
-          expect {
-            -re [prompt_re] { send "exit\r" }
-            timeout { puts "FAILURE: Prompt not received after deploy"; exit 1 }
-          }
           expect eof
 
           if {$deploy_rc ne "0"} {
