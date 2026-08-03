@@ -63,8 +63,6 @@ jobs:
           set remote_python $env(REMOTE_PYTHON)
           set remote_flash_tool $env(REMOTE_FLASH_TOOL)
           set remote_flash_args $env(REMOTE_FLASH_ARGS)
-          set repo_slug $env(REPO_SLUG)
-          set repo_sha $env(REPO_SHA)
 
           proc prompt_re {} {
             return {[A-Za-z]:\\[^\r\n]*>}
@@ -95,54 +93,19 @@ jobs:
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
           }
 
+          set deploy_workdir $remote_workdir
+          send "if exist \"$deploy_workdir\\deploy_reboot_wrapper.py\" (echo __WORKDIR_OK__:$deploy_workdir) else (echo __WORKDIR_MISSING__:$deploy_workdir)\r"
           expect {
-            -re [prompt_re] {
-              send "for %D in (\"$remote_workdir\" \"$remote_workdir_alt1\" \"$remote_workdir_alt2\" \"$remote_workdir_alt3\") do @if exist \"%~D\\deploy_reboot_wrapper.py\" @echo __WORKDIR__:%~D & echo __WORKDIR_DONE__\r"
+            -re {__WORKDIR_OK__:([^\r\n]+)} {
+              set deploy_workdir $expect_out(1,string)
             }
-            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
-          }
-
-          set deploy_workdir ""
-          expect {
-            -re {__WORKDIR__:([^\r\n]+)} {
-              if {$deploy_workdir eq ""} {
-                set deploy_workdir $expect_out(1,string)
-              }
-              exp_continue
-            }
-            -re {__WORKDIR_DONE__} {}
-            timeout {
-              puts "FAILURE: timed out while locating deploy_reboot_wrapper.py on remote host"
+            -re {__WORKDIR_MISSING__:(.+)} {
+              puts "FAILURE: deploy_reboot_wrapper.py missing in requested workdir: $expect_out(1,string)"
               exit 1
             }
-          }
-
-          if {$deploy_workdir eq ""} {
-            expect {
-              -re [prompt_re] {
-                send "where /r C:\\ deploy_reboot_wrapper.py 2>nul\r"
-              }
-              timeout {
-                puts "FAILURE: prompt not available before fallback search"
-                exit 1
-              }
-            }
-
-            expect {
-              -re {([A-Za-z]:\\[^\r\n]*\\deploy_reboot_wrapper\.py)} {
-                set deploy_workdir [file dirname $expect_out(1,string)]
-                exp_continue
-              }
-              -re [prompt_re] {
-                if {$deploy_workdir eq ""} {
-                  puts "FAILURE: deploy_reboot_wrapper.py path not found on remote host"
-                  exit 1
-                }
-              }
-              timeout {
-                puts "FAILURE: timed out while running fallback where /r search"
-                exit 1
-              }
+            timeout {
+              puts "FAILURE: timed out while validating deploy workdir"
+              exit 1
             }
           }
 
@@ -175,19 +138,6 @@ jobs:
             }
             timeout {
               puts "FAILURE: timed out while validating flash tool path"
-              exit 1
-            }
-          }
-
-          send "curl.exe -fsSL \"https://raw.githubusercontent.com/$repo_slug/$repo_sha/scripts/ospl.py\" -o .\\ospl.py && curl.exe -fsSL \"https://raw.githubusercontent.com/$repo_slug/$repo_sha/scripts/deploy_reboot_wrapper.py\" -o .\\deploy_reboot_wrapper.py && curl.exe -fsSL \"https://raw.githubusercontent.com/$repo_slug/$repo_sha/scripts/ifwistitch.py\" -o .\\ifwistitch.py && echo __SYNC_OK__ || echo __SYNC_FAIL__:%ERRORLEVEL%\r"
-          expect {
-            -re {__SYNC_OK__} {}
-            -re {__SYNC_FAIL__:(-?[0-9]+)} {
-              puts "FAILURE: Remote script sync failed with code $expect_out(1,string)"
-              exit 1
-            }
-            timeout {
-              puts "FAILURE: timed out while syncing scripts to remote host"
               exit 1
             }
           }
@@ -238,7 +188,7 @@ jobs:
 
           chmod +x "$EXP_SCRIPT"
           echo "Connecting to SRF host via SSH..."
-          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_WORKDIR_ALT1="$REMOTE_WORKDIR_ALT1" REMOTE_WORKDIR_ALT2="$REMOTE_WORKDIR_ALT2" REMOTE_WORKDIR_ALT3="$REMOTE_WORKDIR_ALT3" REMOTE_PYTHON="$REMOTE_PYTHON" REMOTE_FLASH_TOOL="$REMOTE_FLASH_TOOL" REMOTE_FLASH_ARGS="$REMOTE_FLASH_ARGS" REPO_SLUG="$GITHUB_REPOSITORY" REPO_SHA="$GITHUB_SHA" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
+          REMOTE_WORKDIR="$REMOTE_WORKDIR" REMOTE_WORKDIR_ALT1="$REMOTE_WORKDIR_ALT1" REMOTE_WORKDIR_ALT2="$REMOTE_WORKDIR_ALT2" REMOTE_WORKDIR_ALT3="$REMOTE_WORKDIR_ALT3" REMOTE_PYTHON="$REMOTE_PYTHON" REMOTE_FLASH_TOOL="$REMOTE_FLASH_TOOL" REMOTE_FLASH_ARGS="$REMOTE_FLASH_ARGS" /usr/bin/expect "$EXP_SCRIPT" | tee "$OUTPUT_LOG"
 
           if ! grep -Eiq "microcode[[:space:]]*:[[:space:]]*0x[0-9A-Fa-f]+" "$OUTPUT_LOG"; then
             echo "FAILURE: No microcode version evidence found in deploy log"
