@@ -24,8 +24,8 @@ jobs:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
           SRF_REMOTE_WORKDIR: ${{ vars.SRF_REMOTE_WORKDIR }}
           SRF_REMOTE_PYTHON: ${{ vars.SRF_REMOTE_PYTHON }}
-          SRF_FLASH_TOOL_PATH: ${{ vars.SRF_FLASH_TOOL_PATH }}
-          SRF_FLASH_TOOL_ARGS: ${{ vars.SRF_FLASH_TOOL_ARGS }}
+          SRF_FLASH_TOOL_PATH: C:\Users\CEFLS_User\Desktop\Tools\TTK3_135\TTK3.bat
+          SRF_FLASH_TOOL_ARGS: ""
         run: |
           set -euo pipefail
 
