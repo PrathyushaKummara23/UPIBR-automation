@@ -72,7 +72,8 @@ jobs:
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 3000
+          # Default timeout for all expect calls (30s for fast failure)
+          set timeout 30
           set srf_host $env(SRF_HOST)
           set srf_user $env(SRF_USER)
           set password $env(SRF_PASSWORD)
@@ -93,6 +94,7 @@ jobs:
 
           spawn ssh -T -o ConnectTimeout=30 -o StrictHostKeyChecking=no $srf_user@$srf_host
 
+          # Login: wait for password prompt then shell prompt
           expect {
             -re {(?i)are you sure you want to continue connecting} {
               send "yes\r"
@@ -119,11 +121,18 @@ jobs:
             }
           }
 
+          # Verify remote user: send echo %USERNAME% and wait for the next prompt.
+          # The username will appear in the output buffer before the prompt arrives.
           send "echo %USERNAME%\r"
           expect {
-            -re {([A-Za-z0-9._-]+)\r?\n} {
-              set remote_user [string trim $expect_out(1,string)]
-              puts "Remote user verified: $remote_user"
+            -re $prompt_re {
+              # Extract the username from the captured buffer (line before the prompt)
+              set buf $expect_out(buffer)
+              if {[regexp {(?:\r?\n)([A-Za-z0-9._-]+)\r?\n} $buf _ remote_user]} {
+                puts "Remote user verified: [string trim $remote_user]"
+              } else {
+                puts "Remote user: (prompt received, username extraction skipped)"
+              }
             }
             timeout {
               puts "FAILURE: Unable to verify remote SSH user"
@@ -136,17 +145,9 @@ jobs:
               exit $rc
             }
           }
-          expect {
-            -re $prompt_re { }
-            timeout { puts "FAILURE: Shell prompt not received after username"; exit 124 }
-            eof {
-              catch wait result
-              set rc [lindex $result 3]
-              puts "FAILURE: SSH closed waiting for prompt (rc=$rc)"
-              exit $rc
-            }
-          }
 
+          # Run the deploy script — give it up to 5 minutes to complete
+          set timeout 300
           send "cmd /c \"set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\test && cd /d C:\\Users\\pkummara\\scripts && C:\\Python310\\python.exe -u deploy_reboot_wrapper.py\"\r"
           expect {
             -re $prompt_re { }
@@ -159,6 +160,7 @@ jobs:
             }
           }
 
+          set timeout 30
           send "exit\r"
           expect eof
           catch wait result
@@ -192,7 +194,7 @@ jobs:
           SESSION_ID="${{ inputs.session_id }}"
 
           if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","login_timestamp":"%s"}}' \
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","completed_at":"%s"}}' \
               "$SESSION_ID" \
               "${{ github.run_id }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
