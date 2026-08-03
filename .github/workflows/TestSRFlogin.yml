@@ -53,7 +53,7 @@ jobs:
           echo "Triggered by: ${{ inputs.trigger_source }}"
           echo "Callback URL: ${{ inputs.callback_url }}"
 
-      - name: SSH into SRF host and run deploy_reboot_wrapper.py
+      - name: SSH into Windows host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
@@ -64,69 +64,90 @@ jobs:
           echo "  SRF SSH Login - Post Build Auto Login"
           echo "================================================="
 
-          cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
-          #!/usr/bin/expect -f
-          set timeout 120
-          set password $env(SRF_PASSWORD)
+          # Write expect script to a temp file with NO indentation
+          # (indentation inside heredoc gets written literally into the .exp file
+          #  and breaks Tcl parsing)
+          cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'ENDOFSCRIPT'
+#!/usr/bin/expect -f
 
-          # Disable terminal output noise from ANSI sequences
-          log_user 0
+# SSH into a Windows host from a Linux runner.
+# The Windows SSH server (OpenSSH for Windows) opens a CMD shell whose
+# prompt looks like:
+#   cefls_user@ELFLEET045 C:\Users\CEFLS_User>
+# We match on the literal ">" which always terminates a CMD prompt.
 
-          # Match Windows CMD prompt: looks for > at end of line (with optional spaces/CR)
-          # Works for both "C:\Users\foo>" and "cefls_user@HOST C:\Users\foo>"
-          set prompt_re {>\s*\r?$}
+set timeout 120
+set password $env(SRF_PASSWORD)
 
-          spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.198
+# Suppress noisy ANSI/VT sequences sent by the Windows conhost terminal
+log_user 0
 
-          expect {
-            -re "(?i)are you sure you want to continue connecting" { send "yes\r"; exp_continue }
-            -re "(?i)password:" { send "$password\r"; exp_continue }
-            -re "(?i)permission denied" { puts "FAILURE: Invalid credentials"; exit 1 }
-            -re "(?i)connection timed out|no route to host|connection refused" { puts "FAILURE: SSH network/connectivity issue"; exit 1 }
-            -re $prompt_re {}
-            eof { puts "FAILURE: SSH session closed before prompt"; exit 1 }
-            timeout { puts "FAILURE: Timed out waiting for SSH login"; exit 1 }
-          }
+# Match Windows CMD prompt - just look for ">" which always ends the prompt.
+# Keeping it simple avoids Tcl regex anchor issues with \r\n line endings.
+set prompt_re {>}
 
-          log_user 1
-          puts "SUCCESS: Logged in to Windows host"
-          log_user 0
+spawn ssh -tt \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null \
+  -o RequestTTY=yes \
+  CEFLS_User@10.138.186.198
 
-          send "whoami\r"
-          expect {
-            -re $prompt_re {}
-            eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
-            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
-          }
+expect {
+  -re {(?i)are you sure you want to continue connecting} { send "yes\r"; exp_continue }
+  -re {(?i)password:}                                   { send "$password\r"; exp_continue }
+  -re {(?i)permission denied}                           { puts "FAILURE: Invalid credentials"; exit 1 }
+  -re {(?i)connection timed out|no route to host|connection refused} {
+    puts "FAILURE: SSH network/connectivity issue"; exit 1
+  }
+  -re $prompt_re {}
+  eof     { puts "FAILURE: SSH session closed before prompt"; exit 1 }
+  timeout { puts "FAILURE: Timed out waiting for SSH login"; exit 1 }
+}
 
-          send "cd C:\\Users\\pkummara\\scripts\r"
-          expect {
-            -re $prompt_re {}
-            eof { puts "FAILURE: SSH session closed after cd"; exit 1 }
-            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
-          }
+log_user 1
+puts "SUCCESS: Logged in to Windows host"
+log_user 0
 
-          send "dir\r"
-          expect {
-            -re $prompt_re {}
-            eof { puts "FAILURE: SSH session closed after dir"; exit 1 }
-            timeout { puts "FAILURE: dir command did not complete"; exit 1 }
-          }
+# Run whoami to confirm login identity
+send "whoami\r"
+expect {
+  -re $prompt_re {}
+  eof     { puts "FAILURE: SSH session closed after whoami"; exit 1 }
+  timeout { puts "FAILURE: whoami timed out"; exit 1 }
+}
 
-          set timeout 300
-          send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r"
-          expect {
-            -re $prompt_re {}
-            eof { puts "FAILURE: SSH session closed during Python execution"; exit 1 }
-            timeout { puts "FAILURE: Python script did not complete in time"; exit 1 }
-          }
+# Change to the scripts directory (Windows path)
+send "cd C:\\Users\\pkummara\\scripts\r"
+expect {
+  -re $prompt_re {}
+  eof     { puts "FAILURE: SSH session closed after cd"; exit 1 }
+  timeout { puts "FAILURE: cd timed out"; exit 1 }
+}
 
-          send "exit\r"
-          expect eof
-          EOF
+# Confirm directory contents
+send "dir\r"
+expect {
+  -re $prompt_re {}
+  eof     { puts "FAILURE: SSH session closed after dir"; exit 1 }
+  timeout { puts "FAILURE: dir timed out"; exit 1 }
+}
+
+# Run the Python wrapper - give it up to 5 minutes
+set timeout 300
+send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r"
+expect {
+  -re $prompt_re {}
+  eof     { puts "FAILURE: SSH session closed during Python execution"; exit 1 }
+  timeout { puts "FAILURE: Python script did not complete in time"; exit 1 }
+}
+
+send "exit\r"
+expect eof
+ENDOFSCRIPT
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
-          echo "Connecting to SRF host via SSH..."
+
+          echo "Connecting to Windows host via SSH..."
           /usr/bin/expect /tmp/ssh_login_${{ github.run_id }}.exp
           SSH_EXIT=$?
           rm -f /tmp/ssh_login_${{ github.run_id }}.exp
