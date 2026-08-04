@@ -18,6 +18,16 @@ on:
         required: false
         type: string
         default: ''
+      srf_host:
+        description: 'SRF host IP or hostname'
+        required: false
+        type: string
+        default: '10.138.186.198'
+      srf_user:
+        description: 'SRF SSH user'
+        required: false
+        type: string
+        default: 'CEFLS_User'
   workflow_call:
     inputs:
       session_id:
@@ -35,6 +45,16 @@ on:
         required: false
         type: string
         default: ''
+      srf_host:
+        description: 'SRF host IP or hostname'
+        required: false
+        type: string
+        default: '10.138.186.198'
+      srf_user:
+        description: 'SRF SSH user'
+        required: false
+        type: string
+        default: 'CEFLS_User'
     secrets:
       SRF_PASSWORD:
         required: true
@@ -56,6 +76,8 @@ jobs:
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+          SRF_HOST: ${{ inputs.srf_host }}
+          SRF_USER: ${{ inputs.srf_user }}
         shell: bash
         run: |
           set -e
@@ -64,40 +86,61 @@ jobs:
           echo "  SRF SSH Login - Post Build Auto Login"
           echo "================================================="
 
+          if [ -z "$SRF_PASSWORD" ]; then
+            echo "FAILURE: SRF_PASSWORD is not set in environment"
+            exit 1
+          fi
+
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
-          #!/usr/bin/expect -f
-          set timeout 3000
-          set password $env(SRF_PASSWORD)
+#!/usr/bin/expect -f
+set timeout 3000
+set password $env(SRF_PASSWORD)
 
-          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
+# start ssh session
+spawn ssh -T -o StrictHostKeyChecking=no $env(SRF_USER)@$env(SRF_HOST)
 
-          expect {
-            "*assword:*" { send "$password\r" }
-            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
-          }
+# handle authentication prompt, permission denied, or timeout
+expect {
+  -re ".*assword:.*" {
+    send "$password\r"
+    exp_continue
+  }
+  -re ".*Permission denied.*" {
+    puts "FAILURE: Permission denied (bad credentials)"
+    exit 2
+  }
+  -re {[$#>]\s*$} {
+    # got shell prompt
+  }
+  timeout {
+    puts "FAILURE: Connection timed out"
+    exit 1
+  }
+}
 
-          expect {
-            "*>*" { send "whoami\r" }
-            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
-          }
+# run commands once prompt is available
+expect {
+  -re {[$#>]\s*$} { send "whoami\r" }
+  timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+}
 
-          expect {
-            "*>*" { send "cd C:\\pkummara\\scripts\r" }
-            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
-          }
+expect {
+  -re {[$#>]\s*$} { send "cd C:\\pkummara\\scripts\r" }
+  timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+}
 
-          expect {
-            "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
-            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
-          }
+expect {
+  -re {[$#>]\s*$} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+  timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+}
 
-          expect {
-            "*>*" { send "exit\r" }
-            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
-          }
+expect {
+  -re {[$#>]\s*$} { send "exit\r" }
+  timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+}
 
-          expect eof
-          EOF
+expect eof
+EOF
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
           echo "Connecting to SRF host via SSH..."
@@ -122,12 +165,14 @@ jobs:
           SESSION_ID="${{ inputs.session_id }}"
 
           if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"10.138.186.133","user":"CEFLS_User","login_timestamp":"%s"}}' \
-              "$SESSION_ID" \
-              "${{ github.run_id }}" \
-              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              "${{ inputs.trigger_source }}" \
-              "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+              PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","login_timestamp":"%s"}}' \
+                "$SESSION_ID" \
+                "${{ github.run_id }}" \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                "${{ inputs.trigger_source }}" \
+                "$SRF_HOST" \
+                "$SRF_USER" \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
             curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" || echo "Failed to send SRF login notification"
