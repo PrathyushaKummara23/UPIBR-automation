@@ -160,6 +160,18 @@ jobs:
           echo "Callback URL: ${{ inputs.callback_url }}"
 
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
+      - name: Secret presence check (masked length)
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+        shell: bash
+        run: |
+          # print only the length of the secret (not the value)
+          if [ -z "$SRF_PASSWORD" ]; then
+            echo "SRF_PASSWORD is not set"
+            exit 1
+          fi
+          echo "SRF_PASSWORD length: ${#SRF_PASSWORD}"
+
       - name: Auth check (validate SSH + password)
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
