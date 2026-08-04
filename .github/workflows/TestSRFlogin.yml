@@ -193,8 +193,8 @@ jobs:
           set timeout 3000
           set password $env(SRF_PASSWORD)
 
-          # start ssh session
-          spawn ssh -T -o StrictHostKeyChecking=no $env(SRF_USER)@$env(SRF_HOST)
+          # start ssh session (force tty, disable X11 forwarding)
+          spawn ssh -tt -o StrictHostKeyChecking=no -o ForwardX11=no $env(SRF_USER)@$env(SRF_HOST)
 
           # handle authentication prompt, permission denied, or timeout
           expect {
@@ -206,7 +206,7 @@ jobs:
               puts "FAILURE: Permission denied (bad credentials)"
               exit 2
             }
-            -re {[$#>]\s*$} {
+            -re {.*[>#]\s*$} {
               # got shell prompt
             }
             timeout {
@@ -217,22 +217,22 @@ jobs:
 
           # run commands once prompt is available
           expect {
-            -re {[$#>]\s*$} { send "whoami\r" }
+            -re {.*[>#]\s*$} { send "whoami\r" }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
           }
 
           expect {
-            -re {[$#>]\s*$} { send "cd C:\\pkummara\\scripts\r" }
+            -re {.*[>#]\s*$} { send "cd C:\\pkummara\\scripts\r" }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
           }
 
           expect {
-            -re {[$#>]\s*$} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            -re {.*[>#]\s*$} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
           }
 
           expect {
-            -re {[$#>]\s*$} { send "exit\r" }
+            -re {.*[>#]\s*$} { send "exit\r" }
             timeout { puts "FAILURE: Python script did not complete"; exit 1 }
           }
 
