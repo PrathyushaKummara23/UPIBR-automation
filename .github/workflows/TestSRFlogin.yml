@@ -28,6 +28,46 @@ on:
         required: false
         type: string
         default: 'CEFLS_User'
+      target_ip:
+        description: 'Target host IP'
+        required: false
+        type: string
+        default: '10.138.186.79'
+      target_user:
+        description: 'Target SSH user'
+        required: false
+        type: string
+        default: 'root'
+      bmc_ip:
+        description: 'BMC IP'
+        required: false
+        type: string
+        default: '10.138.186.218'
+      bmc_user:
+        description: 'BMC user'
+        required: false
+        type: string
+        default: 'debuguser'
+      apc_ip:
+        description: 'APC IP'
+        required: false
+        type: string
+        default: '10.138.186.171'
+      apc_user:
+        description: 'APC user'
+        required: false
+        type: string
+        default: 'apc'
+      apc_outlet:
+        description: 'APC outlet number'
+        required: false
+        type: string
+        default: '3'
+      putty_path:
+        description: 'Putty exe path'
+        required: false
+        type: string
+        default: 'C:\\Program Files\\PuTTY\\putty.exe'
   workflow_call:
     inputs:
       session_id:
@@ -55,8 +95,54 @@ on:
         required: false
         type: string
         default: 'CEFLS_User'
+      target_ip:
+        description: 'Target host IP'
+        required: false
+        type: string
+        default: '10.138.186.79'
+      target_user:
+        description: 'Target SSH user'
+        required: false
+        type: string
+        default: 'root'
+      bmc_ip:
+        description: 'BMC IP'
+        required: false
+        type: string
+        default: '10.138.186.218'
+      bmc_user:
+        description: 'BMC user'
+        required: false
+        type: string
+        default: 'debuguser'
+      apc_ip:
+        description: 'APC IP'
+        required: false
+        type: string
+        default: '10.138.186.171'
+      apc_user:
+        description: 'APC user'
+        required: false
+        type: string
+        default: 'apc'
+      apc_outlet:
+        description: 'APC outlet number'
+        required: false
+        type: string
+        default: '3'
+      putty_path:
+        description: 'Putty exe path'
+        required: false
+        type: string
+        default: 'C:\\Program Files\\PuTTY\\putty.exe'
     secrets:
       SRF_PASSWORD:
+        required: true
+      TARGET_PASSWORD:
+        required: true
+      BMC_PASSWORD:
+        required: true
+      APC_PASSWORD:
         required: true
 
 jobs:
@@ -76,8 +162,19 @@ jobs:
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+          TARGET_PASSWORD: ${{ secrets.TARGET_PASSWORD }}
+          BMC_PASSWORD: ${{ secrets.BMC_PASSWORD }}
+          APC_PASSWORD: ${{ secrets.APC_PASSWORD }}
           SRF_HOST: ${{ inputs.srf_host }}
           SRF_USER: ${{ inputs.srf_user }}
+          TARGET_IP: ${{ inputs.target_ip }}
+          TARGET_USER: ${{ inputs.target_user }}
+          BMC_IP: ${{ inputs.bmc_ip }}
+          BMC_USER: ${{ inputs.bmc_user }}
+          APC_IP: ${{ inputs.apc_ip }}
+          APC_USER: ${{ inputs.apc_user }}
+          APC_OUTLET: ${{ inputs.apc_outlet }}
+          PUTTY_PATH: ${{ inputs.putty_path }}
         shell: bash
         run: |
           set -e
@@ -92,55 +189,55 @@ jobs:
           fi
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
-#!/usr/bin/expect -f
-set timeout 3000
-set password $env(SRF_PASSWORD)
+          #!/usr/bin/expect -f
+          set timeout 3000
+          set password $env(SRF_PASSWORD)
 
-# start ssh session
-spawn ssh -T -o StrictHostKeyChecking=no $env(SRF_USER)@$env(SRF_HOST)
+          # start ssh session
+          spawn ssh -T -o StrictHostKeyChecking=no $env(SRF_USER)@$env(SRF_HOST)
 
-# handle authentication prompt, permission denied, or timeout
-expect {
-  -re ".*assword:.*" {
-    send "$password\r"
-    exp_continue
-  }
-  -re ".*Permission denied.*" {
-    puts "FAILURE: Permission denied (bad credentials)"
-    exit 2
-  }
-  -re {[$#>]\s*$} {
-    # got shell prompt
-  }
-  timeout {
-    puts "FAILURE: Connection timed out"
-    exit 1
-  }
-}
+          # handle authentication prompt, permission denied, or timeout
+          expect {
+            -re ".*assword:.*" {
+              send "$password\r"
+              exp_continue
+            }
+            -re ".*Permission denied.*" {
+              puts "FAILURE: Permission denied (bad credentials)"
+              exit 2
+            }
+            -re {[$#>]\s*$} {
+              # got shell prompt
+            }
+            timeout {
+              puts "FAILURE: Connection timed out"
+              exit 1
+            }
+          }
 
-# run commands once prompt is available
-expect {
-  -re {[$#>]\s*$} { send "whoami\r" }
-  timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
-}
+          # run commands once prompt is available
+          expect {
+            -re {[$#>]\s*$} { send "whoami\r" }
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+          }
 
-expect {
-  -re {[$#>]\s*$} { send "cd C:\\pkummara\\scripts\r" }
-  timeout { puts "FAILURE: whoami did not complete"; exit 1 }
-}
+          expect {
+            -re {[$#>]\s*$} { send "cd C:\\pkummara\\scripts\r" }
+            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+          }
 
-expect {
-  -re {[$#>]\s*$} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
-  timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
-}
+          expect {
+            -re {[$#>]\s*$} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+          }
 
-expect {
-  -re {[$#>]\s*$} { send "exit\r" }
-  timeout { puts "FAILURE: Python script did not complete"; exit 1 }
-}
+          expect {
+            -re {[$#>]\s*$} { send "exit\r" }
+            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+          }
 
-expect eof
-EOF
+          expect eof
+          EOF
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
           echo "Connecting to SRF host via SSH..."
