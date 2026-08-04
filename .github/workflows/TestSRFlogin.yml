@@ -248,6 +248,9 @@ jobs:
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
+          # enable verbose debugging for the interactive login step
+          exp_internal 1
+          log_user 1
           set timeout 3000
           set password $env(SRF_PASSWORD)
 
@@ -264,8 +267,8 @@ jobs:
               puts "FAILURE: Permission denied (bad credentials)"
               exit 2
             }
-            -re {.*[>#]\s*$} {
-              # got shell prompt
+            -re {.*(>|#|\$|PS ).*} {
+              # got shell prompt (covers cmd.exe '>' and PowerShell 'PS ')
             }
             timeout {
               puts "FAILURE: Connection timed out"
@@ -273,24 +276,75 @@ jobs:
             }
           }
 
-          # run commands once prompt is available
+          # once at a shell prompt, set the required remote env vars silently
+          # retrieve secrets from the runner environment into Tcl vars
+          set target_password $env(TARGET_PASSWORD)
+          set target_user $env(TARGET_USER)
+          set bmc_password $env(BMC_PASSWORD)
+          set apc_password $env(APC_PASSWORD)
+
+          # suppress printing while sending secrets to avoid leaking them in logs
+          log_user 0
+          # use Windows 'set' to define environment variables for the current shell session
+          send "set TARGET_PASSWORD=$target_password\r"
+          # also set TARGET_PASS which `microcode_api` checks as an env fallback
+          send "set TARGET_PASS=$target_password\r"
+          send "set TARGET_USER=$target_user\r"
+          send "set BMC_PASSWORD=$bmc_password\r"
+          send "set APC_PASSWORD=$apc_password\r"
+          # restore logging
+          log_user 1
+
+          # run commands once prompt is available (use broader prompt match)
           expect {
-            -re {.*[>#]\s*$} { send "whoami\r" }
+            -re {.*(>|#|\$|PS ).*} { send "whoami\r" }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
           }
 
+          # create/update automation_config.ini on the remote host so imported
+          # `apis.automation_config` will see TARGET/BMC/APC credentials at import time.
+          # Backup existing file if present. Suppress logging while writing secrets.
+          set tgt_ip $env(TARGET_IP)
+          set tgt_user $env(TARGET_USER)
+          set bmc_ip $env(BMC_IP)
+          set bmc_user $env(BMC_USER)
+          set apc_ip $env(APC_IP)
+          set apc_user $env(APC_USER)
+          set apc_outlet $env(APC_OUTLET)
+          set putty_path $env(PUTTY_PATH)
+
+          log_user 0
+          send "if exist C:\\Users\\pkummara\\apis\\automation_config.ini ren C:\\Users\\pkummara\\apis\\automation_config.ini automation_config.ini.bak\r"
+          send "echo [NETWORK] > C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo TARGET_IP=%tgt_ip% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo TARGET_USER=%tgt_user% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo TARGET_PASSWORD=%target_password% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo BMC_IP=%bmc_ip% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo BMC_USER=%bmc_user% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo BMC_PASSWORD=%bmc_password% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo. >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo [APC] >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo APC_IP=%apc_ip% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo APC_USER=%apc_user% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo APC_PASSWORD=%apc_password% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo APC_OUTLET=%apc_outlet% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo. >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo [PUTTY] >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo PUTTY_PATH=%putty_path% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          log_user 1
+
           expect {
-            -re {.*[>#]\s*$} { send "cd C:\\pkummara\\scripts\r" }
+            -re {.*(>|#|\$|PS ).*} { send "cd C:\\pkummara\\scripts\r" }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
           }
 
           expect {
-            -re {.*[>#]\s*$} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            -re {.*(>|#|\$|PS ).*} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
           }
 
           expect {
-            -re {.*[>#]\s*$} { send "exit\r" }
+            -re {.*(>|#|\$|PS ).*} { send "exit\r" }
             timeout { puts "FAILURE: Python script did not complete"; exit 1 }
           }
 
