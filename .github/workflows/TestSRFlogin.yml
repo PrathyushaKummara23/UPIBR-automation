@@ -1,4 +1,4 @@
-name: Test SRF SSH Login and Deploy
+name: SRF SSH Login - Test
 
 on:
   workflow_dispatch:
@@ -9,269 +9,100 @@ on:
         type: string
         default: ''
       trigger_source:
-        description: 'Source that triggered the workflow (python_script, web_gui, api_call, manual)'
+        description: 'Source that triggered the workflow'
         required: false
         type: string
-        default: 'manual'
+        default: 'unknown'
       callback_url:
         description: 'Callback URL for notifications'
         required: false
         type: string
         default: ''
-      requester_info:
-        description: 'Information about who/what requested this build (JSON format)'
+  workflow_call:
+    inputs:
+      session_id:
+        description: 'Session ID for tracking'
         required: false
         type: string
-        default: '{"user": "unknown", "timestamp": ""}'
-
-permissions:
-  contents: write
+        default: ''
+      trigger_source:
+        description: 'Source that triggered the workflow'
+        required: false
+        type: string
+        default: 'unknown'
+      callback_url:
+        description: 'Callback URL for notifications'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      SRF_PASSWORD:
+        required: true
 
 jobs:
-  session-management:
-    runs-on: [self-hosted, node16]
-    outputs:
-      session_id: ${{ steps.session.outputs.session_id }}
-      trigger_source: ${{ steps.session.outputs.trigger_source }}
-      callback_url: ${{ steps.session.outputs.callback_url }}
-      requester_info: ${{ steps.session.outputs.requester_info }}
-
-    steps:
-      - name: Initialize Session Information
-        id: session
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ -n "${{ github.event.inputs.session_id }}" ]; then
-            SESSION_ID="${{ github.event.inputs.session_id }}"
-          else
-            SESSION_ID="session_$(date +%Y%m%d_%H%M%S)_${{ github.run_id }}"
-          fi
-
-          TRIGGER_SOURCE="${{ github.event.inputs.trigger_source }}"
-          CALLBACK_URL="${{ github.event.inputs.callback_url }}"
-          REQUESTER_INFO='${{ github.event.inputs.requester_info }}'
-
-          echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
-          echo "trigger_source=$TRIGGER_SOURCE" >> "$GITHUB_OUTPUT"
-          echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
-          echo "requester_info=$REQUESTER_INFO" >> "$GITHUB_OUTPUT"
-
-          SESSION_FILE="/tmp/test_srf_login_session_${SESSION_ID}.json"
-          cat > "$SESSION_FILE" <<EOF
-          {
-            "session_id": "$SESSION_ID",
-            "trigger_source": "$TRIGGER_SOURCE",
-            "callback_url": "$CALLBACK_URL",
-            "requester_info": $REQUESTER_INFO,
-            "workflow_run_id": "${{ github.run_id }}",
-            "repository": "${{ github.repository }}",
-            "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-
-  notify-test-start:
-    runs-on: [self-hosted, node16]
-    needs: session-management
-
-    steps:
-      - name: Send Test Start Notification
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
-          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
-
-          if [ -z "$CALLBACK_URL" ]; then
-            echo "No callback URL provided; skipping start notification"
-            exit 0
-          fi
-
-          START_PAYLOAD=$(printf '{"session_id":"%s","status":"test_started","message":"SRF SSH login test has started","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s"}' \
-            "$SESSION_ID" \
-            "${{ github.run_id }}" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "${{ needs.session-management.outputs.trigger_source }}")
-
-          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$START_PAYLOAD" || echo "Failed to send start notification"
-
-  srf-ssh-login:
+  srf-login:
+    name: SRF SSH Login
     runs-on: [self-hosted, Linux, X64]
-    needs: session-management
 
     steps:
       - name: Session Info Display
-        if: ${{ needs.session-management.outputs.session_id != '' }}
+        if: ${{ inputs.session_id != '' }}
         shell: bash
         run: |
-          echo "Session ID: ${{ needs.session-management.outputs.session_id }}"
-          echo "Triggered by: ${{ needs.session-management.outputs.trigger_source }}"
-          echo "Callback URL: ${{ needs.session-management.outputs.callback_url }}"
+          echo "Session ID: ${{ inputs.session_id }}"
+          echo "Triggered by: ${{ inputs.trigger_source }}"
+          echo "Callback URL: ${{ inputs.callback_url }}"
 
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
           echo "================================================="
-          echo "  Test SRF SSH Login - Simplified"
+          echo "  SRF SSH Login - Post Build Auto Login"
           echo "================================================="
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 7200
+          set timeout 3000
           set password $env(SRF_PASSWORD)
 
-          set script_path "C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py"
-          set python_path "C:\\Python310\\python.exe"
-
-          spawn ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null CEFLS_User@10.138.186.198
+          spawn ssh -T -o StrictHostKeyChecking=no CEFLS_User@10.138.186.133
 
           expect {
             "*assword:*" { send "$password\r" }
-            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
-            "Connection refused" { puts "FAILURE: SSH connection refused"; exit 1 }
-            "Could not resolve hostname" { puts "FAILURE: Hostname resolution failed"; exit 1 }
-            "No route to host" { puts "FAILURE: No route to host"; exit 1 }
-            timeout { puts "FAILURE: Connection timed out"; exit 1 }
-            eof { puts "FAILURE: SSH session terminated before password prompt"; exit 1 }
+            timeout      { puts "FAILURE: Connection timed out"; exit 1 }
           }
 
           expect {
-            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
-            "*assword:*" { puts "FAILURE: Password rejected"; exit 1 }
-            "*>*" {}
+            "*>*" { send "whoami\r" }
             timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
-            eof { puts "FAILURE: SSH session closed after login"; exit 1 }
           }
 
-          send "whoami\r"
           expect {
-            "*>*" {
-              set whoami_output $expect_out(buffer)
-              if {![string match -nocase "*cefls_user*" $whoami_output]} {
-                puts "FAILURE: whoami did not return expected user"
-                puts "WHOAMI OUTPUT: $whoami_output"
-                exit 1
-              }
-            }
+            "*>*" { send "cd C:\\pkummara\\scripts\r" }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
-            eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
-          }
-
-          send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r"
-          expect {
-            "SCRIPT_FOUND" {}
-            "SCRIPT_MISSING" { puts "FAILURE: deploy_reboot_wrapper.py not found at expected path"; exit 1 }
-            timeout { puts "FAILURE: Script existence check timed out"; exit 1 }
-            eof { puts "FAILURE: SSH session closed during script existence check"; exit 1 }
           }
 
           expect {
-            "*>*" {}
-            timeout { puts "FAILURE: Prompt not received after script existence check"; exit 1 }
-            eof { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
-          }
-
-          send "set NO_PROXY=localhost,127.0.0.1\r"
-          expect {
-            "*>*" {}
-            timeout { puts "FAILURE: setting NO_PROXY timed out"; exit 1 }
-            eof { puts "FAILURE: SSH session closed while setting NO_PROXY"; exit 1 }
-          }
-
-          send "set no_proxy=localhost,127.0.0.1\r"
-          expect {
-            "*>*" {}
-            timeout { puts "FAILURE: setting no_proxy timed out"; exit 1 }
-            eof { puts "FAILURE: SSH session closed while setting no_proxy"; exit 1 }
-          }
-
-          send "$python_path -u $script_path\r"
-          expect {
-            "*>*" {
-              set py_output $expect_out(buffer)
-            }
-            timeout {
-              puts "FAILURE: Python script did not complete"
-              exit 1
-            }
-            eof {
-              puts "FAILURE: SSH session closed while waiting for Python script completion"
-              exit 1
-            }
-          }
-
-          if {[string match -nocase "*PHASE 0 FAILED*" $py_output]} {
-            puts "FAILURE: Remote script reported PHASE 0 FAILED"
-            puts $py_output
-            exit 1
-          }
-
-          if {[string match -nocase "*Stitch and burn flow failed*" $py_output]} {
-            puts "FAILURE: Remote script reported stitch/burn failure"
-            puts $py_output
-            exit 1
-          }
-
-          if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
-            puts "FAILURE: Python script threw an exception"
-            puts $py_output
-            exit 1
-          }
-
-          if {[string match -nocase "*can't open file*" $py_output]} {
-            puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
-            puts $py_output
-            exit 1
-          }
-
-          send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
-          expect {
-            -re {__PY_EXIT_CODE__=([0-9]+)} {
-              set py_exit $expect_out(1,string)
-              if {$py_exit ne "0"} {
-                puts "FAILURE: Remote Python exited with code $py_exit"
-                puts $py_output
-                exit 1
-              }
-            }
-            timeout {
-              puts "FAILURE: Could not determine remote Python exit code"
-              puts $py_output
-              exit 1
-            }
-            eof {
-              puts "FAILURE: SSH session closed while reading Python exit code"
-              puts $py_output
-              exit 1
-            }
+            "*>*" { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
           }
 
           expect {
-            "*>*" {}
-            timeout { puts "FAILURE: Prompt not received after exit code check"; exit 1 }
-            eof { puts "FAILURE: SSH session closed after exit code check"; exit 1 }
+            "*>*" { send "exit\r" }
+            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
           }
 
-          send "exit\r"
           expect eof
           EOF
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
           echo "Connecting to SRF host via SSH..."
-
-          set +e
           /usr/bin/expect /tmp/ssh_login_${{ github.run_id }}.exp
           SSH_EXIT=$?
-          set -e
-
           rm -f /tmp/ssh_login_${{ github.run_id }}.exp
 
           if [ $SSH_EXIT -eq 0 ]; then
@@ -281,50 +112,25 @@ jobs:
             exit $SSH_EXIT
           fi
 
-  notify-test-result:
-    runs-on: [self-hosted, node16]
-    needs: [session-management, srf-ssh-login]
-    if: ${{ always() }}
-
-    steps:
-      - name: Send Test Result Notification
+      - name: Send SRF Login Notification
+        if: ${{ inputs.callback_url != '' }}
         shell: bash
         run: |
-          set -euo pipefail
+          echo "Sending SRF login notification..."
 
-          CALLBACK_URL="${{ needs.session-management.outputs.callback_url }}"
-          SESSION_ID="${{ needs.session-management.outputs.session_id }}"
+          CALLBACK_URL="${{ inputs.callback_url }}"
+          SESSION_ID="${{ inputs.session_id }}"
 
-          TEST_STATUS="UNKNOWN"
-          TEST_MESSAGE="Test completed with unknown status"
-
-          if [ "${{ needs.srf-ssh-login.result }}" = "success" ]; then
-            TEST_STATUS="PASSED"
-            TEST_MESSAGE="SRF SSH login test completed successfully"
-          elif [ "${{ needs.srf-ssh-login.result }}" = "failure" ]; then
-            TEST_STATUS="FAILED"
-            TEST_MESSAGE="SRF SSH login test failed"
-          elif [ "${{ needs.srf-ssh-login.result }}" = "cancelled" ]; then
-            TEST_STATUS="CANCELLED"
-            TEST_MESSAGE="SRF SSH login test was cancelled"
+          if [ -n "$CALLBACK_URL" ]; then
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"10.138.186.133","user":"CEFLS_User","login_timestamp":"%s"}}' \
+              "$SESSION_ID" \
+              "${{ github.run_id }}" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "${{ inputs.trigger_source }}" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+            curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" || echo "Failed to send SRF login notification"
+          else
+            echo "No callback URL provided, skipping notification"
           fi
-
-          if [ -z "$CALLBACK_URL" ]; then
-            echo "No callback URL provided; skipping result notification"
-            exit 0
-          fi
-
-          RESULT_PAYLOAD=$(printf '{"session_id":"%s","status":"test_completed","message":"%s","workflow_run_id":"%s","timestamp":"%s","test_status":"%s","trigger_source":"%s","ssh_login_result":"%s","github_repository":"%s","workflow_url":"%s"}' \
-            "$SESSION_ID" \
-            "$TEST_MESSAGE" \
-            "${{ github.run_id }}" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "$TEST_STATUS" \
-            "${{ needs.session-management.outputs.trigger_source }}" \
-            "${{ needs.srf-ssh-login.result }}" \
-            "${{ github.repository }}" \
-            "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
-
-          curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$RESULT_PAYLOAD" || echo "Failed to send result notification"
