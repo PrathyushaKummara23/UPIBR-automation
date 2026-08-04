@@ -160,6 +160,49 @@ jobs:
           echo "Callback URL: ${{ inputs.callback_url }}"
 
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
+      - name: Auth check (validate SSH + password)
+        env:
+          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+          SRF_HOST: ${{ inputs.srf_host }}
+          SRF_USER: ${{ inputs.srf_user }}
+        shell: bash
+        run: |
+          set -e
+          echo "Auth-check: validating SSH connectivity to $SRF_USER@$SRF_HOST"
+          cat > /tmp/auth_check_${{ github.run_id }}.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 60
+          set password $env(SRF_PASSWORD)
+          spawn ssh -o StrictHostKeyChecking=no -o ForwardX11=no $env(SRF_USER)@$env(SRF_HOST) "echo READY"
+          expect {
+            -re ".*assword:.*" {
+              send "$password\r"
+              exp_continue
+            }
+            -re "READY" {
+              puts "OK: AUTH_SUCCESS"
+              exit 0
+            }
+            -re ".*Permission denied.*" {
+              puts "FAILURE: Permission denied (bad credentials)"
+              exit 2
+            }
+            timeout {
+              puts "FAILURE: Connection timed out"
+              exit 1
+            }
+          }
+          EOF
+          chmod +x /tmp/auth_check_${{ github.run_id }}.exp
+          /usr/bin/expect /tmp/auth_check_${{ github.run_id }}.exp
+          RC=$?
+          rm -f /tmp/auth_check_${{ github.run_id }}.exp
+          if [ $RC -ne 0 ]; then
+            echo "Auth check failed with code $RC"
+            exit $RC
+          fi
+
+      - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
           TARGET_PASSWORD: ${{ secrets.TARGET_PASSWORD }}
