@@ -159,7 +159,6 @@ jobs:
           echo "Triggered by: ${{ inputs.trigger_source }}"
           echo "Callback URL: ${{ inputs.callback_url }}"
 
-      - name: SSH into SRF host and run deploy_reboot_wrapper.py
       - name: Secret presence check (masked length)
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
