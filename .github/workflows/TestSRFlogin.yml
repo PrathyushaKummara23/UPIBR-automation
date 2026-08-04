@@ -171,9 +171,13 @@ jobs:
           echo "Auth-check: validating SSH connectivity to $SRF_USER@$SRF_HOST"
           cat > /tmp/auth_check_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 60
+          # enable verbose debugging for troubleshooting
+          exp_internal 1
+          log_user 1
+          set timeout 30
           set password $env(SRF_PASSWORD)
-          spawn ssh -o StrictHostKeyChecking=no -o ForwardX11=no $env(SRF_USER)@$env(SRF_HOST) "echo READY"
+          # force TTY allocation and disable X11 forwarding
+          spawn ssh -tt -o StrictHostKeyChecking=no -o ForwardX11=no $env(SRF_USER)@$env(SRF_HOST) "echo READY"
           expect {
             -re ".*assword:.*" {
               send "$password\r"
