@@ -315,7 +315,7 @@ jobs:
 
           log_user 0
           send "if exist C:\\Users\\pkummara\\apis\\automation_config.ini ren C:\\Users\\pkummara\\apis\\automation_config.ini automation_config.ini.bak\r"
-          send "echo [NETWORK] > C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo \[NETWORK\] > C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo TARGET_IP=%tgt_ip% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo TARGET_USER=%tgt_user% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo TARGET_PASSWORD=%target_password% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
@@ -323,23 +323,23 @@ jobs:
           send "echo BMC_USER=%bmc_user% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo BMC_PASSWORD=%bmc_password% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo. >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
-          send "echo [APC] >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo \[APC\] >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo APC_IP=%apc_ip% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo APC_USER=%apc_user% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo APC_PASSWORD=%apc_password% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo APC_OUTLET=%apc_outlet% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo. >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
-          send "echo [PUTTY] >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
+          send "echo \[PUTTY\] >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           send "echo PUTTY_PATH=%putty_path% >> C:\\Users\\pkummara\\apis\\automation_config.ini\r"
           log_user 1
 
           expect {
-            -re {.*(>|#|\$|PS ).*} { send "cd C:\\pkummara\\scripts\r" }
+            -re {.*(>|#|\$|PS ).*} { send "cd C:\\Users\\pkummara\\scripts\r" }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
           }
 
           expect {
-            -re {.*(>|#|\$|PS ).*} { send "C:\\Python310\\python.exe -u .\\deploy_reboot_wrapper.py\r" }
+            -re {.*(>|#|\$|PS ).*} { send "py -3 -u .\\deploy_reboot_wrapper.py\r" }
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
           }
 
