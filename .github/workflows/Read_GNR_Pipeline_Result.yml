@@ -39,6 +39,7 @@ jobs:
         id: read-result
         env:
           GNR_PASSWORD: ${{ secrets.GNR_PASSWORD }}
+          GNR_HOST: ${{ secrets.GNR_HOST }}
         run: |
           echo "================================================="
           echo "  Reading GNR pipeline_result.txt from Windows Host"
@@ -54,7 +55,7 @@ jobs:
             -o StrictHostKeyChecking=no \
             -o ForwardX11=no \
             -o ForwardX11Trusted=no \
-            .\\CEFLS_User@10.138.186.168
+            .\\CEFLS_User@$env(GNR_HOST)
           log_user 1
 
           expect {
