@@ -604,11 +604,13 @@ jobs:
         run: |
           set -euo pipefail
           
-          KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" \
+          KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "grp_gnr_fit1_build" \
             env FA_PASSWORD="$FA_PASSWORD" bash -c '
-            echo "$FA_PASSWORD" | '"${{ env.KTAB_PATH }}"' -i 2>&1
+            echo "Password length: ${#FA_PASSWORD}"
+            echo "$FA_PASSWORD" | /usr/intel/bin/ktab -i 2>&1
             ' )
-          echo "$KTAB_RESULT"
+          echo "KTAB OUTPUT: $KTAB_RESULT"
+
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
@@ -623,12 +625,12 @@ jobs:
           KCRON_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
             echo 'y' | ${{ env.KCRON_PATH }} -i 2>&1
           " )
-
+          
           echo "$KCRON_RESULT"
           if echo "$KCRON_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
           fi
-
+          
   patch-build:
     runs-on: [self-hosted, Linux, X64, gnrdebugbuild]
     needs: [session-management, read-json, validate-config, kerberos-setup]
