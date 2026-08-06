@@ -603,11 +603,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" bash -c "
-            echo '$FA_PASSWORD' | ${{ env.KTAB_PATH }} -i 2>&1
-          " )
-
+          
+          KTAB_RESULT=$( (echo "$BUILD_PASSWORD"; sleep 1) | sudo -S -u "${{ env.FACELESS_USER }}" \
+            env FA_PASSWORD="$FA_PASSWORD" bash -c '
+            echo "$FA_PASSWORD" | '"${{ env.KTAB_PATH }}"' -i 2>&1
+            ' )
           echo "$KTAB_RESULT"
           if echo "$KTAB_RESULT" | grep -q -i "error\|failed\|denied"; then
             exit 1
