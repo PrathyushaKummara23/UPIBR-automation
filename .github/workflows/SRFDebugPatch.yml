@@ -740,7 +740,15 @@ jobs:
           fi
 
           if KTAB_RESULT=$(printf '%s\n' "$BUILD_PASSWORD" | sudo -S -u grp_srf_fit1_build env FA_PASSWORD="$FA_PASSWORD" bash -c '
-            printf "%s\n" "$FA_PASSWORD" | '"${{ env.KTAB_PATH }}"' -i 2>&1
+          /usr/bin/expect -c "
+            set timeout 30
+            spawn /usr/intel/bin/ktab -i
+            expect -re {(?i)password}
+            send -- \"\$env(FA_PASSWORD)\r\"
+            expect eof
+            catch wait result
+            exit [lindex \$result 3]
+            " 2>&1
           '); then
             echo "$KTAB_RESULT"
           else
