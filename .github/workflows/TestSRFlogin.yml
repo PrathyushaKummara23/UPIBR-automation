@@ -32,7 +32,7 @@ on:
         description: 'Target host IP'
         required: false
         type: string
-        default: '10.138.186.79'
+        default: '10.138.186.208'
       target_user:
         description: 'Target SSH user'
         required: false
@@ -47,7 +47,7 @@ on:
         description: 'BMC user'
         required: false
         type: string
-        default: 'debuguser'
+        default: 'root'
       apc_ip:
         description: 'APC IP'
         required: false
@@ -68,6 +68,16 @@ on:
         required: false
         type: string
         default: 'C:\\Program Files\\PuTTY\\putty.exe'
+      putty_com_port:
+        description: 'Putty COM port'
+        required: false
+        type: string
+        default: 'COM3'
+      putty_baud_rate:
+        description: 'Putty baud rate'
+        required: false
+        type: string
+        default: '115200'
   workflow_call:
     inputs:
       session_id:
@@ -99,7 +109,7 @@ on:
         description: 'Target host IP'
         required: false
         type: string
-        default: '10.138.186.79'
+        default: '10.138.186.208'
       target_user:
         description: 'Target SSH user'
         required: false
@@ -114,7 +124,7 @@ on:
         description: 'BMC user'
         required: false
         type: string
-        default: 'debuguser'
+        default: 'root'
       apc_ip:
         description: 'APC IP'
         required: false
@@ -135,6 +145,16 @@ on:
         required: false
         type: string
         default: 'C:\\Program Files\\PuTTY\\putty.exe'
+      putty_com_port:
+        description: 'Putty COM port'
+        required: false
+        type: string
+        default: 'COM3'
+      putty_baud_rate:
+        description: 'Putty baud rate'
+        required: false
+        type: string
+        default: '115200'
     secrets:
       SRF_PASSWORD:
         required: true
@@ -175,6 +195,8 @@ jobs:
           APC_USER: ${{ inputs.apc_user }}
           APC_OUTLET: ${{ inputs.apc_outlet }}
           PUTTY_PATH: ${{ inputs.putty_path }}
+          PUTTY_COM_PORT: ${{ inputs.putty_com_port }}
+          PUTTY_BAUD_RATE: ${{ inputs.putty_baud_rate }}
         shell: bash
         run: |
           set -euo pipefail
@@ -205,6 +227,8 @@ jobs:
           set apc_user $env(APC_USER)
           set apc_outlet $env(APC_OUTLET)
           set putty_path $env(PUTTY_PATH)
+          set putty_com_port $env(PUTTY_COM_PORT)
+          set putty_baud_rate $env(PUTTY_BAUD_RATE)
           set srf_user $env(SRF_USER)
 
           set config_path "C:\\pkummara\\apis\\automation_config.ini"
@@ -295,6 +319,10 @@ jobs:
           send "echo \[PUTTY\] >> \"$config_path\"\r"
           expect -re {.*(>|#|\$|PS ).*}
           send "echo PUTTY_PATH=$putty_path >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo PUTTY_COM_PORT=$putty_com_port >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo PUTTY_BAUD_RATE=$putty_baud_rate >> \"$config_path\"\r"
           expect -re {.*(>|#|\$|PS ).*}
           log_user 1
 
