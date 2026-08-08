@@ -138,11 +138,11 @@ on:
     secrets:
       SRF_PASSWORD:
         required: true
-      TARGET_PASSWORD:
+      SRF_TARGET_PASSWORD:
         required: true
-      BMC_PASSWORD:
+      SRF_BMC_PASSWORD:
         required: true
-      APC_PASSWORD:
+      SRF_APC_PASSWORD:
         required: true
 
 jobs:
@@ -162,9 +162,9 @@ jobs:
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-          TARGET_PASSWORD: ${{ secrets.TARGET_PASSWORD }}
-          BMC_PASSWORD: ${{ secrets.BMC_PASSWORD }}
-          APC_PASSWORD: ${{ secrets.APC_PASSWORD }}
+          TARGET_PASSWORD: ${{ secrets.SRF_TARGET_PASSWORD }}
+          BMC_PASSWORD: ${{ secrets.SRF_BMC_PASSWORD }}
+          APC_PASSWORD: ${{ secrets.SRF_APC_PASSWORD }}
           SRF_HOST: ${{ inputs.srf_host }}
           SRF_USER: ${{ inputs.srf_user }}
           TARGET_IP: ${{ inputs.target_ip }}
