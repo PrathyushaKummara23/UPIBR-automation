@@ -333,52 +333,87 @@ jobs:
             eof { puts "FAILURE: SSH session closed while changing directory"; exit 1 }
           }
 
-          send "py -3 -u .\\deploy_reboot_wrapper.py\r"
-          expect {
-            -re {.*(>|#|\$|PS ).*} {
-              set py_output $expect_out(buffer)
+          # BMC SSH auth is occasionally slow to come up; retry the whole script run
+          # a few times if the failure looks like a transient BMC AuthenticationException.
+          set max_py_retries 3
+          set py_attempt 0
+          set py_success 0
+
+          while {$py_attempt < $max_py_retries && !$py_success} {
+            incr py_attempt
+            puts "Running deploy_reboot_wrapper.py (attempt $py_attempt of $max_py_retries)..."
+
+            send "py -3 -u .\\deploy_reboot_wrapper.py\r"
+            expect {
+              -re {.*(>|#|\$|PS ).*} {
+                set py_output $expect_out(buffer)
+              }
+              timeout {
+                puts "FAILURE: Python script did not complete"
+                exit 1
+              }
+              eof {
+                puts "FAILURE: SSH session closed while waiting for Python script completion"
+                exit 1
+              }
             }
-            timeout {
-              puts "FAILURE: Python script did not complete"
+
+            if {[string match -nocase "*can't open file*" $py_output]} {
+              puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
+              puts $py_output
               exit 1
             }
-            eof {
-              puts "FAILURE: SSH session closed while waiting for Python script completion"
+
+            set bmc_auth_failed [expr {[string match -nocase "*AuthenticationException*" $py_output] || [string match -nocase "*bmc*authentication*failed*" $py_output]}]
+            set py_has_traceback [string match -nocase "*Traceback (most recent call last)*" $py_output]
+
+            if {$py_has_traceback && $bmc_auth_failed} {
+              if {$py_attempt < $max_py_retries} {
+                puts "WARNING: BMC authentication failed on attempt $py_attempt, retrying in 5s..."
+                sleep 5
+                continue
+              } else {
+                puts "FAILURE: BMC authentication failed after $max_py_retries attempts"
+                puts $py_output
+                exit 1
+              }
+            } elseif {$py_has_traceback} {
+              puts "FAILURE: Python script threw an exception"
+              puts $py_output
               exit 1
             }
-          }
 
-          if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
-            puts "FAILURE: Python script threw an exception"
-            puts $py_output
-            exit 1
-          }
-
-          if {[string match -nocase "*can't open file*" $py_output]} {
-            puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
-            puts $py_output
-            exit 1
-          }
-
-          send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
-          expect {
-            -re {__PY_EXIT_CODE__=([0-9]+)} {
-              set py_exit $expect_out(1,string)
-              if {$py_exit ne "0"} {
-                puts "FAILURE: Remote Python exited with code $py_exit"
+            send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
+            set py_exit_ok 0
+            expect {
+              -re {__PY_EXIT_CODE__=([0-9]+)} {
+                set py_exit $expect_out(1,string)
+                if {$py_exit ne "0"} {
+                  if {$bmc_auth_failed && $py_attempt < $max_py_retries} {
+                    puts "WARNING: Remote Python exited with code $py_exit (BMC auth), retrying in 5s..."
+                    sleep 5
+                    continue
+                  }
+                  puts "FAILURE: Remote Python exited with code $py_exit"
+                  puts $py_output
+                  exit 1
+                }
+                set py_exit_ok 1
+              }
+              timeout {
+                puts "FAILURE: Could not determine remote Python exit code"
+                puts $py_output
+                exit 1
+              }
+              eof {
+                puts "FAILURE: SSH session closed while reading Python exit code"
                 puts $py_output
                 exit 1
               }
             }
-            timeout {
-              puts "FAILURE: Could not determine remote Python exit code"
-              puts $py_output
-              exit 1
-            }
-            eof {
-              puts "FAILURE: SSH session closed while reading Python exit code"
-              puts $py_output
-              exit 1
+
+            if {$py_exit_ok} {
+              set py_success 1
             }
           }
 
