@@ -67,7 +67,7 @@ on:
         description: 'Putty exe path'
         required: false
         type: string
-        default: 'C:\\Program Files\\PuTTY\\putty.exe'
+        default: 'C:\Program Files\PuTTY\putty.exe'
       putty_com_port:
         description: 'Putty COM port'
         required: false
@@ -144,7 +144,7 @@ on:
         description: 'Putty exe path'
         required: false
         type: string
-        default: 'C:\\Program Files\\PuTTY\\putty.exe'
+        default: 'C:\Program Files\PuTTY\putty.exe'
       putty_com_port:
         description: 'Putty COM port'
         required: false
