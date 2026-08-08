@@ -159,64 +159,6 @@ jobs:
           echo "Triggered by: ${{ inputs.trigger_source }}"
           echo "Callback URL: ${{ inputs.callback_url }}"
 
-      - name: Secret presence check (masked length)
-        env:
-          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-        shell: bash
-        run: |
-          # print only the length of the secret (not the value)
-          if [ -z "$SRF_PASSWORD" ]; then
-            echo "SRF_PASSWORD is not set"
-            exit 1
-          fi
-          echo "SRF_PASSWORD length: ${#SRF_PASSWORD}"
-
-      - name: Auth check (validate SSH + password)
-        env:
-          SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
-          SRF_HOST: ${{ inputs.srf_host }}
-          SRF_USER: ${{ inputs.srf_user }}
-        shell: bash
-        run: |
-          set -e
-          echo "Auth-check: validating SSH connectivity to $SRF_USER@$SRF_HOST"
-          cat > /tmp/auth_check_${{ github.run_id }}.exp << 'EOF'
-          #!/usr/bin/expect -f
-          # enable verbose debugging for troubleshooting
-          exp_internal 1
-          log_user 1
-          set timeout 30
-          set password $env(SRF_PASSWORD)
-          # force TTY allocation and disable X11 forwarding
-          spawn ssh -tt -o StrictHostKeyChecking=no -o ForwardX11=no $env(SRF_USER)@$env(SRF_HOST) "echo READY"
-          expect {
-            -re ".*assword:.*" {
-              send "$password\r"
-              exp_continue
-            }
-            -re "READY" {
-              puts "OK: AUTH_SUCCESS"
-              exit 0
-            }
-            -re ".*Permission denied.*" {
-              puts "FAILURE: Permission denied (bad credentials)"
-              exit 2
-            }
-            timeout {
-              puts "FAILURE: Connection timed out"
-              exit 1
-            }
-          }
-          EOF
-          chmod +x /tmp/auth_check_${{ github.run_id }}.exp
-          /usr/bin/expect /tmp/auth_check_${{ github.run_id }}.exp
-          RC=$?
-          rm -f /tmp/auth_check_${{ github.run_id }}.exp
-          if [ $RC -ne 0 ]; then
-            echo "Auth check failed with code $RC"
-            exit $RC
-          fi
-
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
@@ -235,126 +177,201 @@ jobs:
           PUTTY_PATH: ${{ inputs.putty_path }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           echo "================================================="
           echo "  SRF SSH Login - Post Build Auto Login"
           echo "================================================="
 
-          if [ -z "$SRF_PASSWORD" ]; then
-            echo "FAILURE: SRF_PASSWORD is not set in environment"
-            exit 1
-          fi
+          for var_name in SRF_PASSWORD TARGET_PASSWORD BMC_PASSWORD APC_PASSWORD; do
+            if [ -z "${!var_name:-}" ]; then
+              echo "FAILURE: $var_name is not set in environment"
+              exit 1
+            fi
+          done
 
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          # enable verbose debugging for the interactive login step
-          exp_internal 1
-          log_user 1
           set timeout 3000
           set password $env(SRF_PASSWORD)
-
-          # start ssh session (force tty, disable X11 forwarding)
-          spawn ssh -tt -o StrictHostKeyChecking=no -o ForwardX11=no $env(SRF_USER)@$env(SRF_HOST)
-
-          # handle authentication prompt, permission denied, or timeout
-          expect {
-            -re ".*assword:.*" {
-              send "$password\r"
-              exp_continue
-            }
-            -re ".*Permission denied.*" {
-              puts "FAILURE: Permission denied (bad credentials)"
-              exit 2
-            }
-            -re {.*(>|#|\$|PS ).*} {
-              # got shell prompt (covers cmd.exe '>' and PowerShell 'PS ')
-            }
-            timeout {
-              puts "FAILURE: Connection timed out"
-              exit 1
-            }
-          }
-
-          # once at a shell prompt, set the required remote env vars silently
-          # retrieve secrets from the runner environment into Tcl vars
           set target_password $env(TARGET_PASSWORD)
           set target_user $env(TARGET_USER)
           set bmc_password $env(BMC_PASSWORD)
           set apc_password $env(APC_PASSWORD)
-
-          # suppress printing while sending secrets to avoid leaking them in logs
-          log_user 0
-          # use Windows 'set' to define environment variables for the current shell session
-          send "set TARGET_PASSWORD=$target_password\r"
-          # also set TARGET_PASS which `microcode_api` checks as an env fallback
-          send "set TARGET_PASS=$target_password\r"
-          send "set TARGET_USER=$target_user\r"
-          send "set BMC_PASSWORD=$bmc_password\r"
-          send "set APC_PASSWORD=$apc_password\r"
-          # restore logging
-          log_user 1
-
-          # run commands once prompt is available (use broader prompt match)
-          expect {
-            -re {.*(>|#|\$|PS ).*} { send "whoami\r" }
-            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
-          }
-
-          # create/update automation_config.ini on the remote host so imported
-          # `apis.automation_config` will see TARGET/BMC/APC credentials at import time.
-          # Backup existing file if present. Suppress logging while writing secrets.
           set tgt_ip $env(TARGET_IP)
-          set tgt_user $env(TARGET_USER)
           set bmc_ip $env(BMC_IP)
           set bmc_user $env(BMC_USER)
           set apc_ip $env(APC_IP)
           set apc_user $env(APC_USER)
           set apc_outlet $env(APC_OUTLET)
           set putty_path $env(PUTTY_PATH)
+          set srf_user $env(SRF_USER)
 
+          set config_path "C:\\pkummara\\apis\\automation_config.ini"
+          set script_path "C:\\pkummara\\scripts\\deploy_reboot_wrapper.py"
+
+          spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ForwardX11=no $env(SRF_USER)@$env(SRF_HOST)
+
+          expect {
+            "*assword:*" { send "$password\r" }
+            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
+            "Connection refused" { puts "FAILURE: SSH connection refused"; exit 1 }
+            "Could not resolve hostname" { puts "FAILURE: Hostname resolution failed"; exit 1 }
+            "No route to host" { puts "FAILURE: No route to host"; exit 1 }
+            timeout { puts "FAILURE: Connection timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session terminated before password prompt"; exit 1 }
+          }
+
+          expect {
+            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
+            "*assword:*" { puts "FAILURE: Password rejected"; exit 1 }
+            -re {.*(>|#|\$|PS ).*} {}
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after login"; exit 1 }
+          }
+
+          send "whoami\r"
+          expect {
+            -re {.*(>|#|\$|PS ).*} {
+              set whoami_output $expect_out(buffer)
+              if {![string match -nocase "*$srf_user*" $whoami_output]} {
+                puts "FAILURE: whoami did not return expected user"
+                puts "WHOAMI OUTPUT: $whoami_output"
+                exit 1
+              }
+            }
+            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
+          }
+
+          send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r"
+          expect {
+            "SCRIPT_FOUND" {}
+            "SCRIPT_MISSING" { puts "FAILURE: deploy_reboot_wrapper.py not found at expected path"; exit 1 }
+            timeout { puts "FAILURE: Script existence check timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session closed during script existence check"; exit 1 }
+          }
+
+          expect {
+            -re {.*(>|#|\$|PS ).*} {}
+            timeout { puts "FAILURE: Prompt not received after script existence check"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
+          }
+
+          # create/update automation_config.ini on the remote host so imported
+          # `apis.automation_config` will see TARGET/BMC/APC credentials at import time.
+          # Backup existing file if present. Suppress logging while writing secrets.
           log_user 0
-          send "if exist C:\\pkummara\\apis\\automation_config.ini ren C:\\pkummara\\apis\\automation_config.ini automation_config.ini.bak\r"
-          send "echo \[NETWORK\] > C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo TARGET_IP=%tgt_ip% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo TARGET_USER=%tgt_user% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo TARGET_PASSWORD=%target_password% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo BMC_IP=%bmc_ip% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo BMC_USER=%bmc_user% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo BMC_PASSWORD=%bmc_password% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo. >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo \[APC\] >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo APC_IP=%apc_ip% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo APC_USER=%apc_user% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo APC_PASSWORD=%apc_password% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo APC_OUTLET=%apc_outlet% >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo. >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo \[PUTTY\] >> C:\\pkummara\\apis\\automation_config.ini\r"
-          send "echo PUTTY_PATH=%putty_path% >> C:\\pkummara\\apis\\automation_config.ini\r"
+          send "if exist \"$config_path\" ren \"$config_path\" automation_config.ini.bak\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo \[NETWORK\] > \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo TARGET_IP=$tgt_ip >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo TARGET_USER=$target_user >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo TARGET_PASSWORD=$target_password >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo BMC_IP=$bmc_ip >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo BMC_USER=$bmc_user >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo BMC_PASSWORD=$bmc_password >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo. >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo \[APC\] >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo APC_IP=$apc_ip >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo APC_USER=$apc_user >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo APC_PASSWORD=$apc_password >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo APC_OUTLET=$apc_outlet >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo. >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo \[PUTTY\] >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "echo PUTTY_PATH=$putty_path >> \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
           log_user 1
 
+          send "cd C:\\pkummara\\scripts\r"
           expect {
-            -re {.*(>|#|\$|PS ).*} { send "cd C:\\pkummara\\scripts\r" }
-            timeout { puts "FAILURE: whoami did not complete"; exit 1 }
-          }
-
-          expect {
-            -re {.*(>|#|\$|PS ).*} { send "py -3 -u .\\deploy_reboot_wrapper.py\r" }
+            -re {.*(>|#|\$|PS ).*} {}
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+            eof { puts "FAILURE: SSH session closed while changing directory"; exit 1 }
+          }
+
+          send "py -3 -u .\\deploy_reboot_wrapper.py\r"
+          expect {
+            -re {.*(>|#|\$|PS ).*} {
+              set py_output $expect_out(buffer)
+            }
+            timeout {
+              puts "FAILURE: Python script did not complete"
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH session closed while waiting for Python script completion"
+              exit 1
+            }
+          }
+
+          if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
+            puts "FAILURE: Python script threw an exception"
+            puts $py_output
+            exit 1
+          }
+
+          if {[string match -nocase "*can't open file*" $py_output]} {
+            puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
+            puts $py_output
+            exit 1
+          }
+
+          send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
+          expect {
+            -re {__PY_EXIT_CODE__=([0-9]+)} {
+              set py_exit $expect_out(1,string)
+              if {$py_exit ne "0"} {
+                puts "FAILURE: Remote Python exited with code $py_exit"
+                puts $py_output
+                exit 1
+              }
+            }
+            timeout {
+              puts "FAILURE: Could not determine remote Python exit code"
+              puts $py_output
+              exit 1
+            }
+            eof {
+              puts "FAILURE: SSH session closed while reading Python exit code"
+              puts $py_output
+              exit 1
+            }
           }
 
           expect {
-            -re {.*(>|#|\$|PS ).*} { send "exit\r" }
-            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
+            -re {.*(>|#|\$|PS ).*} {}
+            timeout { puts "FAILURE: Prompt not received after exit code check"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after exit code check"; exit 1 }
           }
 
+          send "exit\r"
           expect eof
           EOF
 
           chmod +x /tmp/ssh_login_${{ github.run_id }}.exp
           echo "Connecting to SRF host via SSH..."
+
+          set +e
           /usr/bin/expect /tmp/ssh_login_${{ github.run_id }}.exp
           SSH_EXIT=$?
+          set -e
+
           rm -f /tmp/ssh_login_${{ github.run_id }}.exp
 
           if [ $SSH_EXIT -eq 0 ]; then
@@ -366,22 +383,28 @@ jobs:
 
       - name: Send SRF Login Notification
         if: ${{ inputs.callback_url != '' }}
+        env:
+          SRF_HOST: ${{ inputs.srf_host }}
+          SRF_USER: ${{ inputs.srf_user }}
         shell: bash
         run: |
+          set -euo pipefail
+
           echo "Sending SRF login notification..."
 
           CALLBACK_URL="${{ inputs.callback_url }}"
           SESSION_ID="${{ inputs.session_id }}"
 
           if [ -n "$CALLBACK_URL" ]; then
-              PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","login_timestamp":"%s"}}' \
-                "$SESSION_ID" \
-                "${{ github.run_id }}" \
-                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                "${{ inputs.trigger_source }}" \
-                "$SRF_HOST" \
-                "$SRF_USER" \
-                "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","login_timestamp":"%s"}}' \
+              "$SESSION_ID" \
+              "${{ github.run_id }}" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "${{ inputs.trigger_source }}" \
+              "$SRF_HOST" \
+              "$SRF_USER" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+
             curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" || echo "Failed to send SRF login notification"
