@@ -284,45 +284,44 @@ jobs:
 
           # create/update automation_config.ini on the remote host so imported
           # `apis.automation_config` will see TARGET/BMC/APC credentials at import time.
-          # Backup existing file if present. Suppress logging while writing secrets.
+          # Delete existing file, write in one grouped block, then verify. Suppress logging while writing secrets.
           log_user 0
-          send "if exist \"$config_path\" ren \"$config_path\" automation_config.ini.bak\r"
+          send "if exist \"$config_path\" del \"$config_path\"\r"
           expect -re {.*(>|#|\$|PS ).*}
-          send "echo \[NETWORK\] > \"$config_path\"\r"
+
+          send "(\r"
+          send "  echo.\[NETWORK\]\r"
+          send "  echo.TARGET_IP=$tgt_ip\r"
+          send "  echo.TARGET_USER=$target_user\r"
+          send "  echo.TARGET_PASSWORD=$target_password\r"
+          send "  echo.BMC_IP=$bmc_ip\r"
+          send "  echo.BMC_USER=$bmc_user\r"
+          send "  echo.BMC_PASSWORD=$bmc_password\r"
+          send "  echo.\r"
+          send "  echo.\[APC\]\r"
+          send "  echo.APC_IP=$apc_ip\r"
+          send "  echo.APC_USER=$apc_user\r"
+          send "  echo.APC_PASSWORD=$apc_password\r"
+          send "  echo.APC_OUTLET=$apc_outlet\r"
+          send "  echo.\r"
+          send "  echo.\[PUTTY\]\r"
+          send "  echo.PUTTY_PATH=$putty_path\r"
+          send "  echo.PUTTY_COM_PORT=$putty_com_port\r"
+          send "  echo.PUTTY_BAUD_RATE=$putty_baud_rate\r"
+          send ") > \"$config_path\"\r"
           expect -re {.*(>|#|\$|PS ).*}
-          send "echo TARGET_IP=$tgt_ip >> \"$config_path\"\r"
+
+          send "if exist \"$config_path\" (echo CONFIG_OK) else (echo CONFIG_FAILED)\r"
+          expect {
+            "CONFIG_OK" {}
+            "CONFIG_FAILED" { puts "FAILURE: Config file creation failed"; exit 1 }
+            timeout { puts "FAILURE: Config verification timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session closed during config verification"; exit 1 }
+          }
           expect -re {.*(>|#|\$|PS ).*}
-          send "echo TARGET_USER=$target_user >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo TARGET_PASSWORD=$target_password >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo BMC_IP=$bmc_ip >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo BMC_USER=$bmc_user >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo BMC_PASSWORD=$bmc_password >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo. >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo \[APC\] >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo APC_IP=$apc_ip >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo APC_USER=$apc_user >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo APC_PASSWORD=$apc_password >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo APC_OUTLET=$apc_outlet >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo. >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo \[PUTTY\] >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo PUTTY_PATH=$putty_path >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo PUTTY_COM_PORT=$putty_com_port >> \"$config_path\"\r"
-          expect -re {.*(>|#|\$|PS ).*}
-          send "echo PUTTY_BAUD_RATE=$putty_baud_rate >> \"$config_path\"\r"
+
+          # Debug: dump config contents (stays hidden from the Actions log since log_user is 0)
+          send "type \"$config_path\"\r"
           expect -re {.*(>|#|\$|PS ).*}
           log_user 1
 
@@ -332,6 +331,23 @@ jobs:
             timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
             eof { puts "FAILURE: SSH session closed while changing directory"; exit 1 }
           }
+
+          # Export credentials as env vars too, in case the remote scripts fall back
+          # to os.environ when the ini file hasn't been read yet. Hidden from the log.
+          log_user 0
+          send "set BMC_IP=$bmc_ip\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set BMC_USER=$bmc_user\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set BMC_PASSWORD=$bmc_password\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set TARGET_IP=$tgt_ip\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set TARGET_USER=$target_user\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set TARGET_PASSWORD=$target_password\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          log_user 1
 
           # BMC SSH auth is occasionally slow to come up; retry the whole script run
           # a few times if the failure looks like a transient BMC AuthenticationException.
