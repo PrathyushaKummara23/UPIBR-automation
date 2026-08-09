@@ -62,7 +62,7 @@ on:
 jobs:
   read-pipeline-result:
     name: Read Pipeline Result
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, node16]
     outputs:
       pipeline_status: ${{ steps.read-result.outputs.pipeline_status }}
 
@@ -215,13 +215,6 @@ jobs:
             echo "ℹ️  No callback URL provided, skipping notification"
           fi
 
-      - name: Upload Output_pipeline_Status.txt as artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pipeline-status
-          path: Output_pipeline_Status.txt
-
       - name: Handle pipeline status
         run: |
           PIPELINE_STATUS=$(cat Output_pipeline_Status.txt)
@@ -241,3 +234,20 @@ jobs:
             echo "INFO: Pipeline status is unknown"
             exit 0
           fi
+
+  # Runs on ubuntu-latest (not the self-hosted pool) because actions/upload-artifact@v4
+  # requires Node 24, which fails on self-hosted runners with older glibc.
+  upload-pipeline-status-artifact:
+    name: Upload Pipeline Status Artifact
+    runs-on: ubuntu-latest
+    needs: read-pipeline-result
+    if: always()
+    steps:
+      - name: Recreate status file from job output
+        run: echo "${{ needs.read-pipeline-result.outputs.pipeline_status }}" > Output_pipeline_Status.txt
+
+      - name: Upload Output_pipeline_Status.txt as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-status
+          path: Output_pipeline_Status.txt
