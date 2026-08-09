@@ -1016,8 +1016,10 @@ jobs:
           [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
 
           mapfile -t PDB_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | sort)
+          mapfile -t INC_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | sort)
 
           [ "${#PDB_FILES[@]}" -gt 0 ] || { log "- No PDB files found for pattern m_*_*_${CURRENT_VERSION_LOWER}.pdb"; exit 1; }
+          [ "${#INC_FILES[@]}" -gt 0 ] || { log "- No INC files found for pattern m_*_*_${CURRENT_VERSION_LOWER}.inc"; exit 1; }
 
           for PDB_FILE in "${PDB_FILES[@]}"; do
             PDB_NAME="$(basename "$PDB_FILE")"
@@ -1025,6 +1027,14 @@ jobs:
               "$PDB_FILE" \
               "${TARGET_COLLATERAL_DIR}/${PDB_NAME}" \
               "[skip ci] Upload SRF collateral 836003C4: ${PDB_NAME}"
+          done
+
+          for INC_FILE in "${INC_FILES[@]}"; do
+            INC_NAME="$(basename "$INC_FILE")"
+            upload_file \
+              "$INC_FILE" \
+              "${TARGET_COLLATERAL_DIR}/${INC_NAME}" \
+              "[skip ci] Upload SRF collateral 836003C4: ${INC_NAME}"
           done
 
   copy-release-collaterals:
@@ -1277,7 +1287,7 @@ jobs:
   call-srf-login:
     needs: [session-management, copy-release-collaterals]
     if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/loginsrf.yml@master
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/TestSRFlogin.yml@master
     secrets: inherit
     with:
       session_id: ${{ needs.session-management.outputs.session_id }}
@@ -1287,7 +1297,7 @@ jobs:
   call-read-pipeline-result:
     needs: [session-management, call-srf-login]
     if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/Read_Pipeline_Result.yml@master
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/TestSRFRead_Pipeline_Results.yml@master
     secrets: inherit
     with:
       session_id: ${{ needs.session-management.outputs.session_id }}
