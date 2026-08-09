@@ -294,6 +294,8 @@ jobs:
           send "  echo.TARGET_IP=$tgt_ip\r"
           send "  echo.TARGET_USER=$target_user\r"
           send "  echo.TARGET_PASSWORD=$target_password\r"
+          send "  echo.\r"
+          send "  echo.\[BMC\]\r"
           send "  echo.BMC_IP=$bmc_ip\r"
           send "  echo.BMC_USER=$bmc_user\r"
           send "  echo.BMC_PASSWORD=$bmc_password\r"
@@ -308,6 +310,7 @@ jobs:
           send "  echo.PUTTY_PATH=$putty_path\r"
           send "  echo.PUTTY_COM_PORT=$putty_com_port\r"
           send "  echo.PUTTY_BAUD_RATE=$putty_baud_rate\r"
+          send "  echo.PUTTY_LOG_ENABLED=False\r"
           send ") > \"$config_path\"\r"
           expect -re {.*(>|#|\$|PS ).*}
 
@@ -359,9 +362,16 @@ jobs:
             incr py_attempt
             puts "Running deploy_reboot_wrapper.py (attempt $py_attempt of $max_py_retries)..."
 
-            send "py -3 -u .\\deploy_reboot_wrapper.py\r"
+            # Use a unique completion marker instead of a generic prompt regex:
+            # the script's own log lines can contain '>' (e.g. "2>/dev/null"),
+            # which previously made expect think the command had finished early.
+            set py_marker "PYEXIT_MARKER_${py_attempt}_[clock clicks]"
+            send "py -3 -u .\\deploy_reboot_wrapper.py & echo ${py_marker}=%ERRORLEVEL%\r"
+            set py_output ""
+            set py_exit ""
             expect {
-              -re {.*(>|#|\$|PS ).*} {
+              -re "$py_marker=(\[0-9\]+)" {
+                set py_exit $expect_out(1,string)
                 set py_output $expect_out(buffer)
               }
               timeout {
@@ -383,54 +393,18 @@ jobs:
             set bmc_auth_failed [expr {[string match -nocase "*AuthenticationException*" $py_output] || [string match -nocase "*bmc*authentication*failed*" $py_output]}]
             set py_has_traceback [string match -nocase "*Traceback (most recent call last)*" $py_output]
 
-            if {$py_has_traceback && $bmc_auth_failed} {
-              if {$py_attempt < $max_py_retries} {
-                puts "WARNING: BMC authentication failed on attempt $py_attempt, retrying in 5s..."
+            if {$py_exit ne "0"} {
+              if {($bmc_auth_failed || $py_has_traceback) && $py_attempt < $max_py_retries} {
+                puts "WARNING: deploy_reboot_wrapper.py failed on attempt $py_attempt (exit $py_exit, bmc_auth_failed=$bmc_auth_failed), retrying in 5s..."
                 sleep 5
                 continue
-              } else {
-                puts "FAILURE: BMC authentication failed after $max_py_retries attempts"
-                puts $py_output
-                exit 1
               }
-            } elseif {$py_has_traceback} {
-              puts "FAILURE: Python script threw an exception"
+              puts "FAILURE: Remote Python exited with code $py_exit"
               puts $py_output
               exit 1
             }
 
-            send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
-            set py_exit_ok 0
-            expect {
-              -re {__PY_EXIT_CODE__=([0-9]+)} {
-                set py_exit $expect_out(1,string)
-                if {$py_exit ne "0"} {
-                  if {$bmc_auth_failed && $py_attempt < $max_py_retries} {
-                    puts "WARNING: Remote Python exited with code $py_exit (BMC auth), retrying in 5s..."
-                    sleep 5
-                    continue
-                  }
-                  puts "FAILURE: Remote Python exited with code $py_exit"
-                  puts $py_output
-                  exit 1
-                }
-                set py_exit_ok 1
-              }
-              timeout {
-                puts "FAILURE: Could not determine remote Python exit code"
-                puts $py_output
-                exit 1
-              }
-              eof {
-                puts "FAILURE: SSH session closed while reading Python exit code"
-                puts $py_output
-                exit 1
-              }
-            }
-
-            if {$py_exit_ok} {
-              set py_success 1
-            }
+            set py_success 1
           }
 
           expect {
