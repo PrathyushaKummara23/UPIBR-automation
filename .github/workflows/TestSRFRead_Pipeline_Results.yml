@@ -107,13 +107,14 @@ jobs:
             eof                 { puts "FAILURE: SSH session terminated before password prompt"; exit 1 }
           }
 
-          # Prompt detection uses '>' / '#' / '$' / 'PS ' only (not ']' or '%'),
-          # since the Windows login banner "[Version ...]" contains a literal ']'
-          # that would otherwise cause a false-early match.
+          # Prompt must be the last non-whitespace token on its own line (anchored,
+          # newline-sensitive match), not just '>' / '#' / '$' / 'PS ' appearing
+          # anywhere in the buffer -- otherwise banner/output text (e.g. the Windows
+          # login banner "[Version ...]") can cause a false-early match.
           expect {
             "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
             "*assword:*"        { puts "FAILURE: Password rejected"; exit 1 }
-            -re {.*(>|#|\$|PS ).*} {}
+            -re {(?n)^[^\r\n]*(>|#|\$|PS )\s*$} {}
             timeout             { puts "FAILURE: Shell prompt not received"; exit 1 }
             eof                 { puts "FAILURE: SSH session closed after login"; exit 1 }
           }
@@ -121,7 +122,7 @@ jobs:
           send "@echo off\r"
 
           expect {
-            -re {.*(>|#|\$|PS ).*} {}
+            -re {(?n)^[^\r\n]*(>|#|\$|PS )\s*$} {}
             timeout { puts "FAILURE: echo off did not complete"; exit 1 }
             eof     { puts "FAILURE: SSH session closed after echo off"; exit 1 }
           }
