@@ -18,6 +18,66 @@ on:
         required: false
         type: string
         default: ''
+      srf_host:
+        description: 'SRF host IP or hostname'
+        required: false
+        type: string
+        default: '10.138.186.198'
+      srf_user:
+        description: 'SRF SSH user'
+        required: false
+        type: string
+        default: 'CEFLS_User'
+      target_ip:
+        description: 'Target host IP'
+        required: false
+        type: string
+        default: '10.138.186.208'
+      target_user:
+        description: 'Target SSH user'
+        required: false
+        type: string
+        default: 'root'
+      bmc_ip:
+        description: 'BMC IP'
+        required: false
+        type: string
+        default: '10.138.186.218'
+      bmc_user:
+        description: 'BMC user'
+        required: false
+        type: string
+        default: 'root'
+      apc_ip:
+        description: 'APC IP'
+        required: false
+        type: string
+        default: '10.138.186.171'
+      apc_user:
+        description: 'APC user'
+        required: false
+        type: string
+        default: 'apc'
+      apc_outlet:
+        description: 'APC outlet number'
+        required: false
+        type: string
+        default: '3'
+      putty_path:
+        description: 'Putty exe path'
+        required: false
+        type: string
+        default: 'C:\Program Files\PuTTY\putty.exe'
+      putty_com_port:
+        description: 'Putty COM port'
+        required: false
+        type: string
+        default: 'COM3'
+      putty_baud_rate:
+        description: 'Putty baud rate'
+        required: false
+        type: string
+        default: '115200'
   workflow_call:
     inputs:
       session_id:
@@ -35,18 +95,80 @@ on:
         required: false
         type: string
         default: ''
+      srf_host:
+        description: 'SRF host IP or hostname'
+        required: false
+        type: string
+        default: '10.138.186.198'
+      srf_user:
+        description: 'SRF SSH user'
+        required: false
+        type: string
+        default: 'CEFLS_User'
+      target_ip:
+        description: 'Target host IP'
+        required: false
+        type: string
+        default: '10.138.186.208'
+      target_user:
+        description: 'Target SSH user'
+        required: false
+        type: string
+        default: 'root'
+      bmc_ip:
+        description: 'BMC IP'
+        required: false
+        type: string
+        default: '10.138.186.218'
+      bmc_user:
+        description: 'BMC user'
+        required: false
+        type: string
+        default: 'root'
+      apc_ip:
+        description: 'APC IP'
+        required: false
+        type: string
+        default: '10.138.186.171'
+      apc_user:
+        description: 'APC user'
+        required: false
+        type: string
+        default: 'apc'
+      apc_outlet:
+        description: 'APC outlet number'
+        required: false
+        type: string
+        default: '3'
+      putty_path:
+        description: 'Putty exe path'
+        required: false
+        type: string
+        default: 'C:\Program Files\PuTTY\putty.exe'
+      putty_com_port:
+        description: 'Putty COM port'
+        required: false
+        type: string
+        default: 'COM3'
+      putty_baud_rate:
+        description: 'Putty baud rate'
+        required: false
+        type: string
+        default: '115200'
     secrets:
-      SRF_HOST:
-        required: true
-      SRF_USERNAME:
-        required: true
       SRF_PASSWORD:
+        required: true
+      TARGET_PASSWORD:
+        required: true
+      BMC_PASSWORD:
+        required: true
+      APC_PASSWORD:
         required: true
 
 jobs:
   srf-login:
     name: SRF SSH Login
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, node16]
 
     steps:
       - name: Session Info Display
@@ -59,9 +181,22 @@ jobs:
 
       - name: SSH into SRF host and run deploy_reboot_wrapper.py
         env:
-          SRF_HOST: ${{ secrets.SRF_HOST }}
-          SRF_USER: ${{ secrets.SRF_USERNAME }}
           SRF_PASSWORD: ${{ secrets.SRF_PASSWORD }}
+          TARGET_PASSWORD: ${{ secrets.TARGET_PASSWORD }}
+          BMC_PASSWORD: ${{ secrets.BMC_PASSWORD }}
+          APC_PASSWORD: ${{ secrets.APC_PASSWORD }}
+          SRF_HOST: ${{ inputs.srf_host }}
+          SRF_USER: ${{ inputs.srf_user }}
+          TARGET_IP: ${{ inputs.target_ip }}
+          TARGET_USER: ${{ inputs.target_user }}
+          BMC_IP: ${{ inputs.bmc_ip }}
+          BMC_USER: ${{ inputs.bmc_user }}
+          APC_IP: ${{ inputs.apc_ip }}
+          APC_USER: ${{ inputs.apc_user }}
+          APC_OUTLET: ${{ inputs.apc_outlet }}
+          PUTTY_PATH: ${{ inputs.putty_path }}
+          PUTTY_COM_PORT: ${{ inputs.putty_com_port }}
+          PUTTY_BAUD_RATE: ${{ inputs.putty_baud_rate }}
         shell: bash
         run: |
           set -euo pipefail
@@ -70,214 +205,221 @@ jobs:
           echo "  SRF SSH Login - Post Build Auto Login"
           echo "================================================="
 
+          for var_name in SRF_PASSWORD TARGET_PASSWORD BMC_PASSWORD APC_PASSWORD; do
+            if [ -z "${!var_name:-}" ]; then
+              echo "FAILURE: $var_name is not set in environment"
+              exit 1
+            fi
+          done
+
           cat > /tmp/ssh_login_${{ github.run_id }}.exp << 'EOF'
           #!/usr/bin/expect -f
-          set timeout 7200
-          set srf_host $env(SRF_HOST)
-          set srf_user $env(SRF_USER)
+          set timeout 3000
+          # Default match_max (2000 bytes) silently drops the oldest output once exceeded,
+          # truncating the deploy_reboot_wrapper.py log captured for failure reporting below.
+          match_max 1000000
           set password $env(SRF_PASSWORD)
+          set target_password $env(TARGET_PASSWORD)
+          set target_user $env(TARGET_USER)
+          set bmc_password $env(BMC_PASSWORD)
+          set apc_password $env(APC_PASSWORD)
+          set tgt_ip $env(TARGET_IP)
+          set bmc_ip $env(BMC_IP)
+          set bmc_user $env(BMC_USER)
+          set apc_ip $env(APC_IP)
+          set apc_user $env(APC_USER)
+          set apc_outlet $env(APC_OUTLET)
+          set putty_path $env(PUTTY_PATH)
+          set putty_com_port $env(PUTTY_COM_PORT)
+          set putty_baud_rate $env(PUTTY_BAUD_RATE)
+          set srf_user $env(SRF_USER)
 
-          set script_path "C:\\Users\\pkummara\\scripts\\deploy_reboot_wrapper.py"
-          set stitch_script "C:\\Users\\pkummara\\scripts\\ifwistitch_ifwiburn.py"
-          set python_path "C:\\Python310\\python.exe"
+          set config_path "C:\\pkummara\\apis\\automation_config.ini"
+          set script_path "C:\\pkummara\\scripts\\deploy_reboot_wrapper.py"
 
-          spawn ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $srf_user@$srf_host
+          # ServerAlive keepalives keep this session alive through the long silent
+          # waits (e.g. 1200s post-reboot SSH wait) so a network firewall/NAT idle
+          # timeout doesn't kill this outer SSH session (and the wrapper under it).
+          spawn ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ForwardX11=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 $env(SRF_USER)@$env(SRF_HOST)
 
-          # Step 1: Send password
           expect {
-            "*assword:*"                 { send "$password\r" }
-            "Permission denied"          { puts "FAILURE: Invalid SSH credentials"; exit 1 }
-            "Connection refused"         { puts "FAILURE: SSH connection refused"; exit 1 }
+            "*assword:*" { send "$password\r" }
+            "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
+            "Connection refused" { puts "FAILURE: SSH connection refused"; exit 1 }
             "Could not resolve hostname" { puts "FAILURE: Hostname resolution failed"; exit 1 }
-            "No route to host"           { puts "FAILURE: No route to host"; exit 1 }
-            timeout                      { puts "FAILURE: Connection timed out"; exit 1 }
-            eof                          { puts "FAILURE: SSH session terminated before password prompt"; exit 1 }
+            "No route to host" { puts "FAILURE: No route to host"; exit 1 }
+            timeout { puts "FAILURE: Connection timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session terminated before password prompt"; exit 1 }
           }
 
-          # Step 2: Wait for shell prompt
           expect {
             "Permission denied" { puts "FAILURE: Invalid SSH credentials"; exit 1 }
-            "*assword:*"        { puts "FAILURE: Password rejected"; exit 1 }
-            "*>*"               {}
-            timeout             { puts "FAILURE: Shell prompt not received"; exit 1 }
-            eof                 { puts "FAILURE: SSH session closed after login"; exit 1 }
+            "*assword:*" { puts "FAILURE: Password rejected"; exit 1 }
+            -re {.*(>|#|\$|PS ).*} {}
+            timeout { puts "FAILURE: Shell prompt not received"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after login"; exit 1 }
           }
 
-          # Step 3: Verify remote user with whoami
           send "whoami\r"
           expect {
-            "*>*" {
+            -re {.*(>|#|\$|PS ).*} {
               set whoami_output $expect_out(buffer)
-              if {![string match -nocase "*\\\\cefls_user*" $whoami_output]} {
+              if {![string match -nocase "*$srf_user*" $whoami_output]} {
                 puts "FAILURE: whoami did not return expected user"
                 puts "WHOAMI OUTPUT: $whoami_output"
                 exit 1
               }
             }
             timeout { puts "FAILURE: whoami did not complete"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed after whoami"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after whoami"; exit 1 }
           }
 
-          # Step 4: Check required scripts exist
           send "if exist \"$script_path\" (echo SCRIPT_FOUND) else (echo SCRIPT_MISSING)\r"
           expect {
-            "SCRIPT_FOUND"   {}
+            "SCRIPT_FOUND" {}
             "SCRIPT_MISSING" { puts "FAILURE: deploy_reboot_wrapper.py not found at expected path"; exit 1 }
-            timeout          { puts "FAILURE: Script existence check timed out"; exit 1 }
-            eof              { puts "FAILURE: SSH session closed during script existence check"; exit 1 }
+            timeout { puts "FAILURE: Script existence check timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session closed during script existence check"; exit 1 }
           }
+
           expect {
-            "*>*"   {}
+            -re {.*(>|#|\$|PS ).*} {}
             timeout { puts "FAILURE: Prompt not received after script existence check"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after script existence check"; exit 1 }
           }
 
-          send "if exist \"$stitch_script\" (echo STITCH_SCRIPT_FOUND) else (echo STITCH_SCRIPT_MISSING)\r"
+          # create/update automation_config.ini on the remote host so imported
+          # `apis.automation_config` will see TARGET/BMC/APC credentials at import time.
+          # Delete existing file, write in one grouped block, then verify. Suppress logging while writing secrets.
+          log_user 0
+          send "if exist \"$config_path\" del \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+
+          send "(\r"
+          send "  echo.\[NETWORK\]\r"
+          send "  echo.TARGET_IP=$tgt_ip\r"
+          send "  echo.TARGET_USER=$target_user\r"
+          send "  echo.TARGET_PASSWORD=$target_password\r"
+          send "  echo.\r"
+          send "  echo.\[BMC\]\r"
+          send "  echo.BMC_IP=$bmc_ip\r"
+          send "  echo.BMC_USER=$bmc_user\r"
+          send "  echo.BMC_PASSWORD=$bmc_password\r"
+          send "  echo.\r"
+          send "  echo.\[APC\]\r"
+          send "  echo.APC_IP=$apc_ip\r"
+          send "  echo.APC_USER=$apc_user\r"
+          send "  echo.APC_PASSWORD=$apc_password\r"
+          send "  echo.APC_OUTLET=$apc_outlet\r"
+          send "  echo.\r"
+          send "  echo.\[PUTTY\]\r"
+          send "  echo.PUTTY_PATH=$putty_path\r"
+          send "  echo.PUTTY_COM_PORT=$putty_com_port\r"
+          send "  echo.PUTTY_BAUD_RATE=$putty_baud_rate\r"
+          send "  echo.PUTTY_LOG_ENABLED=False\r"
+          send ") > \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+
+          send "if exist \"$config_path\" (echo CONFIG_OK) else (echo CONFIG_FAILED)\r"
           expect {
-            "STITCH_SCRIPT_FOUND"   {}
-            "STITCH_SCRIPT_MISSING" { puts "FAILURE: ifwistitch_ifwiburn.py not found at expected path"; exit 1 }
-            timeout                 { puts "FAILURE: Stitch script existence check timed out"; exit 1 }
-            eof                     { puts "FAILURE: SSH session closed during stitch script existence check"; exit 1 }
+            "CONFIG_OK" {}
+            "CONFIG_FAILED" { puts "FAILURE: Config file creation failed"; exit 1 }
+            timeout { puts "FAILURE: Config verification timed out"; exit 1 }
+            eof { puts "FAILURE: SSH session closed during config verification"; exit 1 }
           }
+          expect -re {.*(>|#|\$|PS ).*}
+
+          # Debug: dump config contents (stays hidden from the Actions log since log_user is 0)
+          send "type \"$config_path\"\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          log_user 1
+
+          send "cd C:\\pkummara\\scripts\r"
           expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: Prompt not received after stitch script existence check"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed after stitch script existence check"; exit 1 }
+            -re {.*(>|#|\$|PS ).*} {}
+            timeout { puts "FAILURE: cd to scripts directory did not complete"; exit 1 }
+            eof { puts "FAILURE: SSH session closed while changing directory"; exit 1 }
           }
 
-          # Step 5: Set proxy env vars
-          send "set NO_PROXY=localhost,127.0.0.1\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: setting NO_PROXY timed out"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed while setting NO_PROXY"; exit 1 }
-          }
-          send "set no_proxy=localhost,127.0.0.1\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: setting no_proxy timed out"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed while setting no_proxy"; exit 1 }
-          }
+          # Export credentials as env vars too, in case the remote scripts fall back
+          # to os.environ when the ini file hasn't been read yet. Hidden from the log.
+          log_user 0
+          send "set BMC_IP=$bmc_ip\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set BMC_USER=$bmc_user\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set BMC_PASSWORD=$bmc_password\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set TARGET_IP=$tgt_ip\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set TARGET_USER=$target_user\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          send "set TARGET_PASSWORD=$target_password\r"
+          expect -re {.*(>|#|\$|PS ).*}
+          log_user 1
 
-          # Step 6: Set MICROCODE_INPUT_DIR
-          send "set MICROCODE_INPUT_DIR=C:\\Users\\pkummara\\IFWI_INC_PDB\\test\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: setting MICROCODE_INPUT_DIR timed out"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed while setting MICROCODE_INPUT_DIR"; exit 1 }
-          }
+          # BMC SSH auth is occasionally slow to come up; retry the whole script run
+          # a few times if the failure looks like a transient BMC AuthenticationException.
+          set max_py_retries 3
+          set py_attempt 0
+          set py_success 0
 
-          # Step 7: Resolve PYFIT_PATH on remote host
-          send "set PYFIT_PATH=\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: could not reset PYFIT_PATH"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed while resetting PYFIT_PATH"; exit 1 }
-          }
+          while {$py_attempt < $max_py_retries && !$py_success} {
+            incr py_attempt
+            puts "Running deploy_reboot_wrapper.py (attempt $py_attempt of $max_py_retries)..."
 
-          send "if exist \"C:\\Users\\pkummara\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\Users\\pkummara\\pyfit\\pyfit.py\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: PYFIT candidate check 1 timed out"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 1"; exit 1 }
-          }
-
-          send "if \"%PYFIT_PATH%\"==\"\" if exist \"C:\\Users\\pkummara\\tools\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\Users\\pkummara\\tools\\pyfit\\pyfit.py\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: PYFIT candidate check 2 timed out"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 2"; exit 1 }
-          }
-
-          send "if \"%PYFIT_PATH%\"==\"\" if exist \"C:\\pythonsv\\sapphirerapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\pythonsv\\sapphirerapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: PYFIT candidate check 3 timed out"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 3"; exit 1 }
-          }
-
-          send "if \"%PYFIT_PATH%\"==\"\" if exist \"C:\\pythonsv\\graniterapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\" set PYFIT_PATH=C:\\pythonsv\\graniterapids\\users\\kwadams\\staging\\pyfit\\pyfit.py\r"
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: PYFIT candidate check 4 timed out"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed during PYFIT candidate check 4"; exit 1 }
-          }
-
-          send "echo __PYFIT_PATH__=%PYFIT_PATH%\r"
-          expect {
-            -re {__PYFIT_PATH__=(.*)\r?\n} {
-              set pyfit_val [string trim $expect_out(1,string)]
-              if {$pyfit_val eq ""} {
-                puts "FAILURE: PYFIT_MISSING on remote host"
-                puts "Checked paths:"
-                puts "  C:\\Users\\pkummara\\pyfit\\pyfit.py"
-                puts "  C:\\Users\\pkummara\\tools\\pyfit\\pyfit.py"
-                puts "  C:\\pythonsv\\sapphirerapids\\users\\kwadams\\staging\\pyfit\\pyfit.py"
-                puts "  C:\\pythonsv\\graniterapids\\users\\kwadams\\staging\\pyfit\\pyfit.py"
-                exit 1
-              } else {
-                puts "PYFIT_FOUND: $pyfit_val"
+            # Use a unique completion marker instead of a generic prompt regex:
+            # the script's own log lines can contain '>' (e.g. "2>/dev/null"),
+            # which previously made expect think the command had finished early.
+            set py_marker "PYEXIT_MARKER_${py_attempt}_[clock clicks]"
+            send "py -3 -u .\\deploy_reboot_wrapper.py & echo ${py_marker}=%ERRORLEVEL%\r"
+            set py_output ""
+            set py_exit ""
+            expect {
+              -re "$py_marker=(\[0-9\]+)" {
+                set py_exit $expect_out(1,string)
+                set py_output $expect_out(buffer)
               }
-            }
-            timeout { puts "FAILURE: Could not read PYFIT_PATH"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed while reading PYFIT_PATH"; exit 1 }
-          }
-          expect {
-            "*>*"   {}
-            timeout { puts "FAILURE: Prompt not received after PYFIT_PATH check"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed after PYFIT_PATH check"; exit 1 }
-          }
-
-          # Step 8: Run deploy script
-          send "$python_path -u $script_path\r"
-          expect {
-            "*>*" {
-              set py_output $expect_out(buffer)
-            }
-            timeout { puts "FAILURE: Python script did not complete"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed while waiting for Python script completion"; exit 1 }
-          }
-
-          # Step 9: Check for known failure strings in output
-          if {[string match -nocase "*PHASE 0 FAILED*" $py_output]} {
-            puts "FAILURE: Remote script reported PHASE 0 FAILED"
-            puts $py_output
-            exit 1
-          }
-          if {[string match -nocase "*Stitch and burn flow failed*" $py_output]} {
-            puts "FAILURE: Remote script reported stitch/burn failure"
-            puts $py_output
-            exit 1
-          }
-          if {[string match -nocase "*Traceback (most recent call last)*" $py_output]} {
-            puts "FAILURE: Python script threw an exception"
-            puts $py_output
-            exit 1
-          }
-          if {[string match -nocase "*can't open file*" $py_output]} {
-            puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
-            puts $py_output
-            exit 1
-          }
-
-          # Step 10: Confirm Python exit code
-          send "echo __PY_EXIT_CODE__=%ERRORLEVEL%\r"
-          expect {
-            -re {__PY_EXIT_CODE__=([0-9]+)} {
-              set py_exit $expect_out(1,string)
-              if {$py_exit ne "0"} {
-                puts "FAILURE: Remote Python exited with code $py_exit"
-                puts $py_output
+              timeout {
+                puts "FAILURE: Python script did not complete"
+                exit 1
+              }
+              eof {
+                puts "FAILURE: SSH session closed while waiting for Python script completion"
                 exit 1
               }
             }
-            timeout { puts "FAILURE: Could not determine remote Python exit code"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed while reading Python exit code"; exit 1 }
+
+            if {[string match -nocase "*can't open file*" $py_output]} {
+              puts "FAILURE: Python could not open deploy_reboot_wrapper.py"
+              puts $py_output
+              exit 1
+            }
+
+            set bmc_auth_failed [expr {[string match -nocase "*AuthenticationException*" $py_output] || [string match -nocase "*bmc*authentication*failed*" $py_output]}]
+            set py_has_traceback [string match -nocase "*Traceback (most recent call last)*" $py_output]
+
+            # deploy_reboot_wrapper.py has been observed to catch internal errors
+            # (e.g. TimeoutError waiting for SSH after reboot) and still exit 0,
+            # so a traceback in the output must fail the step even when py_exit is 0.
+            if {$py_exit ne "0" || $py_has_traceback} {
+              if {($bmc_auth_failed || $py_has_traceback) && $py_attempt < $max_py_retries} {
+                puts "WARNING: deploy_reboot_wrapper.py failed on attempt $py_attempt (exit $py_exit, bmc_auth_failed=$bmc_auth_failed), retrying in 5s..."
+                sleep 5
+                continue
+              }
+              puts "FAILURE: deploy_reboot_wrapper.py reported a failure (exit $py_exit, traceback_detected=$py_has_traceback)"
+              puts $py_output
+              exit 1
+            }
+
+            set py_success 1
           }
+
           expect {
-            "*>*"   {}
+            -re {.*(>|#|\$|PS ).*} {}
             timeout { puts "FAILURE: Prompt not received after exit code check"; exit 1 }
-            eof     { puts "FAILURE: SSH session closed after exit code check"; exit 1 }
+            eof { puts "FAILURE: SSH session closed after exit code check"; exit 1 }
           }
 
           send "exit\r"
@@ -304,8 +446,8 @@ jobs:
       - name: Send SRF Login Notification
         if: ${{ inputs.callback_url != '' }}
         env:
-          SRF_HOST: ${{ secrets.SRF_HOST }}
-          SRF_USER: ${{ secrets.SRF_USERNAME }}
+          SRF_HOST: ${{ inputs.srf_host }}
+          SRF_USER: ${{ inputs.srf_user }}
         shell: bash
         run: |
           set -euo pipefail
@@ -316,7 +458,7 @@ jobs:
           SESSION_ID="${{ inputs.session_id }}"
 
           if [ -n "$CALLBACK_URL" ]; then
-            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","completed_at":"%s"}}' \
+            PAYLOAD=$(printf '{"session_id":"%s","status":"srf_login_completed","message":"SRF login process completed","workflow_run_id":"%s","timestamp":"%s","trigger_source":"%s","srf_login_details":{"host":"%s","user":"%s","login_timestamp":"%s"}}' \
               "$SESSION_ID" \
               "${{ github.run_id }}" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -324,6 +466,7 @@ jobs:
               "$SRF_HOST" \
               "$SRF_USER" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+
             curl --noproxy 127.0.0.1 -X POST "$CALLBACK_URL" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" || echo "Failed to send SRF login notification"
