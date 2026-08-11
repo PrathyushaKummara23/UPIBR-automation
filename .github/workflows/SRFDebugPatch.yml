@@ -51,7 +51,7 @@ env:
   SRF_PORT: ${{ vars.SRF_PORT || '22' }}
   SRF_USER: ${{ secrets.SRF_USERNAME }}
   SRF_STRICT_PRECHECK: ${{ vars.SRF_STRICT_PRECHECK || 'false' }}
-  WINDOWS_DEST: C:/Users/CEFLS_User
+  WINDOWS_DEST: C:/pkummara/IFWI_INC_PDB/Test
   KTAB_PATH: /usr/intel/bin/ktab
   KCRON_PATH: /usr/intel/bin/kcron
   PYTHON_PATH: /usr/intel/bin/python3.7.4
@@ -1297,7 +1297,7 @@ jobs:
   call-read-pipeline-result:
     needs: [session-management, call-srf-login]
     if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/Read_Pipeline_Result.yml@master
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/SRFRead_pipeline_results.yml@master
     secrets: inherit
     with:
       session_id: ${{ needs.session-management.outputs.session_id }}
@@ -1319,7 +1319,13 @@ jobs:
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
           PIPELINE_STATUS="UNKNOWN"
 
-          if [ "${{ needs.call-read-pipeline-result.result }}" = "success" ]; then
+          # call-read-pipeline-result is skipped (not "failure") when call-srf-login fails,
+          # so that case must be checked first or a failed SRF login gets reported as UNKNOWN.
+          if [ "${{ needs.call-srf-login.result }}" = "failure" ]; then
+            PIPELINE_STATUS="FAILED"
+          elif [ "${{ needs.call-srf-login.result }}" = "cancelled" ]; then
+            PIPELINE_STATUS="CANCELLED"
+          elif [ "${{ needs.call-read-pipeline-result.result }}" = "success" ]; then
             PIPELINE_STATUS="PASSED"
           elif [ "${{ needs.call-read-pipeline-result.result }}" = "failure" ]; then
             PIPELINE_STATUS="FAILED"
