@@ -453,6 +453,7 @@ jobs:
           DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
           TARGET_PATH="output_paths/gnr_r1s_debug/config_${CURRENT_VERSION}.ini"
+          COLLATERAL_TARGET_PATH="output_paths/GNR_R1S_release_collaterals/${CURRENT_VERSION}/config_${CURRENT_VERSION}.ini"
           API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
 
           [ -f "$CONFIG_FILE" ] || { echo "Config file not found: $CONFIG_FILE"; exit 1; }
@@ -498,6 +499,53 @@ jobs:
 
           if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
             echo "Config file uploaded successfully to ${TARGET_PATH}"
+            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
+          else
+            echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
+            cat api_response.json || true
+            exit 1
+          fi
+
+          API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${COLLATERAL_TARGET_PATH}"
+
+          HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            FILE_SHA=$(jq -r '.sha' existing_file.json)
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg sha "$FILE_SHA" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
+          elif [ "$HTTP_CODE" = "404" ]; then
+            jq -n \
+              --arg message "$COMMIT_MESSAGE" \
+              --arg content "$CONTENT_B64" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg name "GitHub Action" \
+              --arg email "action@github.com" \
+              '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
+          else
+            echo "Failed to query existing file. HTTP status: $HTTP_CODE"
+            cat existing_file.json || true
+            exit 1
+          fi
+
+          RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -d @payload.json \
+            "$API_URL")
+
+          if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+            echo "Config file uploaded successfully to ${COLLATERAL_TARGET_PATH}"
             jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
           else
             echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
@@ -745,9 +793,165 @@ jobs:
           " )
           echo "$VERIFICATION_RESULT"
 
-  copy-release-collaterals:
+  upload-release-collaterals:
     runs-on: [self-hosted, Linux, X64, gnrr1sdebugbuild]
     needs: [session-management, read-json, patch-build]
+    if: ${{ success() }}
+
+    steps:
+      - name: Upload GNR_R1S PDB and INC files via GitHub API
+        shell: bash
+        env:
+          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+          log() {
+            echo "$1"
+            echo "$1" >> "$SUMMARY"
+          }
+
+          trap 'rc=$?; log ""; log "### Failure"; log "- Exit code: $rc"; [ -f existing_file.json ] && { log "- existing_file.json:"; echo "```json" >> "$SUMMARY"; cat existing_file.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; [ -f api_response.json ] && { log "- api_response.json:"; echo "```json" >> "$SUMMARY"; cat api_response.json >> "$SUMMARY"; echo "```" >> "$SUMMARY"; }; exit $rc' ERR
+
+          upload_file() {
+            local src_file="$1"
+            local target_path="$2"
+            local commit_message="$3"
+
+            rm -f existing_file.json payload.json api_response.json
+
+            log ""
+            log "### Uploading \`$(basename "$src_file")\`"
+            log "- Source: \`$src_file\`"
+            log "- Target: \`$target_path\`"
+
+            [ -f "$src_file" ] || { log "- Source file not found"; exit 1; }
+
+            API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${target_path}"
+
+            HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o existing_file.json -w "%{http_code}" \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL" || true)
+
+            if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+              log "- Existing file lookup failed before HTTP response"
+              exit 1
+            fi
+
+            log "- Existing file check HTTP code: \`$HTTP_CODE\`"
+
+            FILE_SHA=""
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              FILE_SHA=$(jq -r '.sha' existing_file.json)
+            elif [ "$HTTP_CODE" = "404" ]; then
+              :
+            else
+              log "- Existing file lookup failed"
+              exit 1
+            fi
+
+            export SRC_FILE="$src_file"
+            export COMMIT_MESSAGE="$commit_message"
+            export FILE_SHA
+            export TARGET_BRANCH="${{ github.ref_name }}"
+
+            ${{ env.PYTHON_PATH }} - <<'PY' > payload.json
+          import base64
+          import json
+          import os
+
+          src_file = os.environ["SRC_FILE"]
+          commit_message = os.environ["COMMIT_MESSAGE"]
+          target_branch = os.environ["TARGET_BRANCH"]
+          file_sha = os.environ.get("FILE_SHA", "")
+
+          with open(src_file, "rb") as file_handle:
+            content_b64 = base64.b64encode(file_handle.read()).decode("ascii")
+
+          payload = {
+            "message": commit_message,
+            "content": content_b64,
+            "branch": target_branch,
+            "committer": {
+              "name": "GitHub Action",
+              "email": "action@github.com",
+            },
+          }
+
+          if file_sha:
+            payload["sha"] = file_sha
+
+          print(json.dumps(payload))
+          PY
+
+            RESPONSE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o api_response.json -w "%{http_code}" \
+              -X PUT \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @payload.json \
+              "$API_URL" || true)
+
+            if [ -z "$RESPONSE_CODE" ] || [ "$RESPONSE_CODE" = "000" ]; then
+              log "- Upload failed before HTTP response"
+              exit 1
+            fi
+
+            log "- Upload HTTP code: \`$RESPONSE_CODE\`"
+
+            if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
+              LINK=$(jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json)
+              log "- Upload succeeded"
+              log "- Result: $LINK"
+            else
+              log "- Upload failed"
+              exit 1
+            fi
+          }
+
+          log "## GNR_R1S Collateral Upload"
+
+          AUTH_TOKEN="${REPO_PUSH_TOKEN:-}"
+
+          if [ -z "$AUTH_TOKEN" ]; then
+            log "- No GitHub token available for collateral upload"
+            exit 1
+          fi
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
+          SRC_RELEASE_DIR="${{ env.GNR_R1S_BUILD_PATH }}/${CURRENT_VERSION}/release"
+          TARGET_COLLATERAL_DIR="output_paths/GNR_R1S_release_collaterals/${CURRENT_VERSION}"
+
+          [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
+
+          mapfile -t PDB_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | sort)
+          mapfile -t INC_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | sort)
+
+          [ "${#PDB_FILES[@]}" -gt 0 ] || { log "- No PDB files found for pattern m_*_*_${CURRENT_VERSION_LOWER}.pdb"; exit 1; }
+          [ "${#INC_FILES[@]}" -gt 0 ] || { log "- No INC files found for pattern m_*_*_${CURRENT_VERSION_LOWER}.inc"; exit 1; }
+
+          for PDB_FILE in "${PDB_FILES[@]}"; do
+            PDB_NAME="$(basename "$PDB_FILE")"
+            upload_file \
+              "$PDB_FILE" \
+              "${TARGET_COLLATERAL_DIR}/${PDB_NAME}" \
+              "[skip ci] Upload GNR_R1S collateral ${CURRENT_VERSION}: ${PDB_NAME}"
+          done
+
+          for INC_FILE in "${INC_FILES[@]}"; do
+            INC_NAME="$(basename "$INC_FILE")"
+            upload_file \
+              "$INC_FILE" \
+              "${TARGET_COLLATERAL_DIR}/${INC_NAME}" \
+              "[skip ci] Upload GNR_R1S collateral ${CURRENT_VERSION}: ${INC_NAME}"
+          done
+
+  copy-release-collaterals:
+    runs-on: [self-hosted, Linux, X64, gnrr1sdebugbuild]
+    needs: [session-management, read-json, patch-build, upload-release-collaterals]
     if: ${{ success() }}
 
     steps:
@@ -840,7 +1044,7 @@ jobs:
 
   notify-final-result:
     runs-on: [self-hosted, Linux, X64, gnrr1sdebugbuild]
-    needs: [session-management, read-json, patch-build, copy-release-collaterals, call-gnr-login, call-read-gnr-pipeline-result]
+    needs: [session-management, read-json, patch-build, upload-release-collaterals, copy-release-collaterals, call-gnr-login, call-read-gnr-pipeline-result]
     if: ${{ always() && needs.session-management.outputs.callback_url != '' }}
 
     steps:
@@ -863,7 +1067,7 @@ jobs:
           BUILD_STATUS="unknown"
           BUILD_MESSAGE="Build completed with unknown status"
 
-          if [ "${{ needs.patch-build.result }}" = "success" ] && [ "${{ needs.copy-release-collaterals.result }}" = "success" ]; then
+          if [ "${{ needs.patch-build.result }}" = "success" ] && [ "${{ needs.upload-release-collaterals.result }}" = "success" ] && [ "${{ needs.copy-release-collaterals.result }}" = "success" ]; then
             if [ "$PIPELINE_STATUS" = "PASSED" ]; then
               BUILD_STATUS="success"
               BUILD_MESSAGE="GNR_R1S Debug patch build and pipeline completed successfully"
@@ -882,7 +1086,7 @@ jobs:
             BUILD_MESSAGE="GNR_R1S Debug patch build failed"
           fi
 
-          PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","pipeline_status":"%s","build_results":{"patch_build":"%s","copy_collaterals":"%s","gnr_login":"%s","pipeline_result":"%s"},"final_summary":{"json_filename":"%s","build_description":"%s","config_file":"%s","github_repository":"%s","workflow_url":"%s"}}' \
+          PAYLOAD=$(printf '{"session_id":"%s","status":"%s","message":"%s","workflow_run_id":"%s","timestamp":"%s","version":"%s","trigger_source":"%s","pipeline_status":"%s","build_results":{"patch_build":"%s","upload_release_collaterals":"%s","copy_collaterals":"%s","gnr_login":"%s","pipeline_result":"%s"},"final_summary":{"json_filename":"%s","build_description":"%s","config_file":"%s","github_repository":"%s","workflow_url":"%s"}}' \
             "$SESSION_ID" \
             "$BUILD_STATUS" \
             "$BUILD_MESSAGE" \
@@ -892,6 +1096,7 @@ jobs:
             "${{ needs.session-management.outputs.trigger_source }}" \
             "$PIPELINE_STATUS" \
             "${{ needs.patch-build.result }}" \
+            "${{ needs.upload-release-collaterals.result }}" \
             "${{ needs.copy-release-collaterals.result }}" \
             "${{ needs.call-gnr-login.result }}" \
             "${{ needs.call-read-gnr-pipeline-result.result }}" \
