@@ -1,4 +1,4 @@
-name: GNR Debug Patch Build
+name: Test GNR Debug Patch Build
 
 on:
   workflow_dispatch:
