@@ -1,4 +1,4 @@
-name: Test SRF Debug Patch Build
+name: SRF Debug Patch Build
 
 on:
   workflow_dispatch:
