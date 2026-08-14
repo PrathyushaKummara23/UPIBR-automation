@@ -1,7 +1,7 @@
 {
     "section_1": {
         "Milestone": "UPLR",
-        "patch_description": "exp patch 123",
+        "patch_description": "exp patch",
         "version": "0x836003C4",
         "svn": "",
         "se_svn": "",
@@ -124,5 +124,5 @@
             "CTE PRE Si Val": ""
         }
     },
-    "last_updated": "2026-08-14T11:32:24.484966Z"
+    "last_updated": "2026-08-14T21:22:19.503275Z"
 }
