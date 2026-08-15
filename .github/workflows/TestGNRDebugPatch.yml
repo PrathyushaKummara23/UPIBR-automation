@@ -881,6 +881,7 @@ jobs:
             exit 0
           fi
 
+          OLD_VERSION_DIRS=()
           mapfile -t OLD_VERSION_DIRS < <(jq -r --arg cur "$CURRENT_VERSION" '.[] | select(.type=="dir" and .name != $cur) | .name' parent_listing.json)
 
           for OLD_DIR in "${OLD_VERSION_DIRS[@]}"; do
