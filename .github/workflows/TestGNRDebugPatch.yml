@@ -881,10 +881,7 @@ jobs:
             exit 0
           fi
 
-          OLD_VERSION_DIRS=()
-          mapfile -t OLD_VERSION_DIRS < <(jq -r --arg cur "$CURRENT_VERSION" '.[] | select(.type=="dir" and .name != $cur) | .name' parent_listing.json)
-
-          for OLD_DIR in "${OLD_VERSION_DIRS[@]}"; do
+          while IFS= read -r OLD_DIR; do
             [ -n "$OLD_DIR" ] || continue
             echo "Removing stale version folder: ${PARENT_DIR}/${OLD_DIR}"
 
@@ -900,7 +897,7 @@ jobs:
               echo "Deleting stale file: $f_path"
               delete_file "$f_path" "$f_sha"
             done < <(jq -r '.[] | select(.type=="file") | [.path, .sha] | @tsv' old_dir_listing.json)
-          done
+          done < <(jq -r --arg cur "$CURRENT_VERSION" '.[] | select(.type=="dir" and .name != $cur) | .name' parent_listing.json)
 
           rm -f parent_listing.json old_dir_listing.json delete_payload.json delete_response.json
 
