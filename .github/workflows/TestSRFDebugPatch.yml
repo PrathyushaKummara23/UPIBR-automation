@@ -471,7 +471,7 @@ jobs:
           DEST_PATH="${{ env.CONFIG_STAGE_PATH }}"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
           TARGET_PATH="output_paths/config_${CURRENT_VERSION}.ini"
-          COLLATERAL_TARGET_PATH="output_paths/SRF_release_collaterals/836003C4/config_${CURRENT_VERSION}.ini"
+          COLLATERAL_TARGET_PATH="output_paths/SRF_release_collaterals/${CURRENT_VERSION}/config_${CURRENT_VERSION}.ini"
 
           [ -f "$CONFIG_FILE" ] || { echo "Config file not found: $CONFIG_FILE"; exit 1; }
 
@@ -1011,7 +1011,7 @@ jobs:
           CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
           CURRENT_VERSION_LOWER="$(echo "$CURRENT_VERSION" | tr '[:upper:]' '[:lower:]')"
           SRC_RELEASE_DIR="/nfs/site/disks/dcsg_0729/patches/SRF/C0/build/${CURRENT_VERSION}/release"
-          TARGET_COLLATERAL_DIR="output_paths/SRF_release_collaterals/836003C4"
+          TARGET_COLLATERAL_DIR="output_paths/SRF_release_collaterals/${CURRENT_VERSION}"
 
           [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
 
@@ -1026,7 +1026,7 @@ jobs:
             upload_file \
               "$PDB_FILE" \
               "${TARGET_COLLATERAL_DIR}/${PDB_NAME}" \
-              "[skip ci] Upload SRF collateral 836003C4: ${PDB_NAME}"
+              "[skip ci] Upload SRF collateral ${CURRENT_VERSION}: ${PDB_NAME}"
           done
 
           for INC_FILE in "${INC_FILES[@]}"; do
@@ -1034,7 +1034,7 @@ jobs:
             upload_file \
               "$INC_FILE" \
               "${TARGET_COLLATERAL_DIR}/${INC_NAME}" \
-              "[skip ci] Upload SRF collateral 836003C4: ${INC_NAME}"
+              "[skip ci] Upload SRF collateral ${CURRENT_VERSION}: ${INC_NAME}"
           done
 
   copy-release-collaterals:
