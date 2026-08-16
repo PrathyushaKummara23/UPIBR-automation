@@ -493,17 +493,36 @@ jobs:
 
           if [ "$HTTP_CODE" = "200" ]; then
             FILE_SHA=$(jq -r '.sha' existing_file.json)
+
+            echo "Existing file found (sha: $FILE_SHA); deleting first to force a fresh commit timestamp"
+
+            jq -n --arg message "$COMMIT_MESSAGE [remove before re-upload]" \
+                  --arg sha "$FILE_SHA" \
+                  --arg branch "${{ github.ref_name }}" \
+                  '{message: $message, sha: $sha, branch: $branch}' > delete_payload.json
+
+            DELETE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o delete_response.json -w "%{http_code}" \
+              -X DELETE \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @delete_payload.json \
+              "$API_URL" || true)
+
+            if [ "$DELETE_CODE" != "200" ]; then
+              echo "Failed to delete existing file before re-upload. HTTP status: $DELETE_CODE"
+              cat delete_response.json || true
+              exit 1
+            fi
+
             jq -n \
               --arg message "$COMMIT_MESSAGE" \
               --arg content "$CONTENT_B64" \
-              --arg sha "$FILE_SHA" \
               --arg branch "${{ github.ref_name }}" \
               --arg name "GitHub Action" \
               --arg email "action@github.com" \
               '{
                 message: $message,
                 content: $content,
-                sha: $sha,
                 branch: $branch,
                 committer: {
                   name: $name,
@@ -569,17 +588,36 @@ jobs:
 
           if [ "$HTTP_CODE" = "200" ]; then
             FILE_SHA=$(jq -r '.sha' existing_file.json)
+
+            echo "Existing file found (sha: $FILE_SHA); deleting first to force a fresh commit timestamp"
+
+            jq -n --arg message "$COMMIT_MESSAGE [remove before re-upload]" \
+                  --arg sha "$FILE_SHA" \
+                  --arg branch "${{ github.ref_name }}" \
+                  '{message: $message, sha: $sha, branch: $branch}' > delete_payload.json
+
+            DELETE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o delete_response.json -w "%{http_code}" \
+              -X DELETE \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @delete_payload.json \
+              "$API_URL" || true)
+
+            if [ "$DELETE_CODE" != "200" ]; then
+              echo "Failed to delete existing file before re-upload. HTTP status: $DELETE_CODE"
+              cat delete_response.json || true
+              exit 1
+            fi
+
             jq -n \
               --arg message "$COMMIT_MESSAGE" \
               --arg content "$CONTENT_B64" \
-              --arg sha "$FILE_SHA" \
               --arg branch "${{ github.ref_name }}" \
               --arg name "GitHub Action" \
               --arg email "action@github.com" \
               '{
                 message: $message,
                 content: $content,
-                sha: $sha,
                 branch: $branch,
                 committer: {
                   name: $name,
@@ -630,7 +668,7 @@ jobs:
             exit 1
           fi
 
-          rm -f existing_file.json payload.json api_response.json
+          rm -f existing_file.json payload.json api_response.json delete_payload.json delete_response.json
 
   validate-config:
     runs-on: [self-hosted, node16]
@@ -740,15 +778,7 @@ jobs:
           fi
 
           if KTAB_RESULT=$(printf '%s\n' "$BUILD_PASSWORD" | sudo -S -u grp_srf_fit1_build env FA_PASSWORD="$FA_PASSWORD" bash -c '
-          /usr/bin/expect -c "
-            set timeout 30
-            spawn /usr/intel/bin/ktab -i
-            expect -re {(?i)password}
-            send -- \"\$env(FA_PASSWORD)\r\"
-            expect eof
-            catch wait result
-            exit [lindex \$result 3]
-            " 2>&1
+            printf "%s\n" "$FA_PASSWORD" | '"${{ env.KTAB_PATH }}"' -i 2>&1
           '); then
             echo "$KTAB_RESULT"
           else
@@ -1002,6 +1032,27 @@ jobs:
 
             if [ "$HTTP_CODE" = "200" ]; then
               FILE_SHA=$(jq -r '.sha' existing_file.json)
+
+              log "- Existing file found (sha: $FILE_SHA); deleting first to force a fresh commit timestamp"
+
+              jq -n --arg message "${commit_message} [remove before re-upload]" \
+                    --arg sha "$FILE_SHA" \
+                    --arg branch "${{ github.ref_name }}" \
+                    '{message: $message, sha: $sha, branch: $branch}' > delete_payload.json
+
+              DELETE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o delete_response.json -w "%{http_code}" \
+                -X DELETE \
+                -H "Authorization: Bearer ${AUTH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -d @delete_payload.json \
+                "$API_URL" || true)
+
+              if [ "$DELETE_CODE" != "200" ]; then
+                log "- Failed to delete existing file before re-upload (HTTP $DELETE_CODE)"
+                exit 1
+              fi
+
+              FILE_SHA=""
             elif [ "$HTTP_CODE" = "404" ]; then
               :
             else
@@ -1084,8 +1135,10 @@ jobs:
           [ -d "$SRC_RELEASE_DIR" ] || { log "- Release directory not found: $SRC_RELEASE_DIR"; exit 1; }
 
           mapfile -t PDB_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.pdb" -type f | sort)
+          mapfile -t INC_FILES < <(find "$SRC_RELEASE_DIR" -maxdepth 1 -name "m_*_*_${CURRENT_VERSION_LOWER}.inc" -type f | sort)
 
           [ "${#PDB_FILES[@]}" -gt 0 ] || { log "- No PDB files found for pattern m_*_*_${CURRENT_VERSION_LOWER}.pdb"; exit 1; }
+          [ "${#INC_FILES[@]}" -gt 0 ] || { log "- No INC files found for pattern m_*_*_${CURRENT_VERSION_LOWER}.inc"; exit 1; }
 
           for PDB_FILE in "${PDB_FILES[@]}"; do
             PDB_NAME="$(basename "$PDB_FILE")"
@@ -1093,6 +1146,14 @@ jobs:
               "$PDB_FILE" \
               "${TARGET_COLLATERAL_DIR}/${PDB_NAME}" \
               "[skip ci] Upload SRF collateral ${CURRENT_VERSION}: ${PDB_NAME}"
+          done
+
+          for INC_FILE in "${INC_FILES[@]}"; do
+            INC_NAME="$(basename "$INC_FILE")"
+            upload_file \
+              "$INC_FILE" \
+              "${TARGET_COLLATERAL_DIR}/${INC_NAME}" \
+              "[skip ci] Upload SRF collateral ${CURRENT_VERSION}: ${INC_NAME}"
           done
 
   copy-release-collaterals:
@@ -1345,7 +1406,7 @@ jobs:
   call-srf-login:
     needs: [session-management, copy-release-collaterals]
     if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/loginsrf.yml@master
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/TestSRFlogin.yml@master
     secrets: inherit
     with:
       session_id: ${{ needs.session-management.outputs.session_id }}
@@ -1355,7 +1416,7 @@ jobs:
   call-read-pipeline-result:
     needs: [session-management, call-srf-login]
     if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/SRFRead_pipeline_results.yml@master
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/TestSRFRead_Pipeline_Results.yml@master
     secrets: inherit
     with:
       session_id: ${{ needs.session-management.outputs.session_id }}
@@ -1377,7 +1438,13 @@ jobs:
           SESSION_ID="${{ needs.session-management.outputs.session_id }}"
           PIPELINE_STATUS="UNKNOWN"
 
-          if [ "${{ needs.call-read-pipeline-result.result }}" = "success" ]; then
+          # call-read-pipeline-result is skipped (not "failure") when call-srf-login fails,
+          # so that case must be checked first or a failed SRF login gets reported as UNKNOWN.
+          if [ "${{ needs.call-srf-login.result }}" = "failure" ]; then
+            PIPELINE_STATUS="FAILED"
+          elif [ "${{ needs.call-srf-login.result }}" = "cancelled" ]; then
+            PIPELINE_STATUS="CANCELLED"
+          elif [ "${{ needs.call-read-pipeline-result.result }}" = "success" ]; then
             PIPELINE_STATUS="PASSED"
           elif [ "${{ needs.call-read-pipeline-result.result }}" = "failure" ]; then
             PIPELINE_STATUS="FAILED"
