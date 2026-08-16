@@ -476,7 +476,6 @@ jobs:
           DEST_PATH="${{ env.BUILD_BASE_PATH }}"
           CONFIG_FILE="$DEST_PATH/config_${CURRENT_VERSION}.ini"
           TARGET_PATH="output_paths/gnr_debug/config_${CURRENT_VERSION}.ini"
-          COLLATERAL_TARGET_PATH="output_paths/GNR_release_collaterals/${CURRENT_VERSION}/config_${CURRENT_VERSION}.ini"
           API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${TARGET_PATH}"
 
           [ -f "$CONFIG_FILE" ] || { echo "Config file not found: $CONFIG_FILE"; exit 1; }
@@ -491,14 +490,34 @@ jobs:
 
           if [ "$HTTP_CODE" = "200" ]; then
             FILE_SHA=$(jq -r '.sha' existing_file.json)
+
+            echo "Existing file found (sha: $FILE_SHA); deleting first to force a fresh commit timestamp"
+
+            jq -n --arg message "$COMMIT_MESSAGE [remove before re-upload]" \
+                  --arg sha "$FILE_SHA" \
+                  --arg branch "${{ github.ref_name }}" \
+                  '{message: $message, sha: $sha, branch: $branch}' > delete_payload.json
+
+            DELETE_CODE=$(curl -sS -o delete_response.json -w "%{http_code}" \
+              -X DELETE \
+              -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @delete_payload.json \
+              "$API_URL")
+
+            if [ "$DELETE_CODE" != "200" ]; then
+              echo "Failed to delete existing file before re-upload. HTTP status: $DELETE_CODE"
+              cat delete_response.json || true
+              exit 1
+            fi
+
             jq -n \
               --arg message "$COMMIT_MESSAGE" \
               --arg content "$CONTENT_B64" \
-              --arg sha "$FILE_SHA" \
               --arg branch "${{ github.ref_name }}" \
               --arg name "GitHub Action" \
               --arg email "action@github.com" \
-              '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
+              '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
           elif [ "$HTTP_CODE" = "404" ]; then
             jq -n \
               --arg message "$COMMIT_MESSAGE" \
@@ -529,54 +548,7 @@ jobs:
             exit 1
           fi
 
-          API_URL="https://api.github.com/repos/${{ github.repository }}/contents/${COLLATERAL_TARGET_PATH}"
-
-          HTTP_CODE=$(curl -sS -o existing_file.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "$API_URL")
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            FILE_SHA=$(jq -r '.sha' existing_file.json)
-            jq -n \
-              --arg message "$COMMIT_MESSAGE" \
-              --arg content "$CONTENT_B64" \
-              --arg sha "$FILE_SHA" \
-              --arg branch "${{ github.ref_name }}" \
-              --arg name "GitHub Action" \
-              --arg email "action@github.com" \
-              '{message:$message,content:$content,sha:$sha,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
-          elif [ "$HTTP_CODE" = "404" ]; then
-            jq -n \
-              --arg message "$COMMIT_MESSAGE" \
-              --arg content "$CONTENT_B64" \
-              --arg branch "${{ github.ref_name }}" \
-              --arg name "GitHub Action" \
-              --arg email "action@github.com" \
-              '{message:$message,content:$content,branch:$branch,committer:{name:$name,email:$email}}' > payload.json
-          else
-            echo "Failed to query existing file. HTTP status: $HTTP_CODE"
-            cat existing_file.json || true
-            exit 1
-          fi
-
-          RESPONSE_CODE=$(curl -sS -o api_response.json -w "%{http_code}" \
-            -X PUT \
-            -H "Authorization: Bearer ${REPO_PUSH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -d @payload.json \
-            "$API_URL")
-
-          if [ "$RESPONSE_CODE" = "200" ] || [ "$RESPONSE_CODE" = "201" ]; then
-            echo "Config file uploaded successfully to ${COLLATERAL_TARGET_PATH}"
-            jq -r '.content.html_url // .commit.html_url // "Upload succeeded"' api_response.json
-          else
-            echo "GitHub API upload failed. HTTP status: $RESPONSE_CODE"
-            cat api_response.json || true
-            exit 1
-          fi
-
-          rm -f existing_file.json payload.json api_response.json
+          rm -f existing_file.json payload.json api_response.json delete_payload.json delete_response.json
 
   validate-config:
     runs-on: [self-hosted, Linux, X64, gnrdebugbuild]
@@ -883,7 +855,7 @@ jobs:
 
           while IFS= read -r OLD_DIR; do
             [ -n "$OLD_DIR" ] || continue
-            echo "Removing stale version folder: ${PARENT_DIR}/${OLD_DIR}"
+            echo "Clearing existing files in version folder: ${PARENT_DIR}/${OLD_DIR}"
 
             FILES_HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o old_dir_listing.json -w "%{http_code}" \
               -H "Authorization: Bearer ${AUTH_TOKEN}" \
@@ -897,7 +869,8 @@ jobs:
               echo "Deleting stale file: $f_path"
               delete_file "$f_path" "$f_sha"
             done < <(jq -r '.[] | select(.type=="file") | [.path, .sha] | @tsv' old_dir_listing.json)
-          done < <(jq -r --arg cur "$CURRENT_VERSION" '.[] | select(.type=="dir" and .name != $cur) | .name' parent_listing.json)
+          # Also purge the current version's own folder so same-version reruns start clean (no orphaned stray files)
+          done < <(jq -r '.[] | select(.type=="dir") | .name' parent_listing.json)
 
           rm -f parent_listing.json old_dir_listing.json delete_payload.json delete_response.json
 
@@ -948,6 +921,27 @@ jobs:
 
             if [ "$HTTP_CODE" = "200" ]; then
               FILE_SHA=$(jq -r '.sha' existing_file.json)
+
+              log "- Existing file found (sha: $FILE_SHA); deleting first to force a fresh commit timestamp"
+
+              jq -n --arg message "${commit_message} [remove before re-upload]" \
+                    --arg sha "$FILE_SHA" \
+                    --arg branch "${{ github.ref_name }}" \
+                    '{message: $message, sha: $sha, branch: $branch}' > delete_payload.json
+
+              DELETE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o delete_response.json -w "%{http_code}" \
+                -X DELETE \
+                -H "Authorization: Bearer ${AUTH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -d @delete_payload.json \
+                "$API_URL" || true)
+
+              if [ "$DELETE_CODE" != "200" ]; then
+                log "- Failed to delete existing file before re-upload (HTTP $DELETE_CODE)"
+                exit 1
+              fi
+
+              FILE_SHA=""
             elif [ "$HTTP_CODE" = "404" ]; then
               :
             else
@@ -1000,6 +994,31 @@ jobs:
               log "- Upload failed before HTTP response"
               exit 1
             fi
+
+            # A 409 here means the earlier DELETE (cleanup step) hasn't fully propagated yet; refresh sha and retry.
+            RETRY=0
+            while [ "$RESPONSE_CODE" = "409" ] && [ "$RETRY" -lt 3 ]; do
+              RETRY=$((RETRY + 1))
+              log "- Upload conflict (409); refreshing sha and retrying ($RETRY/3)"
+              sleep $((RETRY * 2))
+
+              curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o existing_file.json -w "%{http_code}" \
+                -H "Authorization: Bearer ${AUTH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "$API_URL" > /dev/null || true
+
+              RETRY_SHA=$(jq -r '.sha // empty' existing_file.json)
+              if [ -n "$RETRY_SHA" ]; then
+                jq --arg sha "$RETRY_SHA" '. + {sha: $sha}' payload.json > payload_retry.json && mv payload_retry.json payload.json
+              fi
+
+              RESPONSE_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o api_response.json -w "%{http_code}" \
+                -X PUT \
+                -H "Authorization: Bearer ${AUTH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -d @payload.json \
+                "$API_URL" || true)
+            done
 
             log "- Upload HTTP code: \`$RESPONSE_CODE\`"
 
