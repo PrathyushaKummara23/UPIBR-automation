@@ -1070,6 +1070,17 @@ jobs:
               "[skip ci] Upload GNR collateral ${CURRENT_VERSION}: ${INC_NAME}"
           done
 
+          # Cleanup step deletes the whole folder, so re-upload the config here too or it stays missing.
+          CONFIG_SRC_FILE="${{ env.BUILD_BASE_PATH }}/config_${CURRENT_VERSION}.ini"
+          if [ -f "$CONFIG_SRC_FILE" ]; then
+            upload_file \
+              "$CONFIG_SRC_FILE" \
+              "${TARGET_COLLATERAL_DIR}/config_${CURRENT_VERSION}.ini" \
+              "[skip ci] Upload GNR collateral ${CURRENT_VERSION}: config_${CURRENT_VERSION}.ini"
+          else
+            log "- Config file not found for release collaterals: $CONFIG_SRC_FILE (skipping)"
+          fi
+
   copy-release-collaterals:
     runs-on: [self-hosted, Linux, X64, gnrdebugbuild]
     needs: [session-management, read-json, patch-build, upload-release-collaterals]
