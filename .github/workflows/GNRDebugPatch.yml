@@ -841,6 +841,66 @@ jobs:
     if: ${{ success() }}
 
     steps:
+      - name: Remove stale GNR version folders from release collaterals
+        shell: bash
+        env:
+          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          AUTH_TOKEN="${REPO_PUSH_TOKEN:-}"
+          [ -n "$AUTH_TOKEN" ] || { echo "No GitHub token available for cleanup"; exit 1; }
+
+          CURRENT_VERSION="${{ needs.read-json.outputs.current_version }}"
+          BRANCH="${{ github.ref_name }}"
+          PARENT_DIR="output_paths/GNR_release_collaterals"
+
+          delete_file() {
+            local file_path="$1"
+            local file_sha="$2"
+            jq -n --arg message "[skip ci] Remove stale GNR collateral: ${file_path}" \
+                  --arg sha "$file_sha" \
+                  --arg branch "$BRANCH" \
+                  '{message: $message, sha: $sha, branch: $branch}' > delete_payload.json
+
+            curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o delete_response.json -w "%{http_code}" \
+              -X DELETE \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -d @delete_payload.json \
+              "https://api.github.com/repos/${{ github.repository }}/contents/${file_path}" > /dev/null || true
+          }
+
+          LIST_HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o parent_listing.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/${PARENT_DIR}?ref=${BRANCH}" || true)
+
+          if [ "$LIST_HTTP_CODE" != "200" ]; then
+            echo "No existing ${PARENT_DIR} folder found (HTTP $LIST_HTTP_CODE); nothing to clean up"
+            exit 0
+          fi
+
+          while IFS= read -r OLD_DIR; do
+            [ -n "$OLD_DIR" ] || continue
+            echo "Removing stale version folder: ${PARENT_DIR}/${OLD_DIR}"
+
+            FILES_HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o old_dir_listing.json -w "%{http_code}" \
+              -H "Authorization: Bearer ${AUTH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/${PARENT_DIR}/${OLD_DIR}?ref=${BRANCH}" || true)
+
+            [ "$FILES_HTTP_CODE" = "200" ] || { echo "Could not list ${OLD_DIR}, skipping"; continue; }
+
+            while IFS=$'\t' read -r f_path f_sha; do
+              [ -n "$f_path" ] || continue
+              echo "Deleting stale file: $f_path"
+              delete_file "$f_path" "$f_sha"
+            done < <(jq -r '.[] | select(.type=="file") | [.path, .sha] | @tsv' old_dir_listing.json)
+          done < <(jq -r --arg cur "$CURRENT_VERSION" '.[] | select(.type=="dir" and .name != $cur) | .name' parent_listing.json)
+
+          rm -f parent_listing.json old_dir_listing.json delete_payload.json delete_response.json
+
       - name: Upload GNR PDB and INC files via GitHub API
         shell: bash
         env:
