@@ -1355,7 +1355,7 @@ jobs:
   call-read-pipeline-result:
     needs: [session-management, call-srf-login]
     if: ${{ success() }}
-    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/Read_Pipeline_Result.yml@master
+    uses: PrathyushaKummara23/UPIBR-automation/.github/workflows/SRFRead_pipeline_results.yml@master
     secrets: inherit
     with:
       session_id: ${{ needs.session-management.outputs.session_id }}
