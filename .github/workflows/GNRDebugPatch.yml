@@ -814,7 +814,7 @@ jobs:
     if: ${{ success() }}
 
     steps:
-      - name: Remove stale GNR version folders from release collaterals
+      - name: Clean up current version folder before re-upload (preserve previous versions)
         shell: bash
         env:
           REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
@@ -856,7 +856,13 @@ jobs:
 
           while IFS= read -r OLD_DIR; do
             [ -n "$OLD_DIR" ] || continue
-            echo "Clearing existing files in version folder: ${PARENT_DIR}/${OLD_DIR}"
+
+            if [ "$OLD_DIR" != "$CURRENT_VERSION" ]; then
+              echo "Preserving previous version folder: ${PARENT_DIR}/${OLD_DIR}"
+              continue
+            fi
+
+            echo "Clearing existing files in current version folder (rerun cleanup): ${PARENT_DIR}/${OLD_DIR}"
 
             FILES_HTTP_CODE=$(curl --http1.1 --retry 3 --retry-delay 2 --retry-all-errors -sS -o old_dir_listing.json -w "%{http_code}" \
               -H "Authorization: Bearer ${AUTH_TOKEN}" \
@@ -870,7 +876,6 @@ jobs:
               echo "Deleting stale file: $f_path"
               delete_file "$f_path" "$f_sha"
             done < <(jq -r '.[] | select(.type=="file") | [.path, .sha] | @tsv' old_dir_listing.json)
-          # Also purge the current version's own folder so same-version reruns start clean (no orphaned stray files)
           done < <(jq -r '.[] | select(.type=="dir") | .name' parent_listing.json)
 
           rm -f parent_listing.json old_dir_listing.json delete_payload.json delete_response.json
