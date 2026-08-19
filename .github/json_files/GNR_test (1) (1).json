@@ -8,7 +8,7 @@
         "min_svn": "",
         "min_runtime_id": "",
         "patch_rollback_flags": "",
-        "prev_version": "81000444"
+        "prev_version": "0x81000444"
     },
     "components": {
         "ucode": "",
@@ -124,5 +124,5 @@
             "CTE PRE Si Val": ""
         }
     },
-    "last_updated": "2026-08-18T03:33:19.951862Z"
+    "last_updated": "2026-08-19T05:49:03.567554Z"
 }
