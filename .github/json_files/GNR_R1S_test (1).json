@@ -2,7 +2,7 @@
     "section_1": {
         "Milestone": "",
         "patch_description": "",
-        "version": "0x8A600164",
+        "version": "0x8A600165",
         "svn": "",
         "se_svn": "",
         "min_svn": "",
@@ -124,5 +124,5 @@
             "CTE PRE Si Val": ""
         }
     },
-    "last_updated": "2026-08-19T10:57:06.288156Z"
+    "last_updated": "2026-08-19T13:51:24.542216Z"
 }
